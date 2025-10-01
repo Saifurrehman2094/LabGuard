@@ -1,0 +1,24 @@
+{
+  "app": {
+    "name": "LAB-Guard",
+    "version": "1.0.0",
+    "environment": "development"
+  },
+  "database": {
+    "path": "./data/database.sqlite",
+    "backup": true
+  },
+  "monitoring": {
+    "interval": 5000,
+    "enabled": true
+  },
+  "security": {
+    "jwtExpiration": "8h",
+    "bcryptRounds": 12
+  },
+  "files": {
+    "uploadPath": "./data/uploads",
+    "maxFileSize": "50MB",
+    "allowedTypes": [".pdf"]
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "name": "lab-guard",
+  "version": "1.0.0",
+  "description": "LAB-Guard Phase 1 - Exam monitoring system for university computer labs",
+  "main": "app/main.js",
+  "homepage": "./",
+  "scripts": {
+    "start": "electron .",
+    "dev": "concurrently \"npm run dev:react\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev:react": "react-scripts start",
+    "build": "react-scripts build",
+    "build:electron": "electron-builder",
+    "dist": "npm run build && electron-builder",
+    "test": "react-scripts test"
+  },
+  "keywords": [
+    "electron",
+    "react",
+    "exam",
+    "monitoring",
+    "education"
+  ],
+  "author": "LAB-Guard Team",
+  "license": "MIT",
+  "build": {
+    "appId": "com.labguard.app",
+    "productName": "LAB-Guard",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "build/**/*",
+      "app/**/*",
+      "services/**/*",
+      "config/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "requestExecutionLevel": "requireAdministrator"
+    }
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0"
+  },
+  "dependencies": {
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.4.1",
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.12",
+    "electron-is-dev": "^3.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-scripts": "^5.0.1",
+    "typescript": "^5.9.3",
+    "uuid": "^13.0.0"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
