@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateExam: (updateData) => ipcRenderer.invoke('exam:update', updateData),
   deleteExam: (examId) => ipcRenderer.invoke('exam:delete', examId),
   getAvailableExams: (studentId) => ipcRenderer.invoke('db:getAvailableExams', studentId),
+  getStudentExamHistory: (studentId) => ipcRenderer.invoke('db:getStudentExamHistory', studentId),
   
   // Monitoring methods
   startMonitoring: (examId, studentId, allowedApps) => 

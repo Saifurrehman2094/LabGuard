@@ -4,7 +4,7 @@ const isDev = require('electron-is-dev');
 
 // Import services
 const AuthService = require('../services/auth');
-const DatabaseService = require('../services/database');
+const DatabaseService = require('../services/database'); // Using SQLite database
 const FileService = require('../services/files');
 
 // Initialize services
@@ -75,6 +75,77 @@ function createWindow() {
   });
 }
 
+// Seed test exams for demonstration
+async function seedTestExams(dbService) {
+  try {
+    // Check if exams already exist to avoid duplicates
+    const teacher1 = await dbService.getUserByCredentials('teacher1', 'password123');
+    if (!teacher1) return;
+    
+    const existingExams = dbService.getExamsByTeacher(teacher1.user_id);
+    if (existingExams.length > 0) {
+      console.log('Test exams already exist, skipping seeding');
+      return;
+    }
+    
+    // Create 5 fresh sample exams for teacher1
+    const currentDate = new Date();
+    const futureDate1 = new Date(currentDate.getTime() + 7 * 24 * 60 * 60 * 1000); // 1 week from now
+    const futureDate2 = new Date(currentDate.getTime() + 14 * 24 * 60 * 60 * 1000); // 2 weeks from now
+    const futureDate3 = new Date(currentDate.getTime() + 21 * 24 * 60 * 60 * 1000); // 3 weeks from now
+    const futureDate4 = new Date(currentDate.getTime() + 28 * 24 * 60 * 60 * 1000); // 4 weeks from now
+    const futureDate5 = new Date(currentDate.getTime() + 35 * 24 * 60 * 60 * 1000); // 5 weeks from now
+    
+    const exams = [
+      {
+        title: 'Mathematics Final Exam',
+        startTime: futureDate1.toISOString().slice(0, 19).replace('T', ' '),
+        endTime: new Date(futureDate1.getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+        allowedApps: ['calc.exe', 'notepad.exe']
+      },
+      {
+        title: 'Physics Midterm Exam',
+        startTime: futureDate2.toISOString().slice(0, 19).replace('T', ' '),
+        endTime: new Date(futureDate2.getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+        allowedApps: ['calc.exe']
+      },
+      {
+        title: 'Computer Science Quiz',
+        startTime: futureDate3.toISOString().slice(0, 19).replace('T', ' '),
+        endTime: new Date(futureDate3.getTime() + 1.5 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+        allowedApps: ['Code.exe', 'chrome.exe', 'notepad.exe']
+      },
+      {
+        title: 'Chemistry Lab Assessment',
+        startTime: futureDate4.toISOString().slice(0, 19).replace('T', ' '),
+        endTime: new Date(futureDate4.getTime() + 2.5 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+        allowedApps: ['calc.exe', 'ChemSketch.exe']
+      },
+      {
+        title: 'English Literature Essay',
+        startTime: futureDate5.toISOString().slice(0, 19).replace('T', ' '),
+        endTime: new Date(futureDate5.getTime() + 4 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+        allowedApps: ['winword.exe', 'notepad.exe']
+      }
+    ];
+    
+    for (const exam of exams) {
+      dbService.createExam({
+        teacherId: teacher1.user_id,
+        title: exam.title,
+        pdfPath: null,
+        startTime: exam.startTime,
+        endTime: exam.endTime,
+        allowedApps: exam.allowedApps
+      });
+    }
+    
+    console.log('Created 5 fresh sample exams for teacher1');
+  } catch (error) {
+    console.error('Error seeding test exams:', error);
+  }
+}
+
 // Initialize services
 async function initializeServices() {
   try {
@@ -83,9 +154,17 @@ async function initializeServices() {
     await dbService.initializeDatabase();
     console.log('Database service initialized');
     
+    // Clear existing data and start fresh (development only)
+    dbService.clearAllData();
+    console.log('Database cleared');
+    
     // Seed test accounts for development
     await dbService.seedTestAccounts();
     console.log('Test accounts seeded');
+    
+    // Create some test exams for demonstration
+    await seedTestExams(dbService);
+    console.log('Test exams seeded');
     
     console.log('Initializing auth service...');
     authService = new AuthService(dbService);
@@ -165,6 +244,120 @@ ipcMain.handle('device:getId', async (event) => {
       deviceId
     };
   } catch (error) {
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// IPC handlers for student exam access
+ipcMain.handle('db:getAvailableExams', async (event, studentId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'student') {
+      return {
+        success: false,
+        error: 'Unauthorized: Only students can access available exams'
+      };
+    }
+
+    const exams = dbService.getAvailableExams(studentId);
+    return {
+      success: true,
+      exams
+    };
+  } catch (error) {
+    console.error('Error getting available exams:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('db:getStudentExamHistory', async (event, studentId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'student' && currentUser.userId !== studentId)) {
+      return {
+        success: false,
+        error: 'Unauthorized: Cannot access other student\'s exam history'
+      };
+    }
+
+    // Get completed exams for this student from events table
+    const history = dbService.getStudentExamHistory(studentId);
+    return {
+      success: true,
+      exams: history
+    };
+  } catch (error) {
+    console.error('Error getting student exam history:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('monitoring:start', async (event, examId, studentId, allowedApps) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'student') {
+      return {
+        success: false,
+        error: 'Unauthorized: Only students can start monitoring'
+      };
+    }
+
+    // Log exam start event
+    const deviceId = authService.getCurrentDeviceId();
+    dbService.logEvent({
+      examId,
+      studentId,
+      deviceId,
+      eventType: 'exam_start',
+      windowTitle: null,
+      processName: null,
+      isViolation: false
+    });
+
+    // TODO: Start actual monitoring service (will be implemented in task 7)
+    console.log('Monitoring started for exam:', examId, 'student:', studentId);
+    
+    return {
+      success: true,
+      message: 'Monitoring started successfully'
+    };
+  } catch (error) {
+    console.error('Error starting monitoring:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('monitoring:stop', async (event) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'student') {
+      return {
+        success: false,
+        error: 'Unauthorized: Only students can stop monitoring'
+      };
+    }
+
+    // TODO: Stop actual monitoring service (will be implemented in task 7)
+    console.log('Monitoring stopped for user:', currentUser.userId);
+    
+    return {
+      success: true,
+      message: 'Monitoring stopped successfully'
+    };
+  } catch (error) {
+    console.error('Error stopping monitoring:', error);
     return {
       success: false,
       error: error.message

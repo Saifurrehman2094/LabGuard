@@ -31,14 +31,14 @@ class DatabaseService {
         fs.mkdirSync(dataDir, { recursive: true });
       }
 
-      // Create database connection
+      // Initialize SQLite database
       this.db = new Database(this.dbPath);
       this.db.pragma('journal_mode = WAL');
-      this.db.pragma('foreign_keys = ON');
-
+      
       // Create tables
       this.createTables();
       
+      console.log('Database service initialized with SQLite at:', this.dbPath);
       return true;
     } catch (error) {
       console.error('Database initialization failed:', error);
@@ -47,10 +47,11 @@ class DatabaseService {
   }
 
   /**
-   * Create all required database tables
+   * Create all required database tables (in-memory version)
    */
   createTables() {
-    const createUsersTable = `
+    // Create users table
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
@@ -59,18 +60,10 @@ class DatabaseService {
         full_name TEXT NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
-    `;
+    `);
 
-    const createDevicesTable = `
-      CREATE TABLE IF NOT EXISTS devices (
-        device_id TEXT PRIMARY KEY,
-        device_name TEXT,
-        registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        last_used DATETIME
-      )
-    `;
-
-    const createExamsTable = `
+    // Create exams table
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS exams (
         exam_id TEXT PRIMARY KEY,
         teacher_id TEXT NOT NULL,
@@ -78,13 +71,14 @@ class DatabaseService {
         pdf_path TEXT,
         start_time DATETIME NOT NULL,
         end_time DATETIME NOT NULL,
-        allowed_apps TEXT NOT NULL,
+        allowed_apps TEXT NOT NULL DEFAULT '[]',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (teacher_id) REFERENCES users(user_id)
+        FOREIGN KEY (teacher_id) REFERENCES users (user_id)
       )
-    `;
+    `);
 
-    const createEventsTable = `
+    // Create events table for monitoring
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS events (
         event_id TEXT PRIMARY KEY,
         exam_id TEXT NOT NULL,
@@ -94,17 +88,23 @@ class DatabaseService {
         event_type TEXT NOT NULL,
         window_title TEXT,
         process_name TEXT,
-        is_violation BOOLEAN DEFAULT 0,
-        FOREIGN KEY (exam_id) REFERENCES exams(exam_id),
-        FOREIGN KEY (student_id) REFERENCES users(user_id),
-        FOREIGN KEY (device_id) REFERENCES devices(device_id)
+        is_violation INTEGER DEFAULT 0,
+        FOREIGN KEY (exam_id) REFERENCES exams (exam_id),
+        FOREIGN KEY (student_id) REFERENCES users (user_id)
       )
-    `;
+    `);
 
-    this.db.exec(createUsersTable);
-    this.db.exec(createDevicesTable);
-    this.db.exec(createExamsTable);
-    this.db.exec(createEventsTable);
+    // Create devices table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS devices (
+        device_id TEXT PRIMARY KEY,
+        device_name TEXT,
+        registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_used DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    console.log('Database tables created successfully');
   }
 
   // USER CRUD OPERATIONS
@@ -290,10 +290,16 @@ class DatabaseService {
 
       const exams = stmt.all(teacherId);
       
-      // Parse allowed_apps JSON for each exam
+      // Convert to camelCase and parse allowed_apps JSON for each exam
       return exams.map(exam => ({
-        ...exam,
-        allowedApps: JSON.parse(exam.allowed_apps)
+        examId: exam.exam_id,
+        teacherId: exam.teacher_id,
+        title: exam.title,
+        pdfPath: exam.pdf_path,
+        startTime: exam.start_time,
+        endTime: exam.end_time,
+        allowedApps: JSON.parse(exam.allowed_apps),
+        createdAt: exam.created_at
       }));
     } catch (error) {
       console.error('Error getting exams by teacher:', error);
@@ -320,6 +326,7 @@ class DatabaseService {
       // Parse allowed_apps JSON for each exam
       return exams.map(exam => ({
         ...exam,
+        allowed_apps: JSON.parse(exam.allowed_apps),
         allowedApps: JSON.parse(exam.allowed_apps)
       }));
     } catch (error) {
@@ -502,6 +509,38 @@ class DatabaseService {
   }
 
   /**
+   * Get student exam history (completed exams)
+   */
+  getStudentExamHistory(studentId) {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT DISTINCT e.exam_id, ex.title, ex.start_time, ex.end_time, 
+               ex.teacher_id, u.full_name as teacher_name, ex.created_at
+        FROM events e
+        JOIN exams ex ON e.exam_id = ex.exam_id
+        JOIN users u ON ex.teacher_id = u.user_id
+        WHERE e.student_id = ? AND e.event_type = 'exam_start'
+        AND datetime(ex.end_time) < datetime('now')
+        ORDER BY ex.end_time DESC
+      `);
+
+      const history = stmt.all(studentId);
+      
+      // Get allowed apps for each exam
+      return history.map(exam => {
+        const examDetails = this.getExamById(exam.exam_id);
+        return {
+          ...exam,
+          allowed_apps: examDetails ? examDetails.allowedApps : []
+        };
+      });
+    } catch (error) {
+      console.error('Error getting student exam history:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Register or update device
    */
   registerDevice(deviceId, deviceName = null) {
@@ -575,6 +614,22 @@ class DatabaseService {
       return true;
     } catch (error) {
       console.error('Error seeding test accounts:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clear all data from database (for development/testing)
+   */
+  clearAllData() {
+    try {
+      this.db.exec('DELETE FROM events');
+      this.db.exec('DELETE FROM exams');
+      this.db.exec('DELETE FROM users');
+      this.db.exec('DELETE FROM devices');
+      console.log('Database cleared successfully');
+    } catch (error) {
+      console.error('Error clearing database:', error);
       throw error;
     }
   }

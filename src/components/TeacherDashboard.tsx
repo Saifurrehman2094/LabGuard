@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ExamCreationForm from './ExamCreationForm';
 import ExamList from './ExamList';
+import WebStorageService from '../services/webStorage';
 import './TeacherDashboard.css';
 
 interface User {
@@ -53,30 +54,14 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
           setError(result.error || 'Failed to load exams');
         }
       } else {
-        // Development mode - mock data
-        const mockExams: Exam[] = [
-          {
-            examId: 'exam-1',
-            teacherId: user.userId,
-            title: 'Midterm Exam - Computer Science',
-            pdfPath: '/mock/path/midterm.pdf',
-            startTime: '2024-10-20T09:00:00',
-            endTime: '2024-10-20T11:00:00',
-            allowedApps: ['notepad.exe', 'calculator.exe', 'chrome.exe'],
-            createdAt: '2024-10-15T10:00:00'
-          },
-          {
-            examId: 'exam-2',
-            teacherId: user.userId,
-            title: 'Final Exam - Database Systems',
-            pdfPath: '/mock/path/final.pdf',
-            startTime: '2024-10-25T14:00:00',
-            endTime: '2024-10-25T17:00:00',
-            allowedApps: ['notepad.exe', 'mysql-workbench.exe'],
-            createdAt: '2024-10-16T15:30:00'
-          }
-        ];
-        setExams(mockExams);
+        // Development mode - use WebStorageService
+        const webStorage = WebStorageService.getInstance();
+        const result = await webStorage.getExamsByTeacher(user.userId);
+        if (result.success) {
+          setExams(result.exams || []);
+        } else {
+          setError(result.error || 'Failed to load exams');
+        }
       }
     } catch (error) {
       console.error('Error loading exams:', error);

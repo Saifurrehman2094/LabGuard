@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import WebStorageService from '../services/webStorage';
 import './Login.css';
 
 interface LoginProps {
@@ -161,32 +162,19 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           }]);
         }
       } else {
-        // Development mode - simulate login
-        const username = formData.username.trim();
-        const password = formData.password.trim();
+        // Development mode - use WebStorageService
+        const webStorage = WebStorageService.getInstance();
+        const result = await webStorage.login(formData.username.trim(), formData.password.trim());
 
-        // Mock authentication for development
-        if ((username === 'teacher1' || username === 'teacher2') && password === 'password123') {
+        if (result.success && result.user) {
           onLoginSuccess({
-            userId: 'dev-teacher-1',
-            username: username,
-            role: 'teacher',
-            fullName: username === 'teacher1' ? 'Dr. John Smith' : 'Prof. Sarah Wilson',
-            token: 'dev-token-123',
-            deviceId: 'dev-device-12345'
-          });
-        } else if ((username === 'student1' || username === 'student2') && password === 'password123') {
-          onLoginSuccess({
-            userId: 'dev-student-1',
-            username: username,
-            role: 'student',
-            fullName: username === 'student1' ? 'Alice Johnson' : 'Bob Martinez',
-            token: 'dev-token-456',
-            deviceId: 'dev-device-12345'
+            ...result.user,
+            token: 'web-token-123',
+            deviceId: deviceId
           });
         } else {
           setErrors([{
-            message: 'Invalid credentials. Use teacher1/password123 or student1/password123 for development.'
+            message: result.error || 'Invalid credentials. Use teacher1/password123 or student1/password123 for development.'
           }]);
         }
       }
@@ -238,28 +226,19 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             }]);
           }
         } else {
-          // Development mode - simulate login
-          if ((username === 'teacher1' || username === 'teacher2') && password === 'password123') {
+          // Development mode - use WebStorageService
+          const webStorage = WebStorageService.getInstance();
+          const result = await webStorage.login(username, password);
+
+          if (result.success && result.user) {
             onLoginSuccess({
-              userId: 'dev-teacher-1',
-              username: username,
-              role: 'teacher',
-              fullName: username === 'teacher1' ? 'Dr. John Smith' : 'Prof. Sarah Wilson',
-              token: 'dev-token-123',
-              deviceId: 'dev-device-12345'
-            });
-          } else if ((username === 'student1' || username === 'student2') && password === 'password123') {
-            onLoginSuccess({
-              userId: 'dev-student-1',
-              username: username,
-              role: 'student',
-              fullName: username === 'student1' ? 'Alice Johnson' : 'Bob Martinez',
-              token: 'dev-token-456',
-              deviceId: 'dev-device-12345'
+              ...result.user,
+              token: 'web-token-123',
+              deviceId: deviceId
             });
           } else {
             setErrors([{
-              message: 'Invalid credentials. Use teacher1/password123 or student1/password123 for development.'
+              message: result.error || 'Invalid credentials. Use teacher1/password123 or student1/password123 for development.'
             }]);
           }
         }

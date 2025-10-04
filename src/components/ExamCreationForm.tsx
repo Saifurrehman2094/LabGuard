@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import WebStorageService from '../services/webStorage';
 import './ExamCreationForm.css';
 
 interface User {
@@ -239,36 +240,36 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
           setErrors([{ message: result.error || 'Failed to create exam' }]);
         }
       } else {
-        // Development mode - simulate exam creation
-        const mockExam: Exam = {
-          examId: `exam-${Date.now()}`,
+        // Development mode - use WebStorageService
+        const webStorage = WebStorageService.getInstance();
+        const result = await webStorage.createExam({
           teacherId: user.userId,
           title: formData.title.trim(),
-          pdfPath: formData.pdfFile ? `/mock/uploads/${formData.pdfFile.name}` : undefined,
           startTime: formData.startTime,
           endTime: formData.endTime,
           allowedApps: formData.allowedApps,
-          createdAt: new Date().toISOString()
-        };
-
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        onExamCreated(mockExam);
-
-        // Reset form
-        setFormData({
-          title: '',
-          startTime: '',
-          endTime: '',
-          allowedApps: ['notepad.exe'],
-          pdfFile: null
+          pdfFile: formData.pdfFile
         });
 
-        // Reset file input
-        const fileInput = document.getElementById('pdfFile') as HTMLInputElement;
-        if (fileInput) {
-          fileInput.value = '';
+        if (result.success && result.exam) {
+          onExamCreated(result.exam);
+
+          // Reset form
+          setFormData({
+            title: '',
+            startTime: '',
+            endTime: '',
+            allowedApps: ['notepad.exe'],
+            pdfFile: null
+          });
+
+          // Reset file input
+          const fileInput = document.getElementById('pdfFile') as HTMLInputElement;
+          if (fileInput) {
+            fileInput.value = '';
+          }
+        } else {
+          setErrors([{ message: result.error || 'Failed to create exam' }]);
         }
       }
     } catch (error) {

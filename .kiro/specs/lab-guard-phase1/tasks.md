@@ -70,7 +70,13 @@
   - Write integration tests for exam management workflow
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 6. Build student dashboard and exam participation
+- [x] 6. Build student dashboard and exam participation
+
+
+
+
+
+
   - Create student dashboard React component showing available exams
   - Implement exam selection and start functionality
   - Build exam session UI with timer and status indicators
@@ -80,7 +86,11 @@
   - Test complete student exam participation flow
   - _Requirements: 3.1, 3.2, 3.5_
 
-- [ ] 7. Implement application monitoring service
+- [x] 7. Implement application monitoring service
+
+
+
+
   - Create MonitoringService class using Node.js native APIs for Windows
   - Implement active window detection with 5-second polling interval
   - Build violation detection logic comparing active apps to allowed list
