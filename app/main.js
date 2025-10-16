@@ -37,11 +37,8 @@ function createWindow() {
     icon: path.join(__dirname, '../assets/icon.png') // App icon
   });
 
-  // Load the app
-  const startUrl = isDev
-    ? 'http://localhost:3000'
-    : `file://${path.join(__dirname, '../build/index.html')}`;
-
+  // Load the app - temporarily force production build
+  const startUrl = `file://${path.join(__dirname, '../build/index.html')}`;
   console.log('Loading URL:', startUrl);
   mainWindow.loadURL(startUrl);
 
@@ -69,82 +66,13 @@ function createWindow() {
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl);
 
-    if (parsedUrl.origin !== 'http://localhost:3000' && parsedUrl.origin !== 'file://') {
+    if (parsedUrl.origin !== 'http://localhost:3001' && parsedUrl.origin !== 'file://') {
       event.preventDefault();
     }
   });
 }
 
-// Seed test exams for demonstration
-async function seedTestExams(dbService) {
-  try {
-    // Check if exams already exist to avoid duplicates
-    const teacher1 = await dbService.getUserByCredentials('teacher1', 'password123');
-    if (!teacher1) return;
-
-    const existingExams = dbService.getExamsByTeacher(teacher1.user_id);
-    if (existingExams.length > 0) {
-      console.log('Test exams already exist, skipping seeding');
-      return;
-    }
-
-    // Create 5 fresh sample exams for teacher1
-    const currentDate = new Date();
-    const futureDate1 = new Date(currentDate.getTime() + 7 * 24 * 60 * 60 * 1000); // 1 week from now
-    const futureDate2 = new Date(currentDate.getTime() + 14 * 24 * 60 * 60 * 1000); // 2 weeks from now
-    const futureDate3 = new Date(currentDate.getTime() + 21 * 24 * 60 * 60 * 1000); // 3 weeks from now
-    const futureDate4 = new Date(currentDate.getTime() + 28 * 24 * 60 * 60 * 1000); // 4 weeks from now
-    const futureDate5 = new Date(currentDate.getTime() + 35 * 24 * 60 * 60 * 1000); // 5 weeks from now
-
-    const exams = [
-      {
-        title: 'Mathematics Final Exam',
-        startTime: futureDate1.toISOString().slice(0, 19).replace('T', ' '),
-        endTime: new Date(futureDate1.getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
-        allowedApps: ['calc.exe', 'notepad.exe']
-      },
-      {
-        title: 'Physics Midterm Exam',
-        startTime: futureDate2.toISOString().slice(0, 19).replace('T', ' '),
-        endTime: new Date(futureDate2.getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
-        allowedApps: ['calc.exe']
-      },
-      {
-        title: 'Computer Science Quiz',
-        startTime: futureDate3.toISOString().slice(0, 19).replace('T', ' '),
-        endTime: new Date(futureDate3.getTime() + 1.5 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
-        allowedApps: ['Code.exe', 'chrome.exe', 'notepad.exe']
-      },
-      {
-        title: 'Chemistry Lab Assessment',
-        startTime: futureDate4.toISOString().slice(0, 19).replace('T', ' '),
-        endTime: new Date(futureDate4.getTime() + 2.5 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
-        allowedApps: ['calc.exe', 'ChemSketch.exe']
-      },
-      {
-        title: 'English Literature Essay',
-        startTime: futureDate5.toISOString().slice(0, 19).replace('T', ' '),
-        endTime: new Date(futureDate5.getTime() + 4 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
-        allowedApps: ['winword.exe', 'notepad.exe']
-      }
-    ];
-
-    for (const exam of exams) {
-      dbService.createExam({
-        teacherId: teacher1.user_id,
-        title: exam.title,
-        pdfPath: null,
-        startTime: exam.startTime,
-        endTime: exam.endTime,
-        allowedApps: exam.allowedApps
-      });
-    }
-
-    console.log('Created 5 fresh sample exams for teacher1');
-  } catch (error) {
-    console.error('Error seeding test exams:', error);
-  }
-}
+// No test data seeding - all data will be managed dynamically by admin
 
 // Initialize services
 async function initializeServices() {
@@ -154,17 +82,9 @@ async function initializeServices() {
     await dbService.initializeDatabase();
     console.log('Database service initialized');
 
-    // Clear existing data and start fresh (development only)
-    // dbService.clearAllData(); // DISABLED: This was clearing face registrations
-    // console.log('Database cleared');
-
-    // Seed test accounts for development
-    await dbService.seedTestAccounts();
-    console.log('Test accounts seeded');
-
-    // Create some test exams for demonstration
-    await seedTestExams(dbService);
-    console.log('Test exams seeded');
+    // Initialize default admin account and system settings
+    await dbService.initializeDefaultAdmin();
+    console.log('Default admin initialized');
 
     console.log('Initializing auth service...');
     authService = new AuthService(dbService);
@@ -565,19 +485,25 @@ ipcMain.handle('exam:create', async (event, examData) => {
     let pdfPath = null;
 
     // Handle PDF file upload if provided
-    if (examData.pdfFile) {
-      const { dialog } = require('electron');
-
-      // In a real implementation, we would handle the file from the renderer
-      // For now, we'll simulate the file upload process
+    if (examData.pdfFilePath && examData.pdfFileName) {
       try {
+        // Validate that the file exists
+        const fs = require('fs');
+        if (!fs.existsSync(examData.pdfFilePath)) {
+          return {
+            success: false,
+            error: 'Selected PDF file does not exist'
+          };
+        }
+
         const uploadResult = await fileService.uploadPDF(
-          examData.pdfFile.path, // This would come from the file dialog
+          examData.pdfFilePath,
           `temp-${Date.now()}`, // Temporary exam ID
-          examData.pdfFile.name
+          examData.pdfFileName
         );
         pdfPath = uploadResult.filePath;
       } catch (fileError) {
+        console.error('PDF upload error:', fileError);
         return {
           success: false,
           error: `File upload failed: ${fileError.message}`
@@ -596,19 +522,25 @@ ipcMain.handle('exam:create', async (event, examData) => {
     });
 
     // If we uploaded a PDF with a temporary name, rename it to use the actual exam ID
-    if (pdfPath && examData.pdfFile) {
-      const newUploadResult = await fileService.uploadPDF(
-        pdfPath,
-        exam.examId,
-        examData.pdfFile.name
-      );
+    if (pdfPath && examData.pdfFileName) {
+      try {
+        const newUploadResult = await fileService.uploadPDF(
+          pdfPath,
+          exam.examId,
+          examData.pdfFileName
+        );
 
-      // Delete the temporary file
-      fileService.deletePDF(`temp-${Date.now()}`);
+        // Delete the temporary file (extract temp ID from path)
+        const tempId = path.basename(pdfPath, path.extname(pdfPath)).split('_')[0];
+        fileService.deletePDF(tempId);
 
-      // Update exam with correct PDF path
-      dbService.updateExam(exam.examId, { pdfPath: newUploadResult.filePath });
-      exam.pdfPath = newUploadResult.filePath;
+        // Update exam with correct PDF path
+        dbService.updateExam(exam.examId, { pdfPath: newUploadResult.filePath });
+        exam.pdfPath = newUploadResult.filePath;
+      } catch (renameError) {
+        console.error('Error renaming PDF file:', renameError);
+        // Continue with the temporary file path
+      }
     }
 
     return {
@@ -668,6 +600,7 @@ ipcMain.handle('exam:update', async (event, updateData) => {
     }
 
     if (existingExam.teacherId !== currentUser.userId) {
+      console.log('Authorization failed - Exam teacherId:', existingExam.teacherId, 'Current userId:', currentUser.userId);
       return {
         success: false,
         error: 'Unauthorized: Cannot update other teacher\'s exam'
@@ -752,6 +685,7 @@ ipcMain.handle('exam:delete', async (event, examId) => {
     }
 
     if (existingExam.teacherId !== currentUser.userId) {
+      console.log('Authorization failed - Exam teacherId:', existingExam.teacherId, 'Current userId:', currentUser.userId);
       return {
         success: false,
         error: 'Unauthorized: Cannot delete other teacher\'s exam'
@@ -1068,6 +1002,134 @@ ipcMain.handle('admin:update-system-settings', async (event, settings) => {
     };
   } catch (error) {
     console.error('Update system settings error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('system:get-setup-status', async (event) => {
+  try {
+    const setupStatus = dbService.isSystemSetup();
+    return {
+      success: true,
+      data: setupStatus
+    };
+  } catch (error) {
+    console.error('Get system setup status error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// PDF viewing handler
+ipcMain.handle('pdf:view', async (event, examId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) {
+      return {
+        success: false,
+        error: 'User not authenticated'
+      };
+    }
+
+    // Get exam details to verify access and get PDF path
+    const exam = dbService.getExamById(examId);
+    if (!exam) {
+      return {
+        success: false,
+        error: 'Exam not found'
+      };
+    }
+
+    if (!exam.pdfPath) {
+      return {
+        success: false,
+        error: 'No PDF available for this exam'
+      };
+    }
+
+    // Check if file exists
+    const fs = require('fs');
+    if (!fs.existsSync(exam.pdfPath)) {
+      return {
+        success: false,
+        error: 'PDF file not found on disk'
+      };
+    }
+
+    // For students, check if exam is accessible (current or future)
+    if (currentUser.role === 'student') {
+      const now = new Date();
+      const examEnd = new Date(exam.endTime);
+
+      // Allow access if exam hasn't ended yet (students can view PDF during and before exam)
+      if (now > examEnd) {
+        return {
+          success: false,
+          error: 'Exam has ended, PDF is no longer accessible'
+        };
+      }
+    }
+
+    // Open PDF with default system application
+    const { shell } = require('electron');
+    await shell.openPath(exam.pdfPath);
+
+    // Log PDF access
+    dbService.logAuditEvent(currentUser.userId, 'PDF_ACCESSED', {
+      examId: exam.examId,
+      examTitle: exam.title,
+      pdfPath: exam.pdfPath
+    });
+
+    return {
+      success: true,
+      message: 'PDF opened successfully'
+    };
+  } catch (error) {
+    console.error('PDF view error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// File dialog handlers
+ipcMain.handle('file:open-dialog', async (event, options = {}) => {
+  try {
+    const { dialog } = require('electron');
+
+    const defaultOptions = {
+      title: 'Select PDF File',
+      filters: [
+        { name: 'PDF Files', extensions: ['pdf'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    };
+
+    const dialogOptions = { ...defaultOptions, ...options };
+    const result = await dialog.showOpenDialog(mainWindow, dialogOptions);
+
+    if (result.canceled) {
+      return {
+        success: false,
+        canceled: true
+      };
+    }
+
+    return {
+      success: true,
+      filePaths: result.filePaths,
+      filePath: result.filePaths[0] // For convenience
+    };
+  } catch (error) {
+    console.error('File dialog error:', error);
     return {
       success: false,
       error: error.message

@@ -16,6 +16,7 @@ interface Exam {
   exam_id: string;
   teacher_id: string;
   title: string;
+  pdf_path?: string;
   start_time: string;
   end_time: string;
   allowed_apps: string[];
@@ -97,6 +98,35 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
       }
     } catch (err) {
       console.error('Failed to load exam history:', err);
+    }
+  };
+
+  // View PDF function
+  const viewPDF = async (exam: Exam) => {
+    try {
+      if (!exam.pdf_path) {
+        setError('No PDF available for this exam');
+        return;
+      }
+
+      setError(null); // Clear any previous errors
+
+      if (isElectron()) {
+        // Use Electron API to open PDF with system default application
+        const result = await (window as any).electronAPI.viewPDF(exam.exam_id);
+
+        if (!result.success) {
+          setError(result.error || 'Failed to open PDF');
+        }
+        // If successful, PDF will open in default system application
+      } else {
+        // In web mode, try to open the PDF (limited functionality)
+        const pdfUrl = exam.pdf_path.startsWith('/') ? exam.pdf_path : `/${exam.pdf_path}`;
+        window.open(pdfUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Error viewing PDF:', error);
+      setError('Failed to open PDF. Please try again.');
     }
   };
 
@@ -340,6 +370,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
                           <p><strong>Teacher:</strong> {exam.teacher_name}</p>
                           <p><strong>Start:</strong> {formatDateTime(exam.start_time)}</p>
                           <p><strong>End:</strong> {formatDateTime(exam.end_time)}</p>
+                          <p><strong>Question Paper:</strong> {exam.pdf_path ? '📄 PDF Available' : 'No PDF uploaded'}</p>
                           <p><strong>Allowed Apps:</strong> {
                             (() => {
                               const apps = exam.allowed_apps || exam.allowedApps || [];
@@ -349,6 +380,15 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
                         </div>
 
                         <div className="exam-actions">
+                          {exam.pdf_path && (
+                            <button
+                              onClick={() => viewPDF(exam)}
+                              className="view-pdf-btn"
+                              title="View exam question paper"
+                            >
+                              📄 View PDF
+                            </button>
+                          )}
                           {canStartExam(exam) ? (
                             <button
                               onClick={() => startExam(exam)}

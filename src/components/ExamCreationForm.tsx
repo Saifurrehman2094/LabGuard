@@ -34,6 +34,8 @@ interface FormData {
   endTime: string;
   allowedApps: string[];
   pdfFile: File | null;
+  pdfFilePath?: string;
+  pdfFileName?: string;
 }
 
 interface FormError {
@@ -60,7 +62,9 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
     startTime: '',
     endTime: '',
     allowedApps: ['notepad.exe'], // Default to notepad
-    pdfFile: null
+    pdfFile: null,
+    pdfFilePath: undefined,
+    pdfFileName: undefined
   });
   const [errors, setErrors] = useState<FormError[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -114,6 +118,7 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
       newErrors.push({ field: 'allowedApps', message: 'At least one application must be allowed' });
     }
 
+    // Validate PDF file (web mode)
     if (formData.pdfFile) {
       if (formData.pdfFile.size > 50 * 1024 * 1024) { // 50MB
         newErrors.push({ field: 'pdfFile', message: 'PDF file must be smaller than 50MB' });
@@ -122,6 +127,11 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
       if (!formData.pdfFile.name.toLowerCase().endsWith('.pdf')) {
         newErrors.push({ field: 'pdfFile', message: 'Only PDF files are allowed' });
       }
+    }
+
+    // Validate PDF file (Electron mode)
+    if (formData.pdfFileName && !formData.pdfFileName.toLowerCase().endsWith('.pdf')) {
+      newErrors.push({ field: 'pdfFile', message: 'Only PDF files are allowed' });
     }
 
     return newErrors;
@@ -141,17 +151,53 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
     }
   };
 
-  // Handle file selection
+  // Handle file selection (for web/development mode)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     setFormData(prev => ({
       ...prev,
-      pdfFile: file
+      pdfFile: file,
+      pdfFilePath: undefined,
+      pdfFileName: undefined
     }));
 
     // Clear file-specific errors
     if (errors.some(error => error.field === 'pdfFile')) {
       setErrors(prev => prev.filter(error => error.field !== 'pdfFile'));
+    }
+  };
+
+  // Handle file selection using Electron file dialog
+  const handleFileSelect = async () => {
+    try {
+      if (isElectron()) {
+        const result = await (window as any).electronAPI.openFileDialog({
+          title: 'Select Exam PDF',
+          filters: [
+            { name: 'PDF Files', extensions: ['pdf'] }
+          ]
+        });
+
+        if (result.success && !result.canceled) {
+          const filePath = result.filePath;
+          const fileName = filePath.split('\\').pop() || filePath.split('/').pop() || 'unknown.pdf';
+
+          setFormData(prev => ({
+            ...prev,
+            pdfFile: null, // Clear web file
+            pdfFilePath: filePath,
+            pdfFileName: fileName
+          }));
+
+          // Clear file-specific errors
+          if (errors.some(error => error.field === 'pdfFile')) {
+            setErrors(prev => prev.filter(error => error.field !== 'pdfFile'));
+          }
+        }
+      }
+    } catch (error) {
+      console.error('File selection error:', error);
+      setErrors(prev => [...prev, { field: 'pdfFile', message: 'Failed to select file' }]);
     }
   };
 
@@ -214,7 +260,8 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
           startTime: formData.startTime,
           endTime: formData.endTime,
           allowedApps: formData.allowedApps,
-          pdfFile: formData.pdfFile
+          pdfFilePath: formData.pdfFilePath,
+          pdfFileName: formData.pdfFileName
         };
 
         const result = await (window as any).electronAPI.createExam(examData);
@@ -229,7 +276,9 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
             startTime: '',
             endTime: '',
             allowedApps: ['notepad.exe'],
-            pdfFile: null
+            pdfFile: null,
+            pdfFilePath: undefined,
+            pdfFileName: undefined
           });
 
           // Reset file input
@@ -261,7 +310,9 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
             startTime: '',
             endTime: '',
             allowedApps: ['notepad.exe'],
-            pdfFile: null
+            pdfFile: null,
+            pdfFilePath: undefined,
+            pdfFileName: undefined
           });
 
           // Reset file input
@@ -362,19 +413,43 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
         {/* PDF Upload */}
         <div className="form-group">
           <label htmlFor="pdfFile">Exam PDF (Optional)</label>
-          <input
-            type="file"
-            id="pdfFile"
-            accept=".pdf"
-            onChange={handleFileChange}
-            className={getFieldError('pdfFile') ? 'error' : ''}
-            disabled={isLoading}
-          />
-          {formData.pdfFile && (
+
+          {isElectron() ? (
+            // Electron mode - use file dialog button
+            <div className="file-select-container">
+              <button
+                type="button"
+                onClick={handleFileSelect}
+                className={`file-select-btn ${getFieldError('pdfFile') ? 'error' : ''}`}
+                disabled={isLoading}
+              >
+                {formData.pdfFileName ? 'Change PDF File' : 'Select PDF File'}
+              </button>
+              {formData.pdfFileName && (
+                <div className="file-info">
+                  Selected: {formData.pdfFileName}
+                </div>
+              )}
+            </div>
+          ) : (
+            // Web mode - use file input
+            <input
+              type="file"
+              id="pdfFile"
+              accept=".pdf"
+              onChange={handleFileChange}
+              className={getFieldError('pdfFile') ? 'error' : ''}
+              disabled={isLoading}
+            />
+          )}
+
+          {/* Show file info for web mode */}
+          {!isElectron() && formData.pdfFile && (
             <div className="file-info">
               Selected: {formData.pdfFile.name} ({(formData.pdfFile.size / (1024 * 1024)).toFixed(2)} MB)
             </div>
           )}
+
           {getFieldError('pdfFile') && (
             <div className="field-error">{getFieldError('pdfFile')}</div>
           )}

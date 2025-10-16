@@ -433,7 +433,7 @@ class DatabaseService {
   getAvailableExams(studentId) {
     try {
       const stmt = this.db.prepare(`
-        SELECT e.exam_id, e.teacher_id, e.title, e.start_time, e.end_time, e.allowed_apps, e.created_at,
+        SELECT e.exam_id, e.teacher_id, e.title, e.pdf_path, e.start_time, e.end_time, e.allowed_apps, e.created_at,
                u.full_name as teacher_name
         FROM exams e
         JOIN users u ON e.teacher_id = u.user_id
@@ -469,10 +469,20 @@ class DatabaseService {
       const exam = stmt.get(examId);
 
       if (exam) {
-        exam.allowedApps = JSON.parse(exam.allowed_apps);
+        // Convert to camelCase for consistency
+        return {
+          examId: exam.exam_id,
+          teacherId: exam.teacher_id,
+          title: exam.title,
+          pdfPath: exam.pdf_path,
+          startTime: exam.start_time,
+          endTime: exam.end_time,
+          allowedApps: JSON.parse(exam.allowed_apps),
+          createdAt: exam.created_at
+        };
       }
 
-      return exam;
+      return null;
     } catch (error) {
       console.error('Error getting exam by ID:', error);
       throw error;
@@ -679,14 +689,15 @@ class DatabaseService {
   }
 
   /**
-   * Seed database with test accounts
+   * Initialize default admin account and system settings
    */
-  async seedTestAccounts() {
+  async initializeDefaultAdmin() {
     try {
-      // Check if admin account exists
-      const adminExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('admin');
+      // Check if any admin account exists
+      const adminExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE role = ?').get('admin');
 
       if (adminExists.count === 0) {
+        // Create default admin account only if no admin exists
         await this.createUser({
           username: 'admin',
           password: 'admin123',
@@ -694,63 +705,8 @@ class DatabaseService {
           fullName: 'System Administrator',
           email: 'admin@labguard.com'
         });
-        console.log('Created admin account: admin/admin123');
-      }
-
-      // Check if test accounts already exist
-      const teacherExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('teacher1');
-      const studentExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('student1');
-
-      if (teacherExists.count === 0) {
-        await this.createUser({
-          username: 'teacher1',
-          password: 'password123',
-          role: 'teacher',
-          fullName: 'Dr. John Smith',
-          email: 'john.smith@university.edu',
-          createdBy: 'admin'
-        });
-        console.log('Created test teacher account: teacher1/password123');
-      }
-
-      if (studentExists.count === 0) {
-        await this.createUser({
-          username: 'student1',
-          password: 'password123',
-          role: 'student',
-          fullName: 'Alice Johnson',
-          email: 'alice.johnson@student.edu',
-          createdBy: 'admin'
-        });
-        console.log('Created test student account: student1/password123');
-      }
-
-      // Create additional test accounts
-      const teacher2Exists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('teacher2');
-      const student2Exists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('student2');
-
-      if (teacher2Exists.count === 0) {
-        await this.createUser({
-          username: 'teacher2',
-          password: 'password123',
-          role: 'teacher',
-          fullName: 'Prof. Sarah Wilson',
-          email: 'sarah.wilson@university.edu',
-          createdBy: 'admin'
-        });
-        console.log('Created test teacher account: teacher2/password123');
-      }
-
-      if (student2Exists.count === 0) {
-        await this.createUser({
-          username: 'student2',
-          password: 'password123',
-          role: 'student',
-          fullName: 'Bob Martinez',
-          email: 'bob.martinez@student.edu',
-          createdBy: 'admin'
-        });
-        console.log('Created test student account: student2/password123');
+        console.log('Created default admin account: admin/admin123');
+        console.log('IMPORTANT: Please change the default admin password after first login!');
       }
 
       // Initialize default system settings
@@ -760,7 +716,7 @@ class DatabaseService {
 
       return true;
     } catch (error) {
-      console.error('Error seeding test accounts:', error);
+      console.error('Error initializing default admin:', error);
       throw error;
     }
   }
@@ -781,6 +737,45 @@ class DatabaseService {
     } catch (error) {
       console.error('Error clearing database:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Clear only audit logs
+   */
+  clearAuditLogs() {
+    try {
+      const result = this.db.prepare('DELETE FROM audit_logs').run();
+      console.log(`Cleared ${result.changes} audit log entries`);
+      return result.changes;
+    } catch (error) {
+      console.error('Error clearing audit logs:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if system has been set up with users
+   */
+  isSystemSetup() {
+    try {
+      const userCount = this.db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+      const nonAdminCount = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE role != ?').get('admin').count;
+
+      return {
+        hasUsers: userCount > 0,
+        hasNonAdminUsers: nonAdminCount > 0,
+        totalUsers: userCount,
+        nonAdminUsers: nonAdminCount
+      };
+    } catch (error) {
+      console.error('Error checking system setup:', error);
+      return {
+        hasUsers: false,
+        hasNonAdminUsers: false,
+        totalUsers: 0,
+        nonAdminUsers: 0
+      };
     }
   }
 

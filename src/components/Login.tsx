@@ -182,21 +182,22 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           }]);
         }
       } else {
-        // Development mode - use WebStorageService
-        const webStorage = WebStorageService.getInstance();
-        const result = await webStorage.login(formData.username.trim(), formData.password.trim());
+        // Development mode - show message that Electron is required
+        setErrors([{
+          message: 'Development mode detected. Please use "npm run dev" to start both React and Electron for full functionality. The web-only version has limited features.'
+        }]);
 
-        if (result.success && result.user) {
+        // For basic testing, allow admin login only
+        if (formData.username.trim() === 'admin' && formData.password.trim() === 'admin123') {
           onLoginSuccess({
-            ...result.user,
-            token: 'web-token-123',
-            deviceId: deviceId,
+            userId: 'admin-web',
+            username: 'admin',
+            role: 'admin',
+            fullName: 'System Administrator (Web Mode)',
+            token: 'web-token-admin',
+            deviceId: deviceId || 'web-device',
             faceVerified: false
           });
-        } else {
-          setErrors([{
-            message: result.error || 'Invalid credentials. Use admin/admin123, teacher1/password123 or student1/password123 for development.'
-          }]);
         }
       }
     } catch (error) {
@@ -353,7 +354,19 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {/* Login help text */}
         <div className="login-help">
           <p>Use your assigned username and password to access the system.</p>
-          <p><small>For testing: admin/admin123, teacher1/password123, student1/password123</small></p>
+          <div className="admin-info">
+            <p><strong>Default Admin Account:</strong></p>
+            <p><small>Username: <code>admin</code> | Password: <code>admin123</code></small></p>
+            <p className="security-warning">
+              <small>⚠️ Change the default password after first login!</small>
+            </p>
+          </div>
+          {!isElectron() && (
+            <div className="dev-mode-notice">
+              <p><strong>Development Mode:</strong></p>
+              <p><small>For full functionality, run <code>npm run dev</code> to start Electron.</small></p>
+            </div>
+          )}
         </div>
       </div>
     </div>

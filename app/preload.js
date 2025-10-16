@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // File methods
   uploadPDF: (filePath, examId) => ipcRenderer.invoke('file:uploadPDF', filePath, examId),
-  openFileDialog: () => ipcRenderer.invoke('file:openDialog'),
+  openFileDialog: (options) => ipcRenderer.invoke('file:open-dialog', options),
 
   // Device methods
   getDeviceId: () => ipcRenderer.invoke('device:getId'),
@@ -50,6 +50,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getFaceStats: () => ipcRenderer.invoke('admin:get-face-stats'),
   getSystemSettings: () => ipcRenderer.invoke('admin:get-system-settings'),
   updateSystemSettings: (settings) => ipcRenderer.invoke('admin:update-system-settings', settings),
+
+  // System methods
+  getSystemSetupStatus: () => ipcRenderer.invoke('system:get-setup-status'),
+
+  // PDF methods
+  viewPDF: (examId) => ipcRenderer.invoke('pdf:view', examId),
 
   // Event listeners
   onMonitoringEvent: (callback) => {

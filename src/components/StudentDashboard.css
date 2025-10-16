@@ -358,6 +358,9 @@
 }
 
 .exam-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   text-align: center;
 }
 
@@ -383,6 +386,25 @@
   background: #6c757d;
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.view-pdf-btn {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.view-pdf-btn:hover {
+  background: #0056b3;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 123, 255, 0.3);
 }
 
 .history-list {
@@ -460,5 +482,34 @@
   .history-header {
     flex-direction: column;
     gap: 0.5rem;
+  }
+}/*
+ PDF availability indicator */
+.exam-details p:has-text("📄 PDF Available") {
+  color: #28a745;
+  font-weight: 600;
+}
+
+.exam-details p:has-text("No PDF uploaded") {
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* Responsive exam actions */
+@media (min-width: 768px) {
+  .exam-actions {
+    flex-direction: row;
+    gap: 0.75rem;
+  }
+  
+  .view-pdf-btn {
+    width: auto;
+    flex: 1;
+    margin-bottom: 0;
+  }
+  
+  .start-exam-btn {
+    width: auto;
+    flex: 2;
   }
 }
