@@ -7,10 +7,11 @@ import './TeacherDashboard.css';
 interface User {
   userId: string;
   username: string;
-  role: 'teacher' | 'student';
+  role: 'admin' | 'teacher' | 'student';
   fullName: string;
   token?: string;
   deviceId?: string;
+  faceVerified?: boolean;
 }
 
 interface Exam {

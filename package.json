@@ -12,7 +12,9 @@
     "build": "react-scripts build",
     "build:electron": "electron-builder",
     "dist": "npm run build && electron-builder",
-    "test": "react-scripts test"
+    "test": "react-scripts test",
+    "download-models": "node scripts/download-models.js",
+    "postinstall": "npm run download-models"
   },
   "keywords": [
     "electron",
@@ -59,8 +61,10 @@
   "dependencies": {
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
+    "@vladmandic/face-api": "^1.7.15",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^12.4.1",
+    "canvas": "^3.2.0",
     "electron": "^38.2.0",
     "electron-builder": "^26.0.12",
     "electron-is-dev": "^3.0.1",

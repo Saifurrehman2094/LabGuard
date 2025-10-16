@@ -3,14 +3,16 @@ import './App.css';
 import Login from './components/Login';
 import TeacherDashboard from './components/TeacherDashboard';
 import StudentDashboard from './components/StudentDashboard';
+import AdminPanel from './components/AdminPanel';
 
 interface User {
   userId: string;
   username: string;
-  role: 'teacher' | 'student';
+  role: 'admin' | 'teacher' | 'student';
   fullName: string;
   token?: string;
   deviceId?: string;
+  faceVerified?: boolean;
 }
 
 function App() {
@@ -87,7 +89,9 @@ function App() {
   // Show appropriate dashboard based on user role
   return (
     <div className="App">
-      {user.role === 'teacher' ? (
+      {user.role === 'admin' ? (
+        <AdminPanel currentUser={user} onLogout={handleLogout} />
+      ) : user.role === 'teacher' ? (
         <TeacherDashboard user={user} onLogout={handleLogout} />
       ) : (
         <StudentDashboard user={user} onLogout={handleLogout} />

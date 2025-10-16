@@ -5,10 +5,11 @@ import './ExamCreationForm.css';
 interface User {
   userId: string;
   username: string;
-  role: 'teacher' | 'student';
+  role: 'admin' | 'teacher' | 'student';
   fullName: string;
   token?: string;
   deviceId?: string;
+  faceVerified?: boolean;
 }
 
 interface Exam {
@@ -221,7 +222,7 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
         if (result.success) {
           // Exam created successfully
           onExamCreated(result.exam);
-          
+
           // Reset form
           setFormData({
             title: '',
