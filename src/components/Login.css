@@ -269,6 +269,32 @@
   outline-offset: 2px;
 }
 
+/* Login help section */
+.login-help {
+  margin-top: 20px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  text-align: center;
+  border-left: 4px solid #667eea;
+}
+
+.login-help p {
+  margin: 0 0 8px 0;
+  color: #666;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.login-help p:last-child {
+  margin-bottom: 0;
+}
+
+.login-help small {
+  color: #888;
+  font-size: 12px;
+}
+
 /* High contrast mode support */
 @media (prefers-contrast: high) {
   .login-card {
@@ -281,5 +307,9 @@
   
   .login-button {
     background: #000;
+  }
+  
+  .login-help {
+    border-left-color: #000;
   }
 }

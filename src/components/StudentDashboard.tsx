@@ -5,10 +5,11 @@ import './StudentDashboard.css';
 interface User {
   userId: string;
   username: string;
-  role: 'teacher' | 'student';
+  role: 'admin' | 'teacher' | 'student';
   fullName: string;
   token?: string;
   deviceId?: string;
+  faceVerified?: boolean;
 }
 
 interface Exam {
@@ -103,17 +104,17 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
   const startExam = async (exam: Exam) => {
     try {
       setError(null);
-      
+
       // Check if exam can be started (within time window)
       const now = new Date();
       const startTime = new Date(exam.start_time);
       const endTime = new Date(exam.end_time);
-      
+
       if (now < startTime) {
         setError('Exam has not started yet');
         return;
       }
-      
+
       if (now > endTime) {
         setError('Exam has already ended');
         return;
@@ -126,7 +127,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
           user.userId,
           exam.allowed_apps
         );
-        
+
         if (!monitoringResult.success) {
           setError('Failed to start exam monitoring: ' + monitoringResult.error);
           return;
@@ -155,10 +156,10 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
       if (isElectron() && currentSession) {
         await (window as any).electronAPI.stopMonitoring();
       }
-      
+
       setCurrentSession(null);
       setActiveTab('available');
-      
+
       // Reload data
       await loadAvailableExams();
       await loadExamHistory();
@@ -174,13 +175,13 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
     const timer = setInterval(() => {
       const now = new Date();
       const timeRemaining = Math.floor((currentSession.endTime.getTime() - now.getTime()) / 1000);
-      
+
       if (timeRemaining <= 0) {
         // Exam time is up
         endExam();
         return;
       }
-      
+
       setCurrentSession(prev => prev ? { ...prev, timeRemaining } : null);
     }, 1000);
 
@@ -194,7 +195,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
       await Promise.all([loadAvailableExams(), loadExamHistory()]);
       setLoading(false);
     };
-    
+
     loadData();
   }, [user.userId]);
 
@@ -203,7 +204,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    
+
     if (hours > 0) {
       return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
@@ -221,7 +222,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
     const now = new Date();
     const startTime = new Date(exam.start_time);
     const endTime = new Date(exam.end_time);
-    
+
     return now >= startTime && now <= endTime;
   };
 
@@ -230,7 +231,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
     const now = new Date();
     const startTime = new Date(exam.start_time);
     const endTime = new Date(exam.end_time);
-    
+
     if (now < startTime) return 'upcoming';
     if (now > endTime) return 'ended';
     return 'active';
@@ -278,7 +279,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
               <span className="timer-value">{formatTimeRemaining(currentSession.timeRemaining)}</span>
             </div>
           </div>
-          
+
           <div className="session-info">
             <p><strong>Exam ID:</strong> {currentSession.examId}</p>
             <p><strong>Started:</strong> {formatDateTime(currentSession.startTime.toISOString())}</p>
@@ -302,13 +303,13 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
       ) : (
         <div className="dashboard-content">
           <nav className="dashboard-tabs">
-            <button 
+            <button
               className={`tab ${activeTab === 'available' ? 'active' : ''}`}
               onClick={() => setActiveTab('available')}
             >
               Available Exams ({availableExams.length})
             </button>
-            <button 
+            <button
               className={`tab ${activeTab === 'history' ? 'active' : ''}`}
               onClick={() => setActiveTab('history')}
             >
@@ -334,7 +335,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
                             {getExamStatus(exam)}
                           </span>
                         </div>
-                        
+
                         <div className="exam-details">
                           <p><strong>Teacher:</strong> {exam.teacher_name}</p>
                           <p><strong>Start:</strong> {formatDateTime(exam.start_time)}</p>
@@ -349,7 +350,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
 
                         <div className="exam-actions">
                           {canStartExam(exam) ? (
-                            <button 
+                            <button
                               onClick={() => startExam(exam)}
                               className="start-exam-btn"
                             >
@@ -385,7 +386,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
                             Completed: {formatDateTime(exam.end_time)}
                           </span>
                         </div>
-                        
+
                         <div className="history-details">
                           <p><strong>Teacher:</strong> {exam.teacher_name}</p>
                           <p><strong>Duration:</strong> {formatDateTime(exam.start_time)} - {formatDateTime(exam.end_time)}</p>
