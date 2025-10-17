@@ -3,44 +3,60 @@ import './App.css';
 import Login from './components/Login';
 import TeacherDashboard from './components/TeacherDashboard';
 import StudentDashboard from './components/StudentDashboard';
+import AdminPanel from './components/AdminPanel';
+import SetupWizard from './components/SetupWizard';
 
 interface User {
   userId: string;
   username: string;
-  role: 'teacher' | 'student';
+  role: 'admin' | 'teacher' | 'student';
   fullName: string;
   token?: string;
   deviceId?: string;
+  faceVerified?: boolean;
 }
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
+  const [systemStatus, setSystemStatus] = useState<any>(null);
 
   // Check if running in Electron
   const isElectron = () => {
     return !!(window as any).electronAPI;
   };
 
-  // Check for existing session on app start
+  // Check for existing session and system status on app start
   useEffect(() => {
-    const checkExistingSession = async () => {
+    const initializeApp = async () => {
       try {
         if (isElectron()) {
-          const result = await (window as any).electronAPI.getCurrentUser();
-          if (result.success && result.user) {
-            setUser(result.user);
+          // Check existing session
+          const sessionResult = await (window as any).electronAPI.getCurrentUser();
+          if (sessionResult.success && sessionResult.user) {
+            setUser(sessionResult.user);
+          }
+
+          // Check system setup status
+          const statusResult = await (window as any).electronAPI.getSystemSetupStatus();
+          if (statusResult.success) {
+            setSystemStatus(statusResult.data);
+
+            // Show setup wizard if no non-admin users exist and no user is logged in
+            if (!statusResult.data.hasNonAdminUsers && !sessionResult.user) {
+              setShowSetupWizard(true);
+            }
           }
         }
-        // In development mode, no existing session to check
       } catch (error) {
-        console.error('Failed to check existing session:', error);
+        console.error('Failed to initialize app:', error);
       } finally {
         setIsLoading(false);
       }
     };
 
-    checkExistingSession();
+    initializeApp();
   }, []);
 
   // Handle successful login
@@ -56,11 +72,21 @@ function App() {
       }
       // Always clear user state
       setUser(null);
+
+      // Check if we should show setup wizard again
+      if (systemStatus && !systemStatus.hasNonAdminUsers) {
+        setShowSetupWizard(true);
+      }
     } catch (error) {
       console.error('Logout error:', error);
       // Force logout even if API call fails
       setUser(null);
     }
+  };
+
+  // Handle setup wizard completion
+  const handleSetupComplete = () => {
+    setShowSetupWizard(false);
   };
 
   // Show loading screen while checking session
@@ -71,6 +97,15 @@ function App() {
           <div className="loading-spinner-large"></div>
           <p>Loading LAB-Guard...</p>
         </div>
+      </div>
+    );
+  }
+
+  // Show setup wizard if needed
+  if (showSetupWizard) {
+    return (
+      <div className="App">
+        <SetupWizard onSetupComplete={handleSetupComplete} />
       </div>
     );
   }
@@ -87,7 +122,9 @@ function App() {
   // Show appropriate dashboard based on user role
   return (
     <div className="App">
-      {user.role === 'teacher' ? (
+      {user.role === 'admin' ? (
+        <AdminPanel currentUser={user} onLogout={handleLogout} />
+      ) : user.role === 'teacher' ? (
         <TeacherDashboard user={user} onLogout={handleLogout} />
       ) : (
         <StudentDashboard user={user} onLogout={handleLogout} />

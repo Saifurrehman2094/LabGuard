@@ -6,12 +6,18 @@
   "homepage": "./",
   "scripts": {
     "start": "electron .",
-    "dev": "concurrently \"npm run dev:react\" \"wait-on http://localhost:3000 && electron .\"",
-    "dev:react": "react-scripts start",
+    "start:prod": "npm run build && set NODE_ENV=production && electron .",
+    "start:full": "concurrently \"npm run dev:react\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev": "concurrently \"npm run dev:react\" \"wait-on http://localhost:3001 && electron .\"",
+    "dev:react": "set PORT=3001 && react-scripts start",
     "build": "react-scripts build",
     "build:electron": "electron-builder",
     "dist": "npm run build && electron-builder",
-    "test": "react-scripts test"
+    "test": "react-scripts test",
+    "download-models": "node scripts/download-models.js",
+    "cleanup-db": "node scripts/cleanup-test-data.js",
+    "clear-audit-logs": "node scripts/clear-audit-logs.js",
+    "postinstall": "npm run download-models"
   },
   "keywords": [
     "electron",
@@ -46,22 +52,27 @@
     }
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "concurrently": "^8.2.2",
+    "electron-rebuild": "^3.2.9",
     "wait-on": "^7.2.0"
   },
   "dependencies": {
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
+    "@vladmandic/face-api": "^1.7.15",
     "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.4.1",
+    "better-sqlite3": "^11.3.0",
+    "canvas": "^3.2.0",
     "electron": "^38.2.0",
     "electron-builder": "^26.0.12",
     "electron-is-dev": "^3.0.1",
     "jsonwebtoken": "^9.0.2",
+    "koffi": "^2.14.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-scripts": "^5.0.1",

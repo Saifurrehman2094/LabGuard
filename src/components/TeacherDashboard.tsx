@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import ExamCreationForm from './ExamCreationForm';
 import ExamList from './ExamList';
+import ViolationReport from './ViolationReport';
+import WebStorageService from '../services/webStorage';
 import './TeacherDashboard.css';
 
 interface User {
   userId: string;
   username: string;
-  role: 'teacher' | 'student';
+  role: 'admin' | 'teacher' | 'student';
   fullName: string;
   token?: string;
   deviceId?: string;
+  faceVerified?: boolean;
 }
 
 interface Exam {
@@ -29,10 +32,11 @@ interface TeacherDashboardProps {
 }
 
 const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'manage'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'manage' | 'monitoring'>('overview');
   const [exams, setExams] = useState<Exam[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedExamForMonitoring, setSelectedExamForMonitoring] = useState<string>('');
 
   // Check if running in Electron
   const isElectron = () => {
@@ -53,30 +57,14 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
           setError(result.error || 'Failed to load exams');
         }
       } else {
-        // Development mode - mock data
-        const mockExams: Exam[] = [
-          {
-            examId: 'exam-1',
-            teacherId: user.userId,
-            title: 'Midterm Exam - Computer Science',
-            pdfPath: '/mock/path/midterm.pdf',
-            startTime: '2024-10-20T09:00:00',
-            endTime: '2024-10-20T11:00:00',
-            allowedApps: ['notepad.exe', 'calculator.exe', 'chrome.exe'],
-            createdAt: '2024-10-15T10:00:00'
-          },
-          {
-            examId: 'exam-2',
-            teacherId: user.userId,
-            title: 'Final Exam - Database Systems',
-            pdfPath: '/mock/path/final.pdf',
-            startTime: '2024-10-25T14:00:00',
-            endTime: '2024-10-25T17:00:00',
-            allowedApps: ['notepad.exe', 'mysql-workbench.exe'],
-            createdAt: '2024-10-16T15:30:00'
-          }
-        ];
-        setExams(mockExams);
+        // Development mode - use WebStorageService
+        const webStorage = WebStorageService.getInstance();
+        const result = await webStorage.getExamsByTeacher(user.userId);
+        if (result.success) {
+          setExams(result.exams || []);
+        } else {
+          setError(result.error || 'Failed to load exams');
+        }
       }
     } catch (error) {
       console.error('Error loading exams:', error);
@@ -157,6 +145,12 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
           onClick={() => setActiveTab('manage')}
         >
           Manage Exams
+        </button>
+        <button
+          className={`nav-tab ${activeTab === 'monitoring' ? 'active' : ''}`}
+          onClick={() => setActiveTab('monitoring')}
+        >
+          Monitoring Reports
         </button>
       </div>
 
@@ -253,6 +247,49 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
                 onExamDeleted={handleExamDeleted}
                 onRefresh={loadExams}
               />
+            )}
+          </div>
+        )}
+
+        {activeTab === 'monitoring' && (
+          <div className="monitoring-tab">
+            <div className="monitoring-header">
+              <h2>Monitoring Reports</h2>
+              <div className="exam-selector">
+                <label htmlFor="exam-select">Select Exam:</label>
+                <select
+                  id="exam-select"
+                  value={selectedExamForMonitoring}
+                  onChange={(e) => setSelectedExamForMonitoring(e.target.value)}
+                >
+                  <option value="">Choose an exam to view monitoring results</option>
+                  {exams
+                    .filter(exam => new Date(exam.endTime) <= new Date()) // Only show completed exams
+                    .map(exam => (
+                      <option key={exam.examId} value={exam.examId}>
+                        {exam.title} - {new Date(exam.startTime).toLocaleDateString()}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            {selectedExamForMonitoring ? (
+              <ViolationReport
+                examId={selectedExamForMonitoring}
+                examTitle={exams.find(e => e.examId === selectedExamForMonitoring)?.title || 'Unknown Exam'}
+              />
+            ) : (
+              <div className="no-exam-selected">
+                <div className="placeholder-content">
+                  <div className="placeholder-icon">📊</div>
+                  <h3>Select an Exam to View Monitoring Results</h3>
+                  <p>Choose a completed exam from the dropdown above to view detailed violation reports and monitoring statistics.</p>
+                  {exams.filter(exam => new Date(exam.endTime) <= new Date()).length === 0 && (
+                    <p className="no-completed-exams">No completed exams available for monitoring reports.</p>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}

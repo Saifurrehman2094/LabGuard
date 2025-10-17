@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import FaceAuth from './FaceAuth';
+import WebStorageService from '../services/webStorage';
 import './Login.css';
 
 interface LoginProps {
@@ -15,6 +17,12 @@ interface LoginError {
   message: string;
 }
 
+interface AuthState {
+  step: 'credentials' | 'face-auth' | 'success';
+  sessionId?: string;
+  user?: any;
+}
+
 const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [formData, setFormData] = useState<LoginFormData>({
     username: '',
@@ -23,6 +31,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [errors, setErrors] = useState<LoginError[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [deviceId, setDeviceId] = useState<string>('');
+  const [authState, setAuthState] = useState<AuthState>({
+    step: 'credentials'
+  });
 
   // Check if running in Electron
   const isElectron = () => {
@@ -122,23 +133,23 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       console.log('Login attempt started');
       console.log('isElectron():', isElectron());
       console.log('electronAPI exists:', !!(window as any).electronAPI);
-      
+
       if (isElectron()) {
         console.log('Using Electron login');
-        
+
         // Verify electronAPI is available
         if (!(window as any).electronAPI) {
           console.error('electronAPI is not available on window object');
           throw new Error('Electron API not available. Please restart the application.');
         }
-        
+
         if (typeof (window as any).electronAPI.login !== 'function') {
           console.error('electronAPI.login is not a function:', typeof (window as any).electronAPI.login);
           throw new Error('Login function not available. Please restart the application.');
         }
 
         console.log('Calling electronAPI.login...');
-        
+
         // Call authentication service through Electron API
         const result = await (window as any).electronAPI.login({
           username: formData.username.trim(),
@@ -148,12 +159,22 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         console.log('Login result:', result);
 
         if (result.success) {
-          // Login successful
-          onLoginSuccess({
-            ...result.user,
-            token: result.token,
-            deviceId: result.deviceId
-          });
+          if (result.requiresFaceAuth) {
+            // Credentials verified, now need face authentication
+            setAuthState({
+              step: 'face-auth',
+              sessionId: result.sessionId,
+              user: result.user
+            });
+          } else {
+            // Login complete (no face auth required)
+            onLoginSuccess({
+              ...result.user,
+              token: result.token,
+              deviceId: result.deviceId,
+              faceVerified: result.faceVerified || false
+            });
+          }
         } else {
           // Login failed
           setErrors([{
@@ -161,33 +182,22 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           }]);
         }
       } else {
-        // Development mode - simulate login
-        const username = formData.username.trim();
-        const password = formData.password.trim();
+        // Development mode - show message that Electron is required
+        setErrors([{
+          message: 'Development mode detected. Please use "npm run dev" to start both React and Electron for full functionality. The web-only version has limited features.'
+        }]);
 
-        // Mock authentication for development
-        if ((username === 'teacher1' || username === 'teacher2') && password === 'password123') {
+        // For basic testing, allow admin login only
+        if (formData.username.trim() === 'admin' && formData.password.trim() === 'admin123') {
           onLoginSuccess({
-            userId: 'dev-teacher-1',
-            username: username,
-            role: 'teacher',
-            fullName: username === 'teacher1' ? 'Dr. John Smith' : 'Prof. Sarah Wilson',
-            token: 'dev-token-123',
-            deviceId: 'dev-device-12345'
+            userId: 'admin-web',
+            username: 'admin',
+            role: 'admin',
+            fullName: 'System Administrator (Web Mode)',
+            token: 'web-token-admin',
+            deviceId: deviceId || 'web-device',
+            faceVerified: false
           });
-        } else if ((username === 'student1' || username === 'student2') && password === 'password123') {
-          onLoginSuccess({
-            userId: 'dev-student-1',
-            username: username,
-            role: 'student',
-            fullName: username === 'student1' ? 'Alice Johnson' : 'Bob Martinez',
-            token: 'dev-token-456',
-            deviceId: 'dev-device-12345'
-          });
-        } else {
-          setErrors([{
-            message: 'Invalid credentials. Use teacher1/password123 or student1/password123 for development.'
-          }]);
         }
       }
     } catch (error) {
@@ -200,79 +210,40 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  // Quick login buttons for testing
-  const handleQuickLogin = async (username: string, password: string) => {
-    setFormData({ username, password });
+  // Handle successful face authentication
+  const handleFaceAuthSuccess = (result: any) => {
+    console.log('Face authentication successful:', result);
+    setAuthState({ step: 'success' });
 
-    // Small delay to show the form update
-    setTimeout(async () => {
-      setIsLoading(true);
-      setErrors([]);
-
-      try {
-        console.log('Quick login attempt started');
-        console.log('isElectron():', isElectron());
-        
-        if (isElectron()) {
-          console.log('Using Electron quick login');
-          
-          if (!(window as any).electronAPI || typeof (window as any).electronAPI.login !== 'function') {
-            console.error('electronAPI not available for quick login');
-            throw new Error('Electron API not available. Please restart the application.');
-          }
-          
-          const result = await (window as any).electronAPI.login({
-            username,
-            password
-          });
-
-          if (result.success) {
-            onLoginSuccess({
-              ...result.user,
-              token: result.token,
-              deviceId: result.deviceId
-            });
-          } else {
-            setErrors([{
-              message: result.error || 'Login failed. Please check your credentials.'
-            }]);
-          }
-        } else {
-          // Development mode - simulate login
-          if ((username === 'teacher1' || username === 'teacher2') && password === 'password123') {
-            onLoginSuccess({
-              userId: 'dev-teacher-1',
-              username: username,
-              role: 'teacher',
-              fullName: username === 'teacher1' ? 'Dr. John Smith' : 'Prof. Sarah Wilson',
-              token: 'dev-token-123',
-              deviceId: 'dev-device-12345'
-            });
-          } else if ((username === 'student1' || username === 'student2') && password === 'password123') {
-            onLoginSuccess({
-              userId: 'dev-student-1',
-              username: username,
-              role: 'student',
-              fullName: username === 'student1' ? 'Alice Johnson' : 'Bob Martinez',
-              token: 'dev-token-456',
-              deviceId: 'dev-device-12345'
-            });
-          } else {
-            setErrors([{
-              message: 'Invalid credentials. Use teacher1/password123 or student1/password123 for development.'
-            }]);
-          }
-        }
-      } catch (error) {
-        console.error('Quick login error:', error);
-        setErrors([{
-          message: 'An unexpected error occurred. Please try again.'
-        }]);
-      } finally {
-        setIsLoading(false);
-      }
-    }, 100);
+    // Complete login with face verification
+    onLoginSuccess({
+      ...result.user,
+      token: result.token,
+      deviceId: result.deviceId,
+      faceVerified: true
+    });
   };
+
+  // Handle failed face authentication
+  const handleFaceAuthFailure = (error: string) => {
+    console.error('Face authentication failed:', error);
+    setErrors([{
+      message: `Face authentication failed: ${error}`
+    }]);
+
+    // Reset to credentials step
+    setAuthState({ step: 'credentials' });
+    setIsLoading(false);
+  };
+
+  // Handle face authentication cancellation
+  const handleFaceAuthCancel = () => {
+    console.log('Face authentication cancelled');
+    setAuthState({ step: 'credentials' });
+    setIsLoading(false);
+  };
+
+
 
   // Get field-specific error
   const getFieldError = (fieldName: string): string | undefined => {
@@ -284,6 +255,21 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const getGeneralErrors = (): LoginError[] => {
     return errors.filter(err => !err.field);
   };
+
+  // Render face authentication if needed
+  if (authState.step === 'face-auth' && authState.sessionId && authState.user) {
+    return (
+      <div className="login-container">
+        <FaceAuth
+          sessionId={authState.sessionId}
+          username={authState.user.username}
+          onAuthSuccess={handleFaceAuthSuccess}
+          onAuthFailure={handleFaceAuthFailure}
+          onCancel={handleFaceAuthCancel}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="login-container">
@@ -365,30 +351,22 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           </button>
         </form>
 
-        {/* Quick login buttons for testing */}
-        <div className="quick-login-section">
-          <h3>Quick Login (Testing)</h3>
-          <div className="quick-login-buttons">
-            <button
-              type="button"
-              className="quick-login-btn teacher"
-              onClick={() => handleQuickLogin('teacher1', 'password123')}
-              disabled={isLoading}
-            >
-              Login as Teacher
-            </button>
-            <button
-              type="button"
-              className="quick-login-btn student"
-              onClick={() => handleQuickLogin('student1', 'password123')}
-              disabled={isLoading}
-            >
-              Login as Student
-            </button>
+        {/* Login help text */}
+        <div className="login-help">
+          <p>Use your assigned username and password to access the system.</p>
+          <div className="admin-info">
+            <p><strong>Default Admin Account:</strong></p>
+            <p><small>Username: <code>admin</code> | Password: <code>admin123</code></small></p>
+            <p className="security-warning">
+              <small>⚠️ Change the default password after first login!</small>
+            </p>
           </div>
-          <p className="quick-login-note">
-            These buttons use hardcoded test accounts for development
-          </p>
+          {!isElectron() && (
+            <div className="dev-mode-notice">
+              <p><strong>Development Mode:</strong></p>
+              <p><small>For full functionality, run <code>npm run dev</code> to start Electron.</small></p>
+            </div>
+          )}
         </div>
       </div>
     </div>

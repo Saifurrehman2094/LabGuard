@@ -1,0 +1,160 @@
+.violation-report {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.loading-container,
+.error-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px;
+  text-align: center;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e9ecef;
+  border-top: 3px solid #007bff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-container p {
+  margin: 0;
+  color: #6c757d;
+  font-size: 1rem;
+}
+
+.error-icon {
+  font-size: 3rem;
+  margin-bottom: 16px;
+}
+
+.error-container h3 {
+  margin: 0 0 8px 0;
+  color: #dc3545;
+  font-size: 1.25rem;
+}
+
+.error-container p {
+  margin: 0 0 20px 0;
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.retry-btn {
+  padding: 10px 20px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.retry-btn:hover {
+  background: #0056b3;
+}
+
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding: 24px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.header-content h2 {
+  margin: 0 0 8px 0;
+  color: #333;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.exam-info {
+  margin: 0;
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.refresh-btn,
+.export-btn {
+  padding: 10px 16px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.refresh-btn:hover {
+  background: #f8f9fa;
+  border-color: #adb5bd;
+}
+
+.export-btn {
+  background: #28a745;
+  color: white;
+  border-color: #28a745;
+}
+
+.export-btn:hover {
+  background: #218838;
+  border-color: #1e7e34;
+}
+
+@media (max-width: 768px) {
+  .violation-report {
+    padding: 16px;
+  }
+  
+  .report-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+    padding: 16px;
+  }
+  
+  .header-content h2 {
+    font-size: 1.25rem;
+  }
+  
+  .header-actions {
+    justify-content: stretch;
+  }
+  
+  .refresh-btn,
+  .export-btn {
+    flex: 1;
+    text-align: center;
+  }
+  
+  .loading-container,
+  .error-container {
+    padding: 40px 16px;
+  }
+}

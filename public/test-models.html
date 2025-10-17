@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Face-API Model Loading Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.min.js"></script>
+</head>
+<body>
+    <h1>Face-API Model Loading Test</h1>
+    <div id="status">Loading...</div>
+    <div id="results"></div>
+
+    <script>
+        async function testModelLoading() {
+            const statusDiv = document.getElementById('status');
+            const resultsDiv = document.getElementById('results');
+            
+            try {
+                statusDiv.innerHTML = 'Testing model file access...';
+                
+                // Test if we can fetch model files directly
+                const testFiles = [
+                    '/models/tiny_face_detector_model-weights_manifest.json',
+                    '/models/face_landmark_68_model-weights_manifest.json',
+                    '/models/face_recognition_model-weights_manifest.json'
+                ];
+                
+                for (const file of testFiles) {
+                    try {
+                        const response = await fetch(file);
+                        resultsDiv.innerHTML += `<p>✓ ${file}: ${response.status} ${response.statusText}</p>`;
+                    } catch (error) {
+                        resultsDiv.innerHTML += `<p>✗ ${file}: ${error.message}</p>`;
+                    }
+                }
+                
+                statusDiv.innerHTML = 'Loading face-api models...';
+                
+                // Test actual model loading
+                const modelPath = '/models';
+                
+                try {
+                    await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
+                    resultsDiv.innerHTML += '<p>✓ Tiny Face Detector loaded successfully</p>';
+                } catch (error) {
+                    resultsDiv.innerHTML += `<p>✗ Tiny Face Detector failed: ${error.message}</p>`;
+                }
+                
+                try {
+                    await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
+                    resultsDiv.innerHTML += '<p>✓ Face Landmark 68 loaded successfully</p>';
+                } catch (error) {
+                    resultsDiv.innerHTML += `<p>✗ Face Landmark 68 failed: ${error.message}</p>`;
+                }
+                
+                try {
+                    await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath);
+                    resultsDiv.innerHTML += '<p>✓ Face Recognition loaded successfully</p>';
+                } catch (error) {
+                    resultsDiv.innerHTML += `<p>✗ Face Recognition failed: ${error.message}</p>`;
+                }
+                
+                statusDiv.innerHTML = 'Test completed!';
+                
+            } catch (error) {
+                statusDiv.innerHTML = 'Test failed!';
+                resultsDiv.innerHTML += `<p>Critical error: ${error.message}</p>`;
+            }
+        }
+        
+        // Run test when page loads
+        window.addEventListener('load', testModelLoading);
+    </script>
+</body>
+</html>
