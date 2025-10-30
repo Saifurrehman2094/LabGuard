@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import * as faceapi from '@vladmandic/face-api';
 import ModelManager from '../services/modelManager';
+import ModelDiagnostics from './ModelDiagnostics';
 import './FaceCapture.css';
 
 interface FaceCaptureProps {
@@ -40,6 +41,7 @@ const FaceCapture: React.FC<FaceCaptureProps> = ({
     const [currentDetection, setCurrentDetection] = useState<Detection | null>(null);
     const [captureCount, setCaptureCount] = useState(0);
     const [status, setStatus] = useState<string>('Initializing...');
+    const [showDiagnostics, setShowDiagnostics] = useState(false);
 
     // Load face-api models
     const loadModels = useCallback(async () => {
@@ -335,6 +337,20 @@ const FaceCapture: React.FC<FaceCaptureProps> = ({
                     >
                         Stop Camera
                     </button>
+
+                    <button
+                        onClick={() => setShowDiagnostics(true)}
+                        className="face-capture__button"
+                        style={{ backgroundColor: '#666', fontSize: '12px' }}
+                    >
+                        Debug Models
+                    </button>
+                </div>
+            </div>
+
+            {showDiagnostics && (
+                <ModelDiagnostics onClose={() => setShowDiagnostics(false)} />
+            )}
                 </div>
             </div>
         </div>

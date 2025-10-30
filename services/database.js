@@ -433,7 +433,7 @@ class DatabaseService {
   getAvailableExams(studentId) {
     try {
       const stmt = this.db.prepare(`
-        SELECT e.exam_id, e.teacher_id, e.title, e.start_time, e.end_time, e.allowed_apps, e.created_at,
+        SELECT e.exam_id, e.teacher_id, e.title, e.pdf_path, e.start_time, e.end_time, e.allowed_apps, e.created_at,
                u.full_name as teacher_name
         FROM exams e
         JOIN users u ON e.teacher_id = u.user_id
@@ -469,7 +469,17 @@ class DatabaseService {
       const exam = stmt.get(examId);
 
       if (exam) {
-        exam.allowedApps = JSON.parse(exam.allowed_apps);
+        // Convert to camelCase for consistency
+        return {
+          examId: exam.exam_id,
+          teacherId: exam.teacher_id,
+          title: exam.title,
+          pdfPath: exam.pdf_path,
+          startTime: exam.start_time,
+          endTime: exam.end_time,
+          allowedApps: JSON.parse(exam.allowed_apps),
+          createdAt: exam.created_at
+        };
       }
 
       return exam;
@@ -588,6 +598,106 @@ class DatabaseService {
     }
   }
 
+  // APP VIOLATION LOGGING METHODS
+
+  /**
+   * Log application violation when unauthorized app gains focus
+   */
+  logAppViolation(violationData) {
+    try {
+      const {
+        examId,
+        studentId,
+        deviceId,
+        appName,
+        windowTitle,
+        focusStartTime,
+        screenshotPath
+      } = violationData;
+
+      const violationId = uuidv4();
+      const startTime = focusStartTime || new Date().toISOString();
+
+      const stmt = this.db.prepare(`
+        INSERT INTO app_violations (
+          violation_id, exam_id, student_id, device_id, app_name, 
+          window_title, focus_start_time, screenshot_path, screenshot_captured
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const result = stmt.run(
+        violationId,
+        examId,
+        studentId,
+        deviceId,
+        appName,
+        windowTitle || null,
+        startTime,
+        screenshotPath || null,
+        screenshotPath ? 1 : 0
+      );
+
+      return {
+        violationId,
+        examId,
+        studentId,
+        deviceId,
+        appName,
+        windowTitle,
+        focusStartTime: startTime,
+        screenshotPath,
+        screenshotCaptured: screenshotPath ? true : false,
+        createdAt: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('Error logging app violation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update violation end time and calculate duration when app loses focus
+   */
+  updateViolationEndTime(violationId, endTime) {
+    try {
+      const endTimeISO = endTime || new Date().toISOString();
+
+      // Get the start time to calculate duration
+      const getStartStmt = this.db.prepare(`
+        SELECT focus_start_time FROM app_violations WHERE violation_id = ?
+      `);
+      const violation = getStartStmt.get(violationId);
+
+      if (!violation) {
+        throw new Error(`Violation with ID ${violationId} not found`);
+      }
+
+      // Calculate duration in seconds
+      const startTime = new Date(violation.focus_start_time);
+      const endTimeDate = new Date(endTimeISO);
+      const durationSeconds = Math.floor((endTimeDate - startTime) / 1000);
+
+      const updateStmt = this.db.prepare(`
+        UPDATE app_violations 
+        SET focus_end_time = ?, duration_seconds = ?
+        WHERE violation_id = ?
+      `);
+
+      const result = updateStmt.run(endTimeISO, durationSeconds, violationId);
+
+      return {
+        violationId,
+        focusEndTime: endTimeISO,
+        durationSeconds,
+        updated: result.changes > 0
+      };
+    } catch (error) {
+      console.error('Error updating violation end time:', error);
+      throw error;
+    }
+  }
+
   /**
    * Get events by exam ID
    */
@@ -679,9 +789,9 @@ class DatabaseService {
   }
 
   /**
-   * Seed database with test accounts
+   * Initialize default admin account and system settings
    */
-  async seedTestAccounts() {
+  async initializeDefaultAdmin() {
     try {
       // Check if admin account exists
       const adminExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('admin');
@@ -701,7 +811,8 @@ class DatabaseService {
       const teacherExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('teacher1');
       const studentExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('student1');
 
-      if (teacherExists.count === 0) {
+      if (adminExists.count === 0) {
+        // Create default admin account only if no admin exists
         await this.createUser({
           username: 'teacher1',
           password: 'password123',
@@ -710,7 +821,8 @@ class DatabaseService {
           email: 'john.smith@university.edu',
           createdBy: 'admin'
         });
-        console.log('Created test teacher account: teacher1/password123');
+        console.log('Created default admin account: admin/admin123');
+        console.log('IMPORTANT: Please change the default admin password after first login!');
       }
 
       if (studentExists.count === 0) {
@@ -725,9 +837,12 @@ class DatabaseService {
         console.log('Created test student account: student1/password123');
       }
 
-      // Create additional test accounts
-      const teacher2Exists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('teacher2');
-      const student2Exists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('student2');
+      return result;
+    } catch (error) {
+      console.error('Error getting face embedding:', error);
+      throw error;
+    }
+  }
 
       if (teacher2Exists.count === 0) {
         await this.createUser({
@@ -760,7 +875,7 @@ class DatabaseService {
 
       return true;
     } catch (error) {
-      console.error('Error seeding test accounts:', error);
+      console.error('Error getting audit logs:', error);
       throw error;
     }
   }

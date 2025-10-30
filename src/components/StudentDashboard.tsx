@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import WebStorageService from '../services/webStorage';
+import WarningPanel from './WarningPanel';
 import './StudentDashboard.css';
 
 interface User {
@@ -16,6 +17,7 @@ interface Exam {
   exam_id: string;
   teacher_id: string;
   title: string;
+  pdf_path?: string;
   start_time: string;
   end_time: string;
   allowed_apps: string[];
@@ -30,6 +32,7 @@ interface ExamSession {
   endTime: Date;
   timeRemaining: number;
   isActive: boolean;
+  isMonitoringActive: boolean;
 }
 
 interface StudentDashboardProps {
@@ -44,10 +47,46 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'available' | 'history' | 'session'>('available');
+  const [monitoringStatus, setMonitoringStatus] = useState<{
+    isActive: boolean;
+    hasPermissions: boolean;
+    errorMessage?: string;
+  }>({ isActive: false, hasPermissions: true });
 
   // Check if running in Electron
   const isElectron = () => {
     return !!(window as any).electronAPI;
+  };
+
+  // Get monitoring status display text
+  const getMonitoringStatusText = () => {
+    if (!currentSession) return '';
+
+    if (!isElectron()) {
+      return 'Monitoring not available (web mode)';
+    }
+
+    if (monitoringStatus.isActive) {
+      return 'Monitoring Active - Your activity is being tracked';
+    }
+
+    if (monitoringStatus.errorMessage) {
+      if (monitoringStatus.errorMessage === 'Starting monitoring...') {
+        return 'Starting monitoring system...';
+      }
+      return `Monitoring Error: ${monitoringStatus.errorMessage}`;
+    }
+
+    return 'Monitoring Inactive';
+  };
+
+  // Check if exam can proceed without monitoring
+  const canProceedWithoutMonitoring = () => {
+    // In development/web mode, allow exams without monitoring
+    if (!isElectron()) return true;
+
+    // In production, monitoring is required but exam can continue with warnings
+    return true;
   };
 
   // Load available exams
@@ -100,6 +139,35 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
     }
   };
 
+  // View PDF function
+  const viewPDF = async (exam: Exam) => {
+    try {
+      if (!exam.pdf_path) {
+        setError('No PDF available for this exam');
+        return;
+      }
+
+      setError(null); // Clear any previous errors
+
+      if (isElectron()) {
+        // Use Electron API to open PDF with system default application
+        const result = await (window as any).electronAPI.viewPDF(exam.exam_id);
+
+        if (!result.success) {
+          setError(result.error || 'Failed to open PDF');
+        }
+        // If successful, PDF will open in default system application
+      } else {
+        // In web mode, try to open the PDF (limited functionality)
+        const pdfUrl = exam.pdf_path.startsWith('/') ? exam.pdf_path : `/${exam.pdf_path}`;
+        window.open(pdfUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Error viewing PDF:', error);
+      setError('Failed to open PDF. Please try again.');
+    }
+  };
+
   // Start exam session
   const startExam = async (exam: Exam) => {
     try {
@@ -120,6 +188,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
         return;
       }
 
+      // Create initial exam session (monitoring will be started separately)
       if (isElectron()) {
         // Start monitoring
         const monitoringResult = await (window as any).electronAPI.startMonitoring(
@@ -140,11 +209,54 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
         startTime: now,
         endTime: endTime,
         timeRemaining: Math.floor((endTime.getTime() - now.getTime()) / 1000),
+        isActive: true,
+        isMonitoringActive: false
         isActive: true
       };
 
       setCurrentSession(session);
       setActiveTab('session');
+
+      // Initialize monitoring if in Electron environment
+      if (isElectron()) {
+        // Set monitoring status to indicate we're starting
+        setMonitoringStatus({
+          isActive: false,
+          hasPermissions: true,
+          errorMessage: 'Starting monitoring...'
+        });
+
+        try {
+          // Start monitoring with proper allowed apps list
+          const allowedApps = exam.allowed_apps || exam.allowedApps || [];
+          const monitoringResult = await (window as any).electronAPI.startMonitoring(
+            exam.exam_id,
+            user.userId,
+            allowedApps
+          );
+
+          if (!monitoringResult.success) {
+            setError('Failed to start exam monitoring: ' + monitoringResult.error);
+            setMonitoringStatus({
+              isActive: false,
+              hasPermissions: false,
+              errorMessage: monitoringResult.error
+            });
+            // Don't return here - allow exam to continue without monitoring
+          } else {
+            // Monitoring started successfully - status will be updated by event handler
+            console.log('Monitoring started successfully for exam:', exam.exam_id);
+          }
+        } catch (monitoringError) {
+          console.error('Error starting monitoring:', monitoringError);
+          setError('Failed to initialize monitoring: ' + (monitoringError as Error).message);
+          setMonitoringStatus({
+            isActive: false,
+            hasPermissions: false,
+            errorMessage: (monitoringError as Error).message
+          });
+        }
+      }
     } catch (err) {
       setError('Failed to start exam: ' + (err as Error).message);
     }
@@ -153,6 +265,31 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
   // End exam session
   const endExam = async () => {
     try {
+      // Stop monitoring if it's active
+      if (isElectron() && currentSession) {
+        try {
+          const stopResult = await (window as any).electronAPI.stopMonitoring();
+          if (!stopResult.success) {
+            console.error('Failed to stop monitoring:', stopResult.error);
+            // Don't block exam ending due to monitoring stop failure
+          } else {
+            console.log('Monitoring stopped successfully for exam:', currentSession.examId);
+          }
+        } catch (stopError) {
+          console.error('Error stopping monitoring:', stopError);
+          // Don't block exam ending due to monitoring stop error
+        }
+      }
+
+      // Clear session and monitoring state
+      setCurrentSession(null);
+      setMonitoringStatus({ isActive: false, hasPermissions: true });
+      setActiveTab('available');
+
+      // Clear any errors
+      setError(null);
+
+      // Reload data to reflect any changes
       if (isElectron() && currentSession) {
         await (window as any).electronAPI.stopMonitoring();
       }
@@ -165,6 +302,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
       await loadExamHistory();
     } catch (err) {
       console.error('Failed to end exam:', err);
+      setError('Failed to properly end exam: ' + (err as Error).message);
     }
   };
 
@@ -186,6 +324,71 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
     }, 1000);
 
     return () => clearInterval(timer);
+  }, [currentSession]);
+
+  // Monitoring status event handler
+  useEffect(() => {
+    if (!isElectron() || !currentSession) return;
+
+    const handleMonitoringStatusChange = (event: any, statusData: any) => {
+      switch (statusData.type) {
+        case 'started':
+          setMonitoringStatus({
+            isActive: true,
+            hasPermissions: true
+          });
+          // Update session to reflect monitoring is active
+          setCurrentSession(prev => prev ? { ...prev, isMonitoringActive: true } : null);
+          break;
+
+        case 'stopped':
+          setMonitoringStatus({
+            isActive: false,
+            hasPermissions: true
+          });
+          // Update session to reflect monitoring is stopped
+          setCurrentSession(prev => prev ? { ...prev, isMonitoringActive: false } : null);
+          break;
+
+        case 'error':
+          setMonitoringStatus({
+            isActive: false,
+            hasPermissions: true,
+            errorMessage: statusData.data.message || 'Monitoring error occurred'
+          });
+          setError('Monitoring error: ' + (statusData.data.message || 'Unknown error'));
+          break;
+
+        case 'critical_error':
+          setMonitoringStatus({
+            isActive: false,
+            hasPermissions: false,
+            errorMessage: statusData.data.message || 'Critical monitoring error'
+          });
+          setError('Critical monitoring error: ' + (statusData.data.message || 'Unknown error'));
+          break;
+
+        case 'restarted':
+          setMonitoringStatus({
+            isActive: true,
+            hasPermissions: true
+          });
+          setError(null); // Clear any previous errors
+          break;
+
+        default:
+          break;
+      }
+    };
+
+    // Set up monitoring status event listener
+    const removeStatusListener = (window as any).electronAPI.onMonitoringStatusChange(handleMonitoringStatusChange);
+
+    return () => {
+      if (removeStatusListener) {
+        removeStatusListener();
+      }
+    };
   }, [currentSession]);
 
   // Load data on component mount
@@ -287,6 +490,46 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
           </div>
 
           <div className="session-status">
+            <div className={`status-indicator ${monitoringStatus.isActive ? 'active' : 'inactive'}`}>
+              <span className="status-dot"></span>
+              {getMonitoringStatusText()}
+            </div>
+
+            {monitoringStatus.isActive ? (
+              <div className="monitoring-active-info">
+                <p>✅ Your activity is being monitored for academic integrity.</p>
+                <p>Please use only the allowed applications listed in the exam details.</p>
+              </div>
+            ) : (
+              <div className="monitoring-warning">
+                {monitoringStatus.errorMessage && monitoringStatus.errorMessage !== 'Starting monitoring...' ? (
+                  <>
+                    <p>⚠️ Monitoring system encountered an issue:</p>
+                    <p className="error-details">{monitoringStatus.errorMessage}</p>
+                    {canProceedWithoutMonitoring() ? (
+                      <p>You may continue with the exam, but violations may not be tracked.</p>
+                    ) : (
+                      <p>Please contact your instructor for assistance.</p>
+                    )}
+                  </>
+                ) : monitoringStatus.errorMessage === 'Starting monitoring...' ? (
+                  <p>🔄 Initializing monitoring system...</p>
+                ) : (
+                  <p>ℹ️ Monitoring is not currently active.</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Warning Panel for violation display */}
+          {currentSession.isMonitoringActive && (
+            <WarningPanel
+              examId={currentSession.examId}
+              studentId={user.userId}
+              isMonitoringActive={monitoringStatus.isActive}
+            />
+          )}
+
             <div className="status-indicator active">
               <span className="status-dot"></span>
               Monitoring Active
@@ -340,6 +583,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
                           <p><strong>Teacher:</strong> {exam.teacher_name}</p>
                           <p><strong>Start:</strong> {formatDateTime(exam.start_time)}</p>
                           <p><strong>End:</strong> {formatDateTime(exam.end_time)}</p>
+                          <p><strong>Question Paper:</strong> {exam.pdf_path ? '📄 PDF Available' : 'No PDF uploaded'}</p>
                           <p><strong>Allowed Apps:</strong> {
                             (() => {
                               const apps = exam.allowed_apps || exam.allowedApps || [];
@@ -349,6 +593,15 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
                         </div>
 
                         <div className="exam-actions">
+                          {exam.pdf_path && (
+                            <button
+                              onClick={() => viewPDF(exam)}
+                              className="view-pdf-btn"
+                              title="View exam question paper"
+                            >
+                              📄 View PDF
+                            </button>
+                          )}
                           {canStartExam(exam) ? (
                             <button
                               onClick={() => startExam(exam)}

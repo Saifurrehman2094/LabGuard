@@ -70,6 +70,12 @@ npm run build:electron
 npm run dist
 ```
 
+### Database Management
+```bash
+# Clean up test data and reset to fresh state (keeps admin account)
+npm run cleanup-db
+```
+
 ## Security Features
 
 - Context isolation enabled
@@ -98,8 +104,44 @@ The following tasks will implement the core functionality:
 5. Student dashboard and exam participation (Task 6)
 6. Application monitoring service (Task 7)
 
+## Initial Setup
+
+When you first run LAB-Guard, you'll be greeted with a setup wizard that guides you through the initial configuration:
+
+1. **Default Admin Account**: The system creates a default admin account:
+   - Username: `admin`
+   - Password: `admin123`
+   - **⚠️ IMPORTANT**: Change this password immediately after first login!
+
+2. **User Management**: All users (teachers and students) must be created by the admin through the Admin Panel. No test accounts are pre-created.
+
+3. **Dynamic System**: The application is fully dynamic - all data is managed through the database with no hardcoded test data.
+
+## User Roles & Responsibilities
+
+### Admin
+- Create and manage teacher accounts
+- Create and manage student accounts (or bulk import via CSV)
+- Configure system settings (face recognition thresholds, etc.)
+- View audit logs and system statistics
+- Monitor face registration status
+
+### Teachers
+- Create and manage exams
+- Upload PDF question papers
+- Set allowed applications for each exam
+- Monitor exam sessions and view violations
+- Access exam reports and student activity
+
+### Students
+- Register face biometrics for authentication
+- Participate in assigned exams
+- View exam history and results
+- Automatic monitoring during exam sessions
+
 ## Development Notes
 
 - The project uses legacy peer deps to resolve React Scripts compatibility
 - Admin privileges are requested during installation for monitoring capabilities
-- All services are currently placeholder files that will be implemented in subsequent tasks
+- No test data is seeded - all users must be created through the admin interface
+- The system includes a setup wizard for first-time configuration

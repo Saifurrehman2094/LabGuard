@@ -182,6 +182,22 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           }]);
         }
       } else {
+        // Development mode - show message that Electron is required
+        setErrors([{
+          message: 'Development mode detected. Please use "npm run dev" to start both React and Electron for full functionality. The web-only version has limited features.'
+        }]);
+
+        // For basic testing, allow admin login only
+        if (formData.username.trim() === 'admin' && formData.password.trim() === 'admin123') {
+          onLoginSuccess({
+            userId: 'admin-web',
+            username: 'admin',
+            role: 'admin',
+            fullName: 'System Administrator (Web Mode)',
+            token: 'web-token-admin',
+            deviceId: deviceId || 'web-device',
+            faceVerified: false
+          });
         // Development mode - use WebStorageService
         const webStorage = WebStorageService.getInstance();
         const result = await webStorage.login(formData.username.trim(), formData.password.trim());

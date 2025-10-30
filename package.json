@@ -6,6 +6,10 @@
   "homepage": "./",
   "scripts": {
     "start": "electron .",
+    "start:prod": "npm run build && set NODE_ENV=production && electron .",
+    "start:full": "concurrently \"npm run dev:react\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev": "concurrently \"npm run dev:react\" \"wait-on http://localhost:3001 && electron .\"",
+    "dev:react": "set PORT=3001 && react-scripts start",
     "start:full": "concurrently \"npm run dev:react\" \"wait-on http://localhost:3000 && electron .\"",
     "dev": "concurrently \"npm run dev:react\" \"wait-on http://localhost:3000 && electron .\"",
     "dev:react": "set PORT=3000 && react-scripts start",
@@ -14,6 +18,8 @@
     "dist": "npm run build && electron-builder",
     "test": "react-scripts test",
     "download-models": "node scripts/download-models.js",
+    "cleanup-db": "node scripts/cleanup-test-data.js",
+    "clear-audit-logs": "node scripts/clear-audit-logs.js",
     "postinstall": "npm run download-models"
   },
   "keywords": [
@@ -69,6 +75,7 @@
     "electron-builder": "^26.0.12",
     "electron-is-dev": "^3.0.1",
     "jsonwebtoken": "^9.0.2",
+    "koffi": "^2.14.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-scripts": "^5.0.1",

@@ -18,6 +18,7 @@ class ModelManager {
   private static instance: ModelManager;
   private modelsLoaded = false;
   private modelPath = '/models';
+  private fallbackPaths = ['/models', './models', `${window.location.origin}/models`, 'models'];
   private loadingPromise: Promise<ModelValidationResult> | null = null;
 
   private constructor() {}
@@ -52,6 +53,51 @@ class ModelManager {
     }
 
     return result;
+  }
+
+  /**
+   * Find working model path
+   */
+  private async findWorkingModelPath(): Promise<string> {
+    console.log('Current location:', window.location.href);
+    console.log('Protocol:', window.location.protocol);
+    
+    for (const path of this.fallbackPaths) {
+      try {
+        const testUrl = `${path}/tiny_face_detector_model-weights_manifest.json`;
+        console.log('Testing model path:', testUrl);
+        
+        // For file:// protocol, we might need to handle differently
+        if (window.location.protocol === 'file:') {
+          // For file protocol, we need to return the full path that face-api can use
+          const basePath = window.location.href.replace('index.html', '');
+          const fullModelPath = basePath + path.replace('/', '');
+          const testUrl = fullModelPath + '/tiny_face_detector_model-weights_manifest.json';
+          console.log('File protocol - trying full path:', testUrl);
+          
+          try {
+            const response = await fetch(testUrl);
+            if (response.ok) {
+              console.log('✓ Found working model path (file protocol):', fullModelPath);
+              return fullModelPath; // Return the full path for file protocol
+            }
+          } catch (fileError) {
+            console.log('File protocol path failed:', testUrl, fileError instanceof Error ? fileError.message : String(fileError));
+          }
+        }
+        
+        const response = await fetch(testUrl);
+        if (response.ok) {
+          console.log('✓ Found working model path:', path);
+          return path;
+        } else {
+          console.log('✗ Path returned status:', response.status, response.statusText);
+        }
+      } catch (error) {
+        console.log('✗ Path failed:', path, error instanceof Error ? error.message : String(error));
+      }
+    }
+    throw new Error('No working model path found');
   }
 
   /**

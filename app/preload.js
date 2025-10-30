@@ -51,10 +51,51 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemSettings: () => ipcRenderer.invoke('admin:get-system-settings'),
   updateSystemSettings: (settings) => ipcRenderer.invoke('admin:update-system-settings', settings),
 
+  // System methods
+  getSystemSetupStatus: () => ipcRenderer.invoke('system:get-setup-status'),
+
+  // PDF methods
+  viewPDF: (examId) => ipcRenderer.invoke('pdf:view', examId),
+
   // Event listeners
   onMonitoringEvent: (callback) => {
-    ipcRenderer.on('monitoring:event', callback);
-    return () => ipcRenderer.removeListener('monitoring:event', callback);
+    // Handle violation events for WarningPanel
+    const violationStartHandler = (event, data) => callback(event, { type: 'violation_start', violation: data });
+    const violationEndHandler = (event, data) => callback(event, { type: 'violation_end', violation: data });
+    const violationUpdateHandler = (event, data) => callback(event, { type: 'violation_update', violation: data });
+
+    ipcRenderer.on('monitoring:violation-started', violationStartHandler);
+    ipcRenderer.on('monitoring:violation-ended', violationEndHandler);
+    ipcRenderer.on('monitoring:application-changed', violationUpdateHandler);
+
+    return () => {
+      ipcRenderer.removeListener('monitoring:violation-started', violationStartHandler);
+      ipcRenderer.removeListener('monitoring:violation-ended', violationEndHandler);
+      ipcRenderer.removeListener('monitoring:application-changed', violationUpdateHandler);
+    };
+  },
+
+  // Monitoring status event listeners
+  onMonitoringStatusChange: (callback) => {
+    const startedHandler = (event, data) => callback(event, { type: 'started', data });
+    const stoppedHandler = (event, data) => callback(event, { type: 'stopped', data });
+    const errorHandler = (event, data) => callback(event, { type: 'error', data });
+    const criticalErrorHandler = (event, data) => callback(event, { type: 'critical_error', data });
+    const restartedHandler = (event, data) => callback(event, { type: 'restarted', data });
+
+    ipcRenderer.on('monitoring:started', startedHandler);
+    ipcRenderer.on('monitoring:stopped', stoppedHandler);
+    ipcRenderer.on('monitoring:error', errorHandler);
+    ipcRenderer.on('monitoring:critical-error', criticalErrorHandler);
+    ipcRenderer.on('monitoring:service-restarted', restartedHandler);
+
+    return () => {
+      ipcRenderer.removeListener('monitoring:started', startedHandler);
+      ipcRenderer.removeListener('monitoring:stopped', stoppedHandler);
+      ipcRenderer.removeListener('monitoring:error', errorHandler);
+      ipcRenderer.removeListener('monitoring:critical-error', criticalErrorHandler);
+      ipcRenderer.removeListener('monitoring:service-restarted', restartedHandler);
+    };
   }
 });
 
