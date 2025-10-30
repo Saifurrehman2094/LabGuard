@@ -114,18 +114,7 @@ class ModelManager {
     let totalSize = 0;
 
     try {
-      console.log('Finding working model path...');
-      
-      // Find a working model path
-      try {
-        this.modelPath = await this.findWorkingModelPath();
-      } catch (pathError) {
-        console.error('Failed to find working model path:', pathError);
-        // Continue with default path and let individual model loading handle errors
-      }
-      
       console.log('Loading face-api models from:', this.modelPath);
-      console.log('Current window location:', window.location.origin);
 
       // Load Tiny Face Detector (Face Detection)
       try {

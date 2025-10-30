@@ -313,6 +313,7 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
             pdfFile: null,
             pdfFilePath: undefined,
             pdfFileName: undefined
+            pdfFile: null
           });
 
           // Reset file input

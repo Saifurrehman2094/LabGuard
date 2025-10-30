@@ -41,6 +41,11 @@ function createWindow() {
 
   // Load the app - temporarily force production build
   const startUrl = `file://${path.join(__dirname, '../build/index.html')}`;
+  // Load the app
+  const startUrl = isDev
+    ? 'http://localhost:3000'
+    : `file://${path.join(__dirname, '../build/index.html')}`;
+
   console.log('Loading URL:', startUrl);
   mainWindow.loadURL(startUrl);
 
@@ -69,12 +74,83 @@ function createWindow() {
     const parsedUrl = new URL(navigationUrl);
 
     if (parsedUrl.origin !== 'http://localhost:3001' && parsedUrl.origin !== 'file://') {
+    if (parsedUrl.origin !== 'http://localhost:3000' && parsedUrl.origin !== 'file://') {
       event.preventDefault();
     }
   });
 }
 
 // No test data seeding - all data will be managed dynamically by admin
+// Seed test exams for demonstration
+async function seedTestExams(dbService) {
+  try {
+    // Check if exams already exist to avoid duplicates
+    const teacher1 = await dbService.getUserByCredentials('teacher1', 'password123');
+    if (!teacher1) return;
+
+    const existingExams = dbService.getExamsByTeacher(teacher1.user_id);
+    if (existingExams.length > 0) {
+      console.log('Test exams already exist, skipping seeding');
+      return;
+    }
+
+    // Create 5 fresh sample exams for teacher1
+    const currentDate = new Date();
+    const futureDate1 = new Date(currentDate.getTime() + 7 * 24 * 60 * 60 * 1000); // 1 week from now
+    const futureDate2 = new Date(currentDate.getTime() + 14 * 24 * 60 * 60 * 1000); // 2 weeks from now
+    const futureDate3 = new Date(currentDate.getTime() + 21 * 24 * 60 * 60 * 1000); // 3 weeks from now
+    const futureDate4 = new Date(currentDate.getTime() + 28 * 24 * 60 * 60 * 1000); // 4 weeks from now
+    const futureDate5 = new Date(currentDate.getTime() + 35 * 24 * 60 * 60 * 1000); // 5 weeks from now
+
+    const exams = [
+      {
+        title: 'Mathematics Final Exam',
+        startTime: futureDate1.toISOString().slice(0, 19).replace('T', ' '),
+        endTime: new Date(futureDate1.getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+        allowedApps: ['calc.exe', 'notepad.exe']
+      },
+      {
+        title: 'Physics Midterm Exam',
+        startTime: futureDate2.toISOString().slice(0, 19).replace('T', ' '),
+        endTime: new Date(futureDate2.getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+        allowedApps: ['calc.exe']
+      },
+      {
+        title: 'Computer Science Quiz',
+        startTime: futureDate3.toISOString().slice(0, 19).replace('T', ' '),
+        endTime: new Date(futureDate3.getTime() + 1.5 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+        allowedApps: ['Code.exe', 'chrome.exe', 'notepad.exe']
+      },
+      {
+        title: 'Chemistry Lab Assessment',
+        startTime: futureDate4.toISOString().slice(0, 19).replace('T', ' '),
+        endTime: new Date(futureDate4.getTime() + 2.5 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+        allowedApps: ['calc.exe', 'ChemSketch.exe']
+      },
+      {
+        title: 'English Literature Essay',
+        startTime: futureDate5.toISOString().slice(0, 19).replace('T', ' '),
+        endTime: new Date(futureDate5.getTime() + 4 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
+        allowedApps: ['winword.exe', 'notepad.exe']
+      }
+    ];
+
+    for (const exam of exams) {
+      dbService.createExam({
+        teacherId: teacher1.user_id,
+        title: exam.title,
+        pdfPath: null,
+        startTime: exam.startTime,
+        endTime: exam.endTime,
+        allowedApps: exam.allowedApps
+      });
+    }
+
+    console.log('Created 5 fresh sample exams for teacher1');
+  } catch (error) {
+    console.error('Error seeding test exams:', error);
+  }
+}
 
 // Initialize services
 async function initializeServices() {
@@ -87,6 +163,17 @@ async function initializeServices() {
     // Initialize default admin account and system settings
     await dbService.initializeDefaultAdmin();
     console.log('Default admin initialized');
+    // Clear existing data and start fresh (development only)
+    // dbService.clearAllData(); // DISABLED: This was clearing face registrations
+    // console.log('Database cleared');
+
+    // Seed test accounts for development
+    await dbService.seedTestAccounts();
+    console.log('Test accounts seeded');
+
+    // Create some test exams for demonstration
+    await seedTestExams(dbService);
+    console.log('Test exams seeded');
 
     console.log('Initializing auth service...');
     authService = new AuthService(dbService);
@@ -414,6 +501,344 @@ ipcMain.handle('db:getStudentExamHistory', async (event, studentId) => {
   }
 });
 
+ipcMain.handle('monitoring:start', async (event, examId, studentId, allowedApps) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'student') {
+      return {
+        success: false,
+        error: 'Unauthorized: Only students can start monitoring'
+      };
+    }
+
+    // Log exam start event
+    const deviceId = authService.getCurrentDeviceId();
+    dbService.logEvent({
+      examId,
+      studentId,
+      deviceId,
+      eventType: 'exam_start',
+      windowTitle: null,
+      processName: null,
+      isViolation: false
+    });
+
+    // TODO: Start actual monitoring service (will be implemented in task 7)
+    console.log('Monitoring started for exam:', examId, 'student:', studentId);
+
+    return {
+      success: true,
+      message: 'Monitoring started successfully'
+    };
+  } catch (error) {
+    console.error('Error starting monitoring:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('monitoring:stop', async (event) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'student') {
+      return {
+        success: false,
+        error: 'Unauthorized: Only students can stop monitoring'
+      };
+    }
+
+    // TODO: Stop actual monitoring service (will be implemented in task 7)
+    console.log('Monitoring stopped for user:', currentUser.userId);
+
+    return {
+      success: true,
+      message: 'Monitoring stopped successfully'
+    };
+  } catch (error) {
+    console.error('Error stopping monitoring:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// IPC handlers for exam management
+ipcMain.handle('exam:create', async (event, examData) => {
+  try {
+    console.log('IPC auth:verify-face called with sessionId:', sessionId);
+
+    if (!authService) {
+      return {
+        success: false,
+        error: 'Authentication service not initialized'
+      };
+    }
+
+    const result = await authService.completeFaceAuth(sessionId, faceEmbedding);
+    console.log('Face verification result:', result);
+
+    return result;
+  } catch (error) {
+    console.error('Face verification error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('face:store-embedding', async (event, userId, embedding, confidenceScore) => {
+  try {
+    console.log('IPC face:store-embedding called for user:', userId);
+
+    if (!authService || !authService.faceService) {
+      return {
+        success: false,
+        error: 'Face recognition service not initialized'
+      };
+    let pdfPath = null;
+
+    // Handle PDF file upload if provided
+    if (examData.pdfFile) {
+      const { dialog } = require('electron');
+
+      // In a real implementation, we would handle the file from the renderer
+      // For now, we'll simulate the file upload process
+      try {
+        const uploadResult = await fileService.uploadPDF(
+          examData.pdfFile.path, // This would come from the file dialog
+          `temp-${Date.now()}`, // Temporary exam ID
+          examData.pdfFile.name
+        );
+        pdfPath = uploadResult.filePath;
+      } catch (fileError) {
+        return {
+          success: false,
+          error: `File upload failed: ${fileError.message}`
+        };
+      }
+    }
+
+    const result = await authService.faceService.storeFaceEmbedding(userId, embedding, confidenceScore);
+    console.log('Face embedding stored:', result);
+
+    return {
+      success: true,
+      data: result
+    };
+  } catch (error) {
+    console.error('Face embedding storage error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('face:verify-embedding', async (event, userId, embedding) => {
+  try {
+    console.log('IPC face:verify-embedding called for user:', userId);
+
+    if (!authService || !authService.faceService) {
+      return {
+        success: false,
+        error: 'Face recognition service not initialized'
+      };
+    // If we uploaded a PDF with a temporary name, rename it to use the actual exam ID
+    if (pdfPath && examData.pdfFile) {
+      const newUploadResult = await fileService.uploadPDF(
+        pdfPath,
+        exam.examId,
+        examData.pdfFile.name
+      );
+
+      // Delete the temporary file
+      fileService.deletePDF(`temp-${Date.now()}`);
+
+      // Update exam with correct PDF path
+      dbService.updateExam(exam.examId, { pdfPath: newUploadResult.filePath });
+      exam.pdfPath = newUploadResult.filePath;
+    }
+
+    const result = await authService.faceService.verifyFace(userId, embedding);
+    console.log('Face verification result:', result);
+
+    return {
+      success: true,
+      data: result
+    };
+  } catch (error) {
+    console.error('Face verification error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('face:get-threshold', async (event) => {
+  try {
+    if (!authService || !authService.faceService) {
+      return {
+        success: false,
+        error: 'Face recognition service not initialized'
+      };
+    }
+
+    const threshold = authService.faceService.getMatchingThreshold();
+
+    return {
+      success: true,
+      threshold
+    };
+  } catch (error) {
+    console.error('Get threshold error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('face:set-threshold', async (event, threshold) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'admin') {
+      return {
+        success: false,
+        error: 'Admin access required'
+      };
+    }
+
+    if (!authService || !authService.faceService) {
+      return {
+        success: false,
+        error: 'Face recognition service not initialized'
+      };
+    }
+
+    const result = authService.faceService.setMatchingThreshold(threshold);
+
+    return {
+      success: true,
+      threshold: authService.faceService.getMatchingThreshold()
+    };
+  } catch (error) {
+    console.error('Set threshold error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('face:has-registered', async (event, userId) => {
+  try {
+    if (!authService || !authService.faceService) {
+      return {
+        success: false,
+        error: 'Face recognition service not initialized'
+      };
+    }
+
+    const hasRegistered = authService.faceService.hasRegisteredFace(userId);
+
+    return {
+      success: true,
+      hasRegistered
+    };
+  } catch (error) {
+    console.error('Check face registration error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('face:register-multiple', async (event, userId, embeddings, confidenceScores) => {
+  try {
+    console.log('IPC face:register-multiple called for user:', userId);
+
+    if (!authService || !authService.faceService) {
+      return {
+        success: false,
+        error: 'Face recognition service not initialized'
+      };
+    }
+
+    const result = await authService.faceService.registerUserFaceWithMultipleCaptures(userId, embeddings, confidenceScores);
+    console.log('Multiple face registration result:', result);
+
+    return {
+      success: true,
+      data: result
+    };
+  } catch (error) {
+    console.error('Multiple face registration error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+// IPC handlers for student exam access
+ipcMain.handle('db:getAvailableExams', async (event, studentId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'student') {
+      return {
+        success: false,
+        error: 'Unauthorized: Only students can access available exams'
+      };
+    }
+
+    const exams = dbService.getAvailableExams(studentId);
+    return {
+      success: true,
+      exams
+    };
+  } catch (error) {
+    console.error('Error getting available exams:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('db:getStudentExamHistory', async (event, studentId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'student' && currentUser.userId !== studentId)) {
+    const success = dbService.updateExam(updateData.examId, updateFields);
+
+    if (!success) {
+      return {
+        success: false,
+        error: 'Unauthorized: Cannot access other student\'s exam history'
+      };
+    }
+
+    // Get completed exams for this student from events table
+    const history = dbService.getStudentExamHistory(studentId);
+    return {
+      success: true,
+      exams: history
+    };
+  } catch (error) {
+    console.error('Error getting student exam history:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
 // Setup monitoring event handlers for real-time communication
 function setupMonitoringEventHandlers() {
   if (!monitoringController) {
@@ -552,6 +977,13 @@ ipcMain.handle('monitoring:start', async (event, examId, studentId, allowedApps)
 
     return result;
 
+    // Delete exam from database
+    const success = dbService.deleteExam(examId);
+
+    return {
+      success,
+      error: success ? null : 'Failed to delete exam'
+    };
   } catch (error) {
     console.error('Error starting enhanced monitoring:', error);
     return {

@@ -114,34 +114,6 @@ class DatabaseService {
         console.log('Updated users table with admin role constraint');
       }
 
-      // Check if app_violations table exists, create if not
-      const appViolationsExists = this.db.prepare(`
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name='app_violations'
-      `).get();
-
-      if (!appViolationsExists) {
-        this.db.exec(`
-          CREATE TABLE app_violations (
-            violation_id TEXT PRIMARY KEY,
-            exam_id TEXT NOT NULL,
-            student_id TEXT NOT NULL,
-            device_id TEXT NOT NULL,
-            app_name TEXT NOT NULL,
-            window_title TEXT,
-            focus_start_time DATETIME NOT NULL,
-            focus_end_time DATETIME,
-            duration_seconds INTEGER,
-            screenshot_path TEXT,
-            screenshot_captured INTEGER DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (exam_id) REFERENCES exams (exam_id),
-            FOREIGN KEY (student_id) REFERENCES users (user_id)
-          )
-        `);
-        console.log('Created app_violations table for monitoring system');
-      }
-
     } catch (error) {
       console.error('Error performing migrations:', error);
       // Don't throw error, continue with table creation
@@ -510,7 +482,7 @@ class DatabaseService {
         };
       }
 
-      return null;
+      return exam;
     } catch (error) {
       console.error('Error getting exam by ID:', error);
       throw error;
@@ -767,194 +739,6 @@ class DatabaseService {
   }
 
   /**
-   * Get app violations by exam ID with student details
-   */
-  getAppViolationsByExam(examId) {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT av.*, u.full_name as student_name, u.username
-        FROM app_violations av
-        JOIN users u ON av.student_id = u.user_id
-        WHERE av.exam_id = ?
-        ORDER BY av.focus_start_time ASC
-      `);
-
-      const violations = stmt.all(examId);
-
-      // Convert database format to camelCase for consistency
-      return violations.map(violation => ({
-        violationId: violation.violation_id,
-        examId: violation.exam_id,
-        studentId: violation.student_id,
-        studentName: violation.student_name,
-        username: violation.username,
-        deviceId: violation.device_id,
-        appName: violation.app_name,
-        windowTitle: violation.window_title,
-        focusStartTime: violation.focus_start_time,
-        focusEndTime: violation.focus_end_time,
-        durationSeconds: violation.duration_seconds,
-        screenshotPath: violation.screenshot_path,
-        screenshotCaptured: violation.screenshot_captured === 1,
-        createdAt: violation.created_at
-      }));
-    } catch (error) {
-      console.error('Error getting app violations by exam:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get app violations by student and exam
-   */
-  getAppViolationsByStudent(studentId, examId) {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT av.*, e.title as exam_title
-        FROM app_violations av
-        JOIN exams e ON av.exam_id = e.exam_id
-        WHERE av.student_id = ? AND av.exam_id = ?
-        ORDER BY av.focus_start_time ASC
-      `);
-
-      const violations = stmt.all(studentId, examId);
-
-      // Convert database format to camelCase for consistency
-      return violations.map(violation => ({
-        violationId: violation.violation_id,
-        examId: violation.exam_id,
-        examTitle: violation.exam_title,
-        studentId: violation.student_id,
-        deviceId: violation.device_id,
-        appName: violation.app_name,
-        windowTitle: violation.window_title,
-        focusStartTime: violation.focus_start_time,
-        focusEndTime: violation.focus_end_time,
-        durationSeconds: violation.duration_seconds,
-        screenshotPath: violation.screenshot_path,
-        screenshotCaptured: violation.screenshot_captured === 1,
-        createdAt: violation.created_at
-      }));
-    } catch (error) {
-      console.error('Error getting app violations by student:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get all app violations for a student across all exams
-   */
-  getAllAppViolationsByStudent(studentId) {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT av.*, e.title as exam_title, e.start_time as exam_start_time
-        FROM app_violations av
-        JOIN exams e ON av.exam_id = e.exam_id
-        WHERE av.student_id = ?
-        ORDER BY av.focus_start_time DESC
-      `);
-
-      const violations = stmt.all(studentId);
-
-      // Convert database format to camelCase for consistency
-      return violations.map(violation => ({
-        violationId: violation.violation_id,
-        examId: violation.exam_id,
-        examTitle: violation.exam_title,
-        examStartTime: violation.exam_start_time,
-        studentId: violation.student_id,
-        deviceId: violation.device_id,
-        appName: violation.app_name,
-        windowTitle: violation.window_title,
-        focusStartTime: violation.focus_start_time,
-        focusEndTime: violation.focus_end_time,
-        durationSeconds: violation.duration_seconds,
-        screenshotPath: violation.screenshot_path,
-        screenshotCaptured: violation.screenshot_captured === 1,
-        createdAt: violation.created_at
-      }));
-    } catch (error) {
-      console.error('Error getting all app violations by student:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get violation statistics for an exam
-   */
-  getViolationStatsByExam(examId) {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT 
-          COUNT(*) as total_violations,
-          COUNT(DISTINCT student_id) as students_with_violations,
-          COUNT(DISTINCT app_name) as unique_apps,
-          SUM(duration_seconds) as total_duration_seconds,
-          AVG(duration_seconds) as avg_duration_seconds,
-          app_name,
-          COUNT(*) as app_violation_count
-        FROM app_violations 
-        WHERE exam_id = ?
-        GROUP BY app_name
-        ORDER BY app_violation_count DESC
-      `);
-
-      const appStats = stmt.all(examId);
-
-      // Get overall stats
-      const overallStmt = this.db.prepare(`
-        SELECT 
-          COUNT(*) as total_violations,
-          COUNT(DISTINCT student_id) as students_with_violations,
-          COUNT(DISTINCT app_name) as unique_apps,
-          SUM(duration_seconds) as total_duration_seconds,
-          AVG(duration_seconds) as avg_duration_seconds
-        FROM app_violations 
-        WHERE exam_id = ?
-      `);
-
-      const overall = overallStmt.get(examId);
-
-      return {
-        overall: {
-          totalViolations: overall.total_violations || 0,
-          studentsWithViolations: overall.students_with_violations || 0,
-          uniqueApps: overall.unique_apps || 0,
-          totalDurationSeconds: overall.total_duration_seconds || 0,
-          avgDurationSeconds: overall.avg_duration_seconds || 0
-        },
-        byApp: appStats.map(stat => ({
-          appName: stat.app_name,
-          violationCount: stat.app_violation_count,
-          totalDurationSeconds: stat.total_duration_seconds || 0
-        }))
-      };
-    } catch (error) {
-      console.error('Error getting violation stats by exam:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get exam participants count (students who started the exam)
-   */
-  getExamParticipantsCount(examId) {
-    try {
-      const stmt = this.db.prepare(`
-        SELECT COUNT(DISTINCT student_id) as participant_count
-        FROM events 
-        WHERE exam_id = ? AND event_type = 'exam_start'
-      `);
-
-      const result = stmt.get(examId);
-      return result ? result.participant_count : 0;
-    } catch (error) {
-      console.error('Error getting exam participants count:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Get student exam history (completed exams)
    */
   getStudentExamHistory(studentId) {
@@ -1009,11 +793,10 @@ class DatabaseService {
    */
   async initializeDefaultAdmin() {
     try {
-      // Check if any admin account exists
-      const adminExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE role = ?').get('admin');
+      // Check if admin account exists
+      const adminExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('admin');
 
       if (adminExists.count === 0) {
-        // Create default admin account only if no admin exists
         await this.createUser({
           username: 'admin',
           password: 'admin123',
@@ -1021,8 +804,68 @@ class DatabaseService {
           fullName: 'System Administrator',
           email: 'admin@labguard.com'
         });
+        console.log('Created admin account: admin/admin123');
+      }
+
+      // Check if test accounts already exist
+      const teacherExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('teacher1');
+      const studentExists = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE username = ?').get('student1');
+
+      if (adminExists.count === 0) {
+        // Create default admin account only if no admin exists
+        await this.createUser({
+          username: 'teacher1',
+          password: 'password123',
+          role: 'teacher',
+          fullName: 'Dr. John Smith',
+          email: 'john.smith@university.edu',
+          createdBy: 'admin'
+        });
         console.log('Created default admin account: admin/admin123');
         console.log('IMPORTANT: Please change the default admin password after first login!');
+      }
+
+      if (studentExists.count === 0) {
+        await this.createUser({
+          username: 'student1',
+          password: 'password123',
+          role: 'student',
+          fullName: 'Alice Johnson',
+          email: 'alice.johnson@student.edu',
+          createdBy: 'admin'
+        });
+        console.log('Created test student account: student1/password123');
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error getting face embedding:', error);
+      throw error;
+    }
+  }
+
+      if (teacher2Exists.count === 0) {
+        await this.createUser({
+          username: 'teacher2',
+          password: 'password123',
+          role: 'teacher',
+          fullName: 'Prof. Sarah Wilson',
+          email: 'sarah.wilson@university.edu',
+          createdBy: 'admin'
+        });
+        console.log('Created test teacher account: teacher2/password123');
+      }
+
+      if (student2Exists.count === 0) {
+        await this.createUser({
+          username: 'student2',
+          password: 'password123',
+          role: 'student',
+          fullName: 'Bob Martinez',
+          email: 'bob.martinez@student.edu',
+          createdBy: 'admin'
+        });
+        console.log('Created test student account: student2/password123');
       }
 
       // Initialize default system settings
@@ -1032,7 +875,7 @@ class DatabaseService {
 
       return true;
     } catch (error) {
-      console.error('Error initializing default admin:', error);
+      console.error('Error getting audit logs:', error);
       throw error;
     }
   }
@@ -1053,45 +896,6 @@ class DatabaseService {
     } catch (error) {
       console.error('Error clearing database:', error);
       throw error;
-    }
-  }
-
-  /**
-   * Clear only audit logs
-   */
-  clearAuditLogs() {
-    try {
-      const result = this.db.prepare('DELETE FROM audit_logs').run();
-      console.log(`Cleared ${result.changes} audit log entries`);
-      return result.changes;
-    } catch (error) {
-      console.error('Error clearing audit logs:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Check if system has been set up with users
-   */
-  isSystemSetup() {
-    try {
-      const userCount = this.db.prepare('SELECT COUNT(*) as count FROM users').get().count;
-      const nonAdminCount = this.db.prepare('SELECT COUNT(*) as count FROM users WHERE role != ?').get('admin').count;
-
-      return {
-        hasUsers: userCount > 0,
-        hasNonAdminUsers: nonAdminCount > 0,
-        totalUsers: userCount,
-        nonAdminUsers: nonAdminCount
-      };
-    } catch (error) {
-      console.error('Error checking system setup:', error);
-      return {
-        hasUsers: false,
-        hasNonAdminUsers: false,
-        totalUsers: 0,
-        nonAdminUsers: 0
-      };
     }
   }
 

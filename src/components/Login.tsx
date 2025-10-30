@@ -198,6 +198,21 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             deviceId: deviceId || 'web-device',
             faceVerified: false
           });
+        // Development mode - use WebStorageService
+        const webStorage = WebStorageService.getInstance();
+        const result = await webStorage.login(formData.username.trim(), formData.password.trim());
+
+        if (result.success && result.user) {
+          onLoginSuccess({
+            ...result.user,
+            token: 'web-token-123',
+            deviceId: deviceId,
+            faceVerified: false
+          });
+        } else {
+          setErrors([{
+            message: result.error || 'Invalid credentials. Use admin/admin123, teacher1/password123 or student1/password123 for development.'
+          }]);
         }
       }
     } catch (error) {
@@ -354,19 +369,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         {/* Login help text */}
         <div className="login-help">
           <p>Use your assigned username and password to access the system.</p>
-          <div className="admin-info">
-            <p><strong>Default Admin Account:</strong></p>
-            <p><small>Username: <code>admin</code> | Password: <code>admin123</code></small></p>
-            <p className="security-warning">
-              <small>⚠️ Change the default password after first login!</small>
-            </p>
-          </div>
-          {!isElectron() && (
-            <div className="dev-mode-notice">
-              <p><strong>Development Mode:</strong></p>
-              <p><small>For full functionality, run <code>npm run dev</code> to start Electron.</small></p>
-            </div>
-          )}
+          <p><small>For testing: admin/admin123, teacher1/password123, student1/password123</small></p>
         </div>
       </div>
     </div>

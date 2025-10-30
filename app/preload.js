@@ -32,17 +32,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('monitoring:start', examId, studentId, allowedApps),
   stopMonitoring: () => ipcRenderer.invoke('monitoring:stop'),
   getMonitoringEvents: (examId) => ipcRenderer.invoke('monitoring:getEvents', examId),
-  getViolations: (examId) => ipcRenderer.invoke('monitoring:get-violations', examId),
-  getStudentViolations: (examId) => ipcRenderer.invoke('monitoring:get-student-violations', examId),
-
-  // Screenshot and report methods
-  getScreenshot: (screenshotPath) => ipcRenderer.invoke('screenshot:get', screenshotPath),
-  downloadScreenshot: (screenshotPath) => ipcRenderer.invoke('screenshot:download', screenshotPath),
-  exportViolationReport: (reportData) => ipcRenderer.invoke('report:export-violations', reportData),
 
   // File methods
   uploadPDF: (filePath, examId) => ipcRenderer.invoke('file:uploadPDF', filePath, examId),
-  openFileDialog: (options) => ipcRenderer.invoke('file:open-dialog', options),
+  openFileDialog: () => ipcRenderer.invoke('file:openDialog'),
 
   // Device methods
   getDeviceId: () => ipcRenderer.invoke('device:getId'),

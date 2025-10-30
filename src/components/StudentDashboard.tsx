@@ -189,6 +189,21 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
       }
 
       // Create initial exam session (monitoring will be started separately)
+      if (isElectron()) {
+        // Start monitoring
+        const monitoringResult = await (window as any).electronAPI.startMonitoring(
+          exam.exam_id,
+          user.userId,
+          exam.allowed_apps
+        );
+
+        if (!monitoringResult.success) {
+          setError('Failed to start exam monitoring: ' + monitoringResult.error);
+          return;
+        }
+      }
+
+      // Create exam session
       const session: ExamSession = {
         examId: exam.exam_id,
         startTime: now,
@@ -196,6 +211,7 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
         timeRemaining: Math.floor((endTime.getTime() - now.getTime()) / 1000),
         isActive: true,
         isMonitoringActive: false
+        isActive: true
       };
 
       setCurrentSession(session);
@@ -274,6 +290,14 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
       setError(null);
 
       // Reload data to reflect any changes
+      if (isElectron() && currentSession) {
+        await (window as any).electronAPI.stopMonitoring();
+      }
+
+      setCurrentSession(null);
+      setActiveTab('available');
+
+      // Reload data
       await loadAvailableExams();
       await loadExamHistory();
     } catch (err) {
@@ -505,6 +529,13 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
               isMonitoringActive={monitoringStatus.isActive}
             />
           )}
+
+            <div className="status-indicator active">
+              <span className="status-dot"></span>
+              Monitoring Active
+            </div>
+            <p>Your activity is being monitored. Please use only allowed applications.</p>
+          </div>
 
           <div className="session-actions">
             <button onClick={endExam} className="end-exam-btn">

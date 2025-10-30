@@ -351,6 +351,8 @@ const FaceCapture: React.FC<FaceCaptureProps> = ({
             {showDiagnostics && (
                 <ModelDiagnostics onClose={() => setShowDiagnostics(false)} />
             )}
+                </div>
+            </div>
         </div>
     );
 };

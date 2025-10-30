@@ -4,7 +4,6 @@ import Login from './components/Login';
 import TeacherDashboard from './components/TeacherDashboard';
 import StudentDashboard from './components/StudentDashboard';
 import AdminPanel from './components/AdminPanel';
-import SetupWizard from './components/SetupWizard';
 
 interface User {
   userId: string;
