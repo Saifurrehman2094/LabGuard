@@ -1,0 +1,429 @@
+/* Warning System Shared Styles */
+
+/* CSS Custom Properties for Warning System */
+:root {
+  --warning-primary: #e74c3c;
+  --warning-primary-dark: #c0392b;
+  --warning-secondary: #f39c12;
+  --warning-success: #27ae60;
+  --warning-muted: #95a5a6;
+  --warning-background: #fff5f5;
+  --warning-border: #fcc;
+  --warning-text: #333;
+  --warning-text-muted: #666;
+  --warning-shadow: rgba(0, 0, 0, 0.1);
+  --warning-shadow-hover: rgba(0, 0, 0, 0.15);
+  --warning-radius: 12px;
+  --warning-radius-small: 8px;
+  --warning-transition: all 0.3s ease;
+}
+
+/* Global Warning System Animations */
+@keyframes warningSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes warningFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes warningPulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+@keyframes warningShake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+  20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+
+@keyframes warningGlow {
+  0% { box-shadow: 0 0 5px var(--warning-primary); }
+  50% { box-shadow: 0 0 20px var(--warning-primary), 0 0 30px var(--warning-primary); }
+  100% { box-shadow: 0 0 5px var(--warning-primary); }
+}
+
+@keyframes warningBounce {
+  0%, 20%, 53%, 80%, 100% {
+    animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1);
+    transform: translate3d(0, 0, 0);
+  }
+  40%, 43% {
+    animation-timing-function: cubic-bezier(0.755, 0.05, 0.855, 0.06);
+    transform: translate3d(0, -8px, 0);
+  }
+  70% {
+    animation-timing-function: cubic-bezier(0.755, 0.05, 0.855, 0.06);
+    transform: translate3d(0, -4px, 0);
+  }
+  90% {
+    transform: translate3d(0, -2px, 0);
+  }
+}
+
+/* Shared Warning Component Styles */
+.warning-component {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  box-sizing: border-box;
+}
+
+.warning-component *,
+.warning-component *::before,
+.warning-component *::after {
+  box-sizing: inherit;
+}
+
+/* Warning Status Indicators */
+.warning-status-active {
+  color: var(--warning-primary);
+  animation: warningPulse 2s infinite;
+}
+
+.warning-status-completed {
+  color: var(--warning-success);
+}
+
+.warning-status-muted {
+  color: var(--warning-muted);
+}
+
+/* Warning Severity Levels */
+.warning-severity-critical {
+  --warning-color: #dc3545;
+  --warning-bg: #f8d7da;
+  --warning-border: #f5c6cb;
+}
+
+.warning-severity-high {
+  --warning-color: #e74c3c;
+  --warning-bg: #fff5f5;
+  --warning-border: #fcc;
+}
+
+.warning-severity-medium {
+  --warning-color: #f39c12;
+  --warning-bg: #fff8e1;
+  --warning-border: #ffe0b2;
+}
+
+.warning-severity-low {
+  --warning-color: #17a2b8;
+  --warning-bg: #e1f5fe;
+  --warning-border: #b3e5fc;
+}
+
+/* Warning Button Styles */
+.warning-btn {
+  background: var(--warning-primary);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--warning-radius-small);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--warning-transition);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.warning-btn:hover {
+  background: var(--warning-primary-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);
+}
+
+.warning-btn:active {
+  transform: translateY(0);
+}
+
+.warning-btn:disabled {
+  background: var(--warning-muted);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.warning-btn-secondary {
+  background: transparent;
+  color: var(--warning-primary);
+  border: 2px solid var(--warning-primary);
+}
+
+.warning-btn-secondary:hover {
+  background: var(--warning-primary);
+  color: white;
+}
+
+/* Warning Badge Styles */
+.warning-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  min-width: 60px;
+}
+
+.warning-badge-active {
+  background: var(--warning-primary);
+  color: white;
+  animation: warningPulse 2s infinite;
+}
+
+.warning-badge-completed {
+  background: var(--warning-success);
+  color: white;
+}
+
+.warning-badge-pending {
+  background: var(--warning-secondary);
+  color: white;
+}
+
+.warning-badge-muted {
+  background: var(--warning-muted);
+  color: white;
+}
+
+/* Warning Icon Styles */
+.warning-icon-container {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--warning-background);
+  border: 2px solid var(--warning-border);
+}
+
+.warning-icon-active {
+  animation: warningPulse 2s infinite;
+}
+
+.warning-icon-critical {
+  animation: warningShake 0.5s ease-in-out;
+}
+
+/* Warning Alert Styles */
+.warning-alert {
+  padding: 1rem 1.5rem;
+  border-radius: var(--warning-radius);
+  border: 1px solid;
+  margin: 1rem 0;
+  animation: warningSlideIn 0.3s ease-out;
+}
+
+.warning-alert-danger {
+  background: #f8d7da;
+  color: #721c24;
+  border-color: #f5c6cb;
+}
+
+.warning-alert-warning {
+  background: #fff3cd;
+  color: #856404;
+  border-color: #ffeaa7;
+}
+
+.warning-alert-info {
+  background: #d1ecf1;
+  color: #0c5460;
+  border-color: #bee5eb;
+}
+
+.warning-alert-success {
+  background: #d4edda;
+  color: #155724;
+  border-color: #c3e6cb;
+}
+
+/* Warning Progress Indicators */
+.warning-progress {
+  width: 100%;
+  height: 8px;
+  background: #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.warning-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--warning-primary), var(--warning-primary-dark));
+  transition: width 0.3s ease;
+  animation: warningGlow 2s infinite;
+}
+
+/* Warning Loading Spinner */
+.warning-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid var(--warning-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Warning Tooltip Styles */
+.warning-tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.warning-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: var(--warning-transition);
+  z-index: 1000;
+}
+
+.warning-tooltip:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .warning-component {
+    font-size: 0.9rem;
+  }
+
+  .warning-btn {
+    padding: 0.6rem 1.2rem;
+    font-size: 0.8rem;
+  }
+
+  .warning-alert {
+    padding: 0.75rem 1rem;
+    margin: 0.75rem 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .warning-component {
+    font-size: 0.85rem;
+  }
+
+  .warning-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.75rem;
+  }
+
+  .warning-badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.6rem;
+  }
+}
+
+/* High Contrast Mode Support */
+@media (prefers-contrast: high) {
+  :root {
+    --warning-primary: #000;
+    --warning-primary-dark: #333;
+    --warning-background: #fff;
+    --warning-border: #000;
+    --warning-text: #000;
+    --warning-shadow: rgba(0, 0, 0, 0.5);
+  }
+
+  .warning-alert {
+    border-width: 2px;
+  }
+
+  .warning-btn {
+    border: 2px solid #000;
+  }
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .warning-component *,
+  .warning-component *::before,
+  .warning-component *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .warning-status-active,
+  .warning-badge-active,
+  .warning-icon-active,
+  .warning-progress-bar {
+    animation: none;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .warning-component {
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  .warning-btn,
+  .warning-spinner {
+    display: none;
+  }
+
+  .warning-alert {
+    border: 2px solid #000;
+    background: #fff;
+  }
+}
+
+/* Focus Styles for Accessibility */
+.warning-component button:focus,
+.warning-component [tabindex]:focus {
+  outline: 2px solid #007bff;
+  outline-offset: 2px;
+}
+
+/* Screen Reader Only Content */
+.warning-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,0 +1,109 @@
+===============================================
+  LAB-GUARD - QUICK START GUIDE
+===============================================
+
+MINIMUM REQUIREMENTS:
+- Windows 10/11
+- Node.js v16 or higher
+- Webcam
+- 4GB RAM
+
+===============================================
+STEP 1: INSTALL NODE.JS
+===============================================
+
+1. Go to: https://nodejs.org/
+2. Download LTS version (v18 or v20)
+3. Run installer (check all boxes)
+4. Restart computer
+
+Verify:
+  Open Command Prompt and type:
+  node --version
+  (Should show v16.x.x or higher)
+
+===============================================
+STEP 2: INSTALL PYTHON (REQUIRED)
+===============================================
+
+1. Go to: https://www.python.org/downloads/
+2. Download Python 3.9+
+3. IMPORTANT: Check "Add Python to PATH"
+4. Install
+
+Verify:
+  python --version
+  (Should show Python 3.9.x or higher)
+
+===============================================
+STEP 3: SETUP PROJECT
+===============================================
+
+1. Extract LAB-Guard folder
+2. Open Command Prompt in that folder
+3. Run these commands:
+
+   npm install
+   (Wait 5-10 minutes)
+
+   npm run download-models
+   (Downloads AI models)
+
+===============================================
+STEP 4: RUN APPLICATION
+===============================================
+
+Run this command:
+  npm run dev
+
+Wait for:
+- React server to start (localhost:3001)
+- Electron window to open
+
+===============================================
+STEP 5: LOGIN
+===============================================
+
+Default Admin Login:
+  Username: admin
+  Password: admin123
+
+===============================================
+TROUBLESHOOTING
+===============================================
+
+Problem: npm install fails
+Solution: 
+  npm install --global windows-build-tools
+  npm install
+
+Problem: Models not loading
+Solution:
+  npm run download-models
+
+Problem: Port 3001 in use
+Solution:
+  netstat -ano | findstr :3001
+  taskkill /PID <number> /F
+
+Problem: Electron doesn't open
+Solution:
+  Delete node_modules folder
+  npm install
+
+===============================================
+IMPORTANT FILES
+===============================================
+
+Database: backend/data/database.sqlite
+Models: frontend/public/models/
+Config: config/app-config.json
+
+===============================================
+NEED MORE HELP?
+===============================================
+
+Read: SETUP.md (detailed instructions)
+Read: README.md (project overview)
+
+===============================================
