@@ -1,105 +1,158 @@
-# LAB-Guard Phase 1
+# LAB-Guard - Exam Monitoring System
 
-LAB-Guard is an exam monitoring system for university computer labs. This Phase 1 implementation provides a working prototype with teacher/student authentication, basic app monitoring, and role-based dashboards.
-
-## Project Structure
+## 📁 Project Structure
 
 ```
 LAB-Guard/
-├── app/                     # Electron main process
-│   ├── main.js             # Main Electron process with security best practices
-│   └── preload.js          # Secure context bridge for renderer communication
-├── src/                    # React frontend (renderer process)
-│   ├── components/         # React components
-│   ├── App.tsx            # Main App component
-│   └── index.tsx          # React entry point
-├── services/              # Backend services
-│   ├── auth.js           # Authentication service
-│   ├── database.js       # SQLite database operations
-│   ├── monitoring.js     # Application monitoring
-│   └── files.js          # File management
-├── config/               # Configuration files
-│   └── app-config.json   # Application settings
-├── data/                 # Local data storage
-│   ├── uploads/          # PDF file storage
-│   └── database.sqlite   # SQLite database (created at runtime)
-└── assets/              # Application assets
+├── 📂 frontend/              # React + TypeScript UI
+│   ├── src/                 # React components and services
+│   ├── public/              # Static assets and AI models
+│   ├── tsconfig.json        # TypeScript configuration
+│   └── README.md            # Frontend documentation
+│
+├── 📂 backend/               # Electron + Node.js Backend
+│   ├── app/                 # Electron main process
+│   │   ├── main.js         # Main process entry
+│   │   └── preload.js      # IPC bridge
+│   ├── services/            # Backend services (12 services)
+│   ├── scripts/             # Utility scripts
+│   ├── data/                # SQLite database
+│   └── README.md            # Backend documentation
+│
+├── 📂 assets/                # Application assets
+├── 📂 build/                 # Production build output
+├── 📂 config/                # Configuration files
+├── 📄 package.json           # Dependencies and scripts
+├── 📄 PROJECT-DOCUMENTATION.md  # Complete technical guide
+└── 📄 FYP.pdf                # Project report
 ```
 
-## Technology Stack
-
-- **Frontend**: React with TypeScript
-- **Backend**: Node.js (Electron main process)
-- **Database**: SQLite with better-sqlite3
-- **Authentication**: JWT tokens with bcrypt password hashing
-- **Desktop Framework**: Electron
-- **Build Tool**: electron-builder
-
-## Development Setup
+## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js (v16 or higher)
-- npm
+- Node.js v14 or higher
+- Windows 10/11
+- Webcam (for face authentication)
 
 ### Installation
 ```bash
 npm install
 ```
 
-### Development
+### Development Mode
 ```bash
-# Start React development server and Electron
 npm run dev
+```
+Runs React dev server on port 3001 and launches Electron.
 
-# Start only React development server
-npm run dev:react
-
-# Start only Electron (requires React to be running)
+### Production Build
+```bash
+npm run build
 npm start
 ```
 
-### Building
+### Download Face Recognition Models
 ```bash
-# Build React app for production
-npm run build
-
-# Build Electron executable
-npm run build:electron
-
-# Build both React and Electron
-npm run dist
+npm run download-models
 ```
 
-## Security Features
+## 📚 Documentation
 
-- Context isolation enabled
-- Node integration disabled in renderer
-- Preload script for secure IPC communication
-- Content Security Policy configured
-- External navigation blocked
-- Remote module disabled
+- **[Frontend Documentation](frontend/README.md)** - React UI components and services
+- **[Backend Documentation](backend/README.md)** - Electron services and architecture
+- **[Complete Technical Guide](PROJECT-DOCUMENTATION.md)** - Full system documentation
 
-## Requirements Addressed
+## 🎯 Key Features
 
-This setup addresses the following requirements from the specification:
+### Multi-Factor Authentication
+- Username/password authentication
+- Biometric face recognition (2FA)
+- JWT token-based sessions
+- Device fingerprinting
 
-- **Requirement 5.1**: Local SQLite database initialization structure
-- **Security best practices**: Electron security configuration
-- **Cross-platform compatibility**: Windows-focused with NSIS installer
+### Real-Time Monitoring
+- Windows API integration
+- Application switching detection
+- Screenshot evidence capture
+- Violation tracking and alerts
 
-## Next Steps
+### Role-Based Access
+- **Admin** - User management, system configuration
+- **Teacher** - Exam creation, monitoring, reports
+- **Student** - Exam participation with monitoring
 
-The following tasks will implement the core functionality:
+### Security Features
+- bcrypt password hashing (12 rounds)
+- Face embeddings (128-dimension vectors)
+- Complete audit logging
+- Offline-capable operation
 
-1. Database service and schema (Task 2)
-2. Authentication system (Task 3)
-3. Login UI component (Task 4)
-4. Teacher dashboard and exam creation (Task 5)
-5. Student dashboard and exam participation (Task 6)
-6. Application monitoring service (Task 7)
+## 🛠️ Technology Stack
 
-## Development Notes
+### Frontend
+- React 18 + TypeScript
+- Face-API.js (TensorFlow.js)
+- CSS3 for styling
 
-- The project uses legacy peer deps to resolve React Scripts compatibility
-- Admin privileges are requested during installation for monitoring capabilities
-- All services are currently placeholder files that will be implemented in subsequent tasks
+### Backend
+- Electron (Desktop framework)
+- Node.js runtime
+- SQLite database
+- Windows API integration
+
+### Security
+- JWT authentication
+- bcrypt encryption
+- Biometric verification
+- Audit trail logging
+
+## 📦 Available Scripts
+
+```bash
+npm start              # Start production app
+npm run dev            # Development mode
+npm run build          # Build React app
+npm run download-models # Download AI models
+npm test               # Run tests
+```
+
+## 🔐 Security Protocols
+
+- **Password Security**: bcrypt with 12 salt rounds
+- **Face Recognition**: 128-dimension embeddings, no images stored
+- **Session Management**: JWT tokens with 8-hour expiration
+- **Monitoring**: System-level Windows API, can't be bypassed
+- **Audit Logging**: Complete traceability of all actions
+
+## 📊 Database Schema
+
+- **users** - User accounts with roles
+- **exams** - Exam configurations
+- **face_embeddings** - Biometric data
+- **events** - Monitoring events
+- **app_violations** - Application violations
+- **audit_logs** - Security audit trail
+
+## 🎓 Use Cases
+
+- University computer lab exams
+- Online certification tests
+- Remote learning assessments
+- Corporate training evaluations
+
+## 📝 License
+
+Proprietary - LAB-Guard Development Team
+
+## 🤝 Support
+
+For technical documentation, see:
+- [Frontend README](frontend/README.md)
+- [Backend README](backend/README.md)
+- [Technical Documentation](PROJECT-DOCUMENTATION.md)
+
+---
+
+**Version:** 1.0.0  
+**Platform:** Windows 10/11  
+**Framework:** Electron + React

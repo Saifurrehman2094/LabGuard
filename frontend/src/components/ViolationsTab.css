@@ -1,0 +1,258 @@
+.violations-tab {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.violations-header {
+  margin-bottom: 30px;
+}
+
+.violations-header h2 {
+  margin: 0 0 10px 0;
+  color: #333;
+  font-size: 28px;
+}
+
+.violations-header p {
+  margin: 0;
+  color: #666;
+  font-size: 16px;
+}
+
+.loading-container {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.error-message {
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+  padding: 15px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.violations-filter {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.violations-filter label {
+  font-weight: 600;
+  color: #333;
+}
+
+.violations-filter select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: 200px;
+}
+
+.no-violations {
+  background: white;
+  padding: 60px 20px;
+  border-radius: 8px;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.no-violations-icon {
+  font-size: 80px;
+  margin-bottom: 20px;
+}
+
+.no-violations h3 {
+  margin: 0 0 10px 0;
+  color: #28a745;
+  font-size: 24px;
+}
+
+.no-violations p {
+  margin: 0;
+  color: #666;
+  font-size: 16px;
+}
+
+.violations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.violation-card {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  gap: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-left: 4px solid;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.violation-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.violation-card.red {
+  border-left-color: #dc3545;
+}
+
+.violation-card.orange {
+  border-left-color: #fd7e14;
+}
+
+.violation-card.yellow {
+  border-left-color: #ffc107;
+}
+
+.violation-card.gray {
+  border-left-color: #6c757d;
+}
+
+.violation-icon {
+  font-size: 40px;
+  display: flex;
+  align-items: center;
+}
+
+.violation-details {
+  flex: 1;
+}
+
+.violation-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.violation-header-row h3 {
+  margin: 0;
+  color: #333;
+  font-size: 18px;
+}
+
+.violation-type {
+  background: #f8f9fa;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.violation-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.violation-info p {
+  margin: 0;
+  color: #666;
+  font-size: 14px;
+}
+
+.violation-info strong {
+  color: #333;
+  font-weight: 600;
+}
+
+.violations-summary {
+  background: white;
+  padding: 30px;
+  border-radius: 8px;
+  margin-top: 30px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.violations-summary h3 {
+  margin: 0 0 20px 0;
+  color: #333;
+  font-size: 20px;
+}
+
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 20px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.stat-value {
+  display: block;
+  font-size: 36px;
+  font-weight: bold;
+  color: #007bff;
+  margin-bottom: 8px;
+}
+
+.stat-label {
+  display: block;
+  font-size: 14px;
+  color: #666;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .violations-tab {
+    padding: 15px;
+  }
+
+  .violation-card {
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .violation-icon {
+    font-size: 30px;
+  }
+
+  .violation-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .violation-info {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-stats {
+    grid-template-columns: 1fr;
+  }
+}
