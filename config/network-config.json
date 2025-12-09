@@ -1,0 +1,16 @@
+{
+  "deployment": {
+    "mode": "network"
+  },
+  "server": {
+    "host": "172.17.16.1"
+  },
+  "database": {
+    "useSharedDatabase": false,
+    "sharedPath": ""
+  },
+  "storage": {
+    "useSharedStorage": false,
+    "sharedStoragePath": ""
+  }
+}

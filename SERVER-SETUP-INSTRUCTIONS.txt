@@ -1,0 +1,189 @@
+================================================================================
+LabGuard Server Setup Instructions
+================================================================================
+
+This guide will help you configure this machine as the LabGuard server,
+allowing all clients on the network to access shared files and database.
+
+================================================================================
+STEP 1: Run Server Setup (AS ADMINISTRATOR)
+================================================================================
+
+Option A: Using Batch File (Easiest)
+-------------------------------------
+1. Double-click: SETUP-SERVER.bat
+2. Click "Yes" when prompted for Administrator access
+3. Wait for setup to complete
+
+Option B: Using PowerShell Manually
+------------------------------------
+1. Right-click PowerShell
+2. Select "Run as Administrator"
+3. Navigate to project folder: cd D:\LabGuard
+4. Run: .\setup-server-storage.ps1
+
+What this does:
+- Creates shared folder: \\YOUR-IP\LabGuard
+- Sets up network permissions
+- Configures firewall rules
+- Updates network configuration
+
+================================================================================
+STEP 2: Verify Setup
+================================================================================
+
+Run the test script:
+  node test-network-storage.js
+
+This will verify:
+✓ Local path accessible
+✓ Network path accessible  
+✓ Read/write permissions working
+
+================================================================================
+STEP 3: Note Your Server IP
+================================================================================
+
+Your server IP address will be displayed during setup.
+Example: 192.168.1.100
+
+Write it down - you'll need it for client configuration!
+
+================================================================================
+STEP 4: Configure Client Machines
+================================================================================
+
+On each client machine (students/teachers):
+
+1. Install and run LabGuard application
+2. Login as Admin
+3. Go to Admin Panel > Network Settings
+4. Enter Server IP: [YOUR-SERVER-IP]
+5. Click "Enable Network Mode"
+6. Restart the application
+
+================================================================================
+NETWORK ARCHITECTURE
+================================================================================
+
+Server Machine (This PC):
+- Stores all files in: D:\LabGuard\backend\data
+- Shares folder as: \\YOUR-IP\LabGuard
+- Runs LabGuard application
+- Teachers and students can use this machine
+
+Client Machines:
+- Access files via: \\YOUR-IP\LabGuard
+- Run LabGuard application
+- Connect to server over network
+- All data stored on server
+
+File Structure:
+\\YOUR-IP\LabGuard\
+  ├── uploads\          (Exam PDFs)
+  ├── submissions\      (Student submissions)
+  └── database.sqlite   (Optional: shared database)
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problem: "Access Denied" when running setup
+Solution: Run as Administrator (right-click > Run as Administrator)
+
+Problem: Cannot access \\SERVER-IP\LabGuard from client
+Solutions:
+  1. Check Windows Firewall - enable "File and Printer Sharing"
+  2. Enable "Network Discovery" in Network Settings
+  3. Make sure both machines are on same network
+  4. Ping server from client: ping [SERVER-IP]
+
+Problem: Files not syncing
+Solution: 
+  1. Verify network mode is enabled
+  2. Check server IP is correct
+  3. Restart both server and client applications
+
+Problem: Permission denied when writing files
+Solution:
+  1. Re-run setup script as Administrator
+  2. Manually set "Everyone" to "Full Control" on shared folder
+
+================================================================================
+FIREWALL CONFIGURATION
+================================================================================
+
+If Windows Firewall is blocking access:
+
+1. Open Windows Defender Firewall
+2. Click "Allow an app through firewall"
+3. Enable "File and Printer Sharing" for Private networks
+4. Click OK
+
+Or run this command as Administrator:
+  netsh advfirewall firewall set rule group="File and Printer Sharing" new enable=Yes
+
+================================================================================
+TESTING THE SETUP
+================================================================================
+
+Test 1: From Server Machine
+----------------------------
+1. Open File Explorer
+2. Navigate to: \\YOUR-IP\LabGuard
+3. You should see: uploads, submissions folders
+4. Try creating a test file
+
+Test 2: From Client Machine
+----------------------------
+1. Open File Explorer
+2. Navigate to: \\SERVER-IP\LabGuard
+3. You should see the same folders
+4. Try creating a test file
+5. Verify it appears on server
+
+Test 3: Using LabGuard App
+---------------------------
+1. Login as Teacher
+2. Create an exam with PDF
+3. Check server: \\SERVER-IP\LabGuard\uploads
+4. PDF should be there
+
+================================================================================
+PRODUCTION DEPLOYMENT
+================================================================================
+
+When moving to a dedicated server machine:
+
+1. Run SETUP-SERVER.bat on the new server
+2. Copy D:\LabGuard\backend\data to new server
+3. Note the new server IP address
+4. Update all client machines with new server IP
+5. Test connectivity from all clients
+
+No code changes needed - just configuration!
+
+================================================================================
+SECURITY NOTES
+================================================================================
+
+Current Setup:
+- "Everyone" has full access to shared folder
+- Suitable for trusted local network (lab environment)
+
+For Production:
+- Consider restricting access to specific users/groups
+- Use Windows domain authentication
+- Enable encryption for sensitive data
+- Regular backups of server data folder
+
+================================================================================
+SUPPORT
+================================================================================
+
+For issues or questions:
+1. Check logs in: backend/data/logs
+2. Run test script: node test-network-storage.js
+3. Verify network connectivity: ping [SERVER-IP]
+
+================================================================================

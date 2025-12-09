@@ -1,0 +1,739 @@
+/* ============================================
+   Dark Mode Theme - Blue-Black with Glass Effects
+   Applied when body has 'dark-mode' class
+   ============================================ */
+
+body.dark-mode {
+  background: linear-gradient(135deg, #0A0E1A 0%, #0F1419 50%, #0A0E1A 100%);
+  background-attachment: fixed;
+  color: #F9FAFB;
+}
+
+/* ========== ADMIN DASHBOARD ========== */
+
+body.dark-mode .admin-dashboard {
+  background: transparent;
+}
+
+body.dark-mode .dashboard-header {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.15) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+body.dark-mode .admin-info h1,
+body.dark-mode .user-info h1 {
+  color: #F9FAFB;
+  text-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+}
+
+body.dark-mode .admin-info p,
+body.dark-mode .user-info p {
+  color: #9CA3AF;
+}
+
+body.dark-mode .dashboard-tabs {
+  background: rgba(15, 20, 25, 0.8);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .dashboard-tabs .tab:hover:not(.active),
+body.dark-mode .dashboard-tabs button.tab:hover:not(.active) {
+  color: #60A5FA;
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .dashboard-tabs .tab.active,
+body.dark-mode .dashboard-tabs button.tab.active {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4), 0 0 25px rgba(59, 130, 246, 0.3);
+}
+
+/* ========== TABLES ========== */
+
+body.dark-mode .users-table-container,
+body.dark-mode .logs-table-container {
+  background: rgba(15, 20, 25, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+body.dark-mode .users-table-container:hover,
+body.dark-mode .logs-table-container:hover {
+  border-color: rgba(59, 130, 246, 0.25);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(59, 130, 246, 0.15);
+}
+
+body.dark-mode .users-table thead,
+body.dark-mode .logs-table thead {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.15) 100%);
+  border-bottom: 2px solid rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .users-table th,
+body.dark-mode .logs-table th {
+  color: #60A5FA;
+}
+
+body.dark-mode .users-table td,
+body.dark-mode .logs-table td {
+  color: #F9FAFB;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+}
+
+body.dark-mode .users-table tbody tr:hover,
+body.dark-mode .logs-table tbody tr:hover {
+  background: rgba(59, 130, 246, 0.08);
+  box-shadow: inset 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+/* ========== BUTTONS ========== */
+
+body.dark-mode .btn-primary {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3), 0 0 20px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .btn-primary:hover:not(:disabled) {
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4), 0 0 30px rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .btn-secondary {
+  background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3), 0 0 20px rgba(6, 182, 212, 0.2);
+}
+
+body.dark-mode .btn-secondary:hover:not(:disabled) {
+  box-shadow: 0 8px 25px rgba(6, 182, 212, 0.4), 0 0 30px rgba(6, 182, 212, 0.3);
+}
+
+body.dark-mode .logout-btn {
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3), 0 0 20px rgba(239, 68, 68, 0.2);
+}
+
+body.dark-mode .logout-btn:hover {
+  box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4), 0 0 30px rgba(239, 68, 68, 0.3);
+}
+
+/* ========== STAT CARDS ========== */
+
+body.dark-mode .stat-card {
+  background: rgba(15, 20, 25, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+body.dark-mode .stat-card::before {
+  background: linear-gradient(90deg, #3B82F6 0%, #60A5FA 100%);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+}
+
+body.dark-mode .stat-card:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .stat-value {
+  filter: drop-shadow(0 0 20px rgba(59, 130, 246, 0.5));
+}
+
+/* ========== MODALS ========== */
+
+body.dark-mode .modal-overlay {
+  background-color: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+body.dark-mode .modal,
+body.dark-mode .modal-content {
+  background: rgba(15, 20, 25, 0.95);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 40px rgba(59, 130, 246, 0.15);
+}
+
+body.dark-mode .modal-header h3 {
+  color: #F9FAFB;
+  text-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .modal-close {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: #9CA3AF;
+}
+
+body.dark-mode .modal-close:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #F9FAFB;
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+}
+
+/* ========== FORMS ========== */
+
+body.dark-mode .form-group input,
+body.dark-mode .form-group select,
+body.dark-mode .form-group textarea,
+body.dark-mode .setting-group input,
+body.dark-mode .setting-group select {
+  background: rgba(15, 20, 25, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: #F9FAFB;
+}
+
+body.dark-mode .form-group input:focus,
+body.dark-mode .form-group select:focus,
+body.dark-mode .form-group textarea:focus,
+body.dark-mode .setting-group input:focus,
+body.dark-mode .setting-group select:focus {
+  border-color: #3B82F6;
+  background: rgba(15, 20, 25, 0.9);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), 0 0 20px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .form-group label,
+body.dark-mode .setting-group label {
+  color: #F9FAFB;
+}
+
+/* ========== SETTINGS FORM ========== */
+
+body.dark-mode .settings-form {
+  background: rgba(15, 20, 25, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+/* ========== LOADING & EMPTY STATES ========== */
+
+body.dark-mode .loading-spinner {
+  border-color: rgba(59, 130, 246, 0.2);
+  border-top-color: #3B82F6;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .empty-state {
+  background: rgba(15, 20, 25, 0.5);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .empty-state::before {
+  filter: drop-shadow(0 0 20px rgba(59, 130, 246, 0.3));
+}
+
+/* ========== BADGES ========== */
+
+body.dark-mode .user-role-badge {
+  box-shadow: 0 0 15px currentColor;
+}
+
+body.dark-mode .user-role-badge.admin {
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+body.dark-mode .user-role-badge.teacher {
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .user-role-badge.student {
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* ========== ACTION BUTTONS ========== */
+
+body.dark-mode .edit-btn {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .edit-btn:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+}
+
+body.dark-mode .delete-btn {
+  background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+}
+
+body.dark-mode .delete-btn:hover {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+}
+
+/* ========== TEXT COLORS ========== */
+
+body.dark-mode .users-tab h2,
+body.dark-mode .settings-tab h2,
+body.dark-mode .stats-tab h2,
+body.dark-mode .logs-tab h2 {
+  color: #F9FAFB;
+  text-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .stat-card h3 {
+  color: #9CA3AF;
+}
+
+body.dark-mode .loading-container p,
+body.dark-mode .empty-state p {
+  color: #9CA3AF;
+}
+
+
+/* ============================================
+   TEACHER DASHBOARD - Dark Mode
+   ============================================ */
+
+body.dark-mode .teacher-dashboard {
+  background: transparent;
+}
+
+body.dark-mode .teacher-dashboard .dashboard-header {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.15) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+body.dark-mode .teacher-dashboard .dashboard-nav {
+  background: rgba(15, 20, 25, 0.8);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .teacher-dashboard .nav-tab:hover:not(.active) {
+  color: #60A5FA;
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .teacher-dashboard .nav-tab.active {
+  color: #FFFFFF;
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4), 0 0 25px rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .teacher-dashboard .dashboard-content {
+  color: #F9FAFB;
+}
+
+/* Teacher Dashboard Cards */
+body.dark-mode .teacher-dashboard .stat-card,
+body.dark-mode .teacher-dashboard .exam-preview-card,
+body.dark-mode .teacher-dashboard .course-card {
+  background: rgba(15, 20, 25, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+  color: #F9FAFB;
+}
+
+body.dark-mode .teacher-dashboard .stat-card:hover,
+body.dark-mode .teacher-dashboard .exam-preview-card:hover,
+body.dark-mode .teacher-dashboard .course-card:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(59, 130, 246, 0.2);
+  transform: translateY(-4px);
+}
+
+body.dark-mode .teacher-dashboard .stat-card h3,
+body.dark-mode .teacher-dashboard .exam-preview-card h3,
+body.dark-mode .teacher-dashboard .course-card h3 {
+  color: #F9FAFB;
+}
+
+body.dark-mode .teacher-dashboard .stat-card p,
+body.dark-mode .teacher-dashboard .exam-preview-card p,
+body.dark-mode .teacher-dashboard .course-card p {
+  color: #9CA3AF;
+}
+
+/* Teacher Dashboard Empty States */
+body.dark-mode .teacher-dashboard .empty-state {
+  background: rgba(15, 20, 25, 0.5);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #9CA3AF;
+}
+
+body.dark-mode .teacher-dashboard .create-first-exam-btn,
+body.dark-mode .teacher-dashboard .view-all-btn {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3), 0 0 20px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .teacher-dashboard .create-first-exam-btn:hover,
+body.dark-mode .teacher-dashboard .view-all-btn:hover {
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4), 0 0 30px rgba(59, 130, 246, 0.3);
+}
+
+/* ============================================
+   STUDENT DASHBOARD - Dark Mode
+   ============================================ */
+
+body.dark-mode .student-dashboard {
+  background: transparent;
+}
+
+body.dark-mode .student-dashboard .dashboard-header {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.15) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+body.dark-mode .student-dashboard .dashboard-content {
+  color: #F9FAFB;
+}
+
+/* Student Dashboard Cards */
+body.dark-mode .student-dashboard .exam-card,
+body.dark-mode .student-dashboard .course-card,
+body.dark-mode .student-dashboard .stat-card {
+  background: rgba(15, 20, 25, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+  color: #F9FAFB;
+}
+
+body.dark-mode .student-dashboard .exam-card:hover,
+body.dark-mode .student-dashboard .course-card:hover,
+body.dark-mode .student-dashboard .stat-card:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(59, 130, 246, 0.2);
+  transform: translateY(-4px);
+}
+
+body.dark-mode .student-dashboard .exam-card h3,
+body.dark-mode .student-dashboard .course-card h3,
+body.dark-mode .student-dashboard .stat-card h3 {
+  color: #F9FAFB;
+}
+
+body.dark-mode .student-dashboard .exam-card p,
+body.dark-mode .student-dashboard .course-card p,
+body.dark-mode .student-dashboard .stat-card p {
+  color: #9CA3AF;
+}
+
+/* Student Dashboard Exam Status Badges */
+body.dark-mode .student-dashboard .exam-status {
+  border: 1px solid currentColor;
+  box-shadow: 0 0 10px currentColor;
+}
+
+body.dark-mode .student-dashboard .exam-status.upcoming {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60A5FA;
+}
+
+body.dark-mode .student-dashboard .exam-status.active {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34D399;
+}
+
+body.dark-mode .student-dashboard .exam-status.completed {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9CA3AF;
+}
+
+/* Student Dashboard Empty States */
+body.dark-mode .student-dashboard .empty-state,
+body.dark-mode .student-dashboard .no-exams {
+  background: rgba(15, 20, 25, 0.5);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #9CA3AF;
+}
+
+/* ============================================
+   COURSE MANAGEMENT - Dark Mode
+   ============================================ */
+
+body.dark-mode .course-management .course-header h2 {
+  color: #F9FAFB;
+  text-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .course-management .courses-grid .course-card {
+  background: rgba(15, 20, 25, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+body.dark-mode .course-management .courses-grid .course-card:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .course-management .courses-grid .course-card h3 {
+  color: #F9FAFB;
+}
+
+body.dark-mode .course-management .courses-grid .course-card .course-description {
+  color: #9CA3AF;
+}
+
+body.dark-mode .course-management .courses-grid .course-card .course-code {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60A5FA;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+body.dark-mode .course-management .no-courses {
+  background: rgba(15, 20, 25, 0.5);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #9CA3AF;
+}
+
+body.dark-mode .course-management .enrolled-students-section {
+  border-top-color: rgba(59, 130, 246, 0.15);
+}
+
+body.dark-mode .course-management .student-item {
+  background: rgba(15, 20, 25, 0.5);
+  border-color: rgba(59, 130, 246, 0.15);
+}
+
+body.dark-mode .course-management .student-item:hover {
+  background: rgba(15, 20, 25, 0.7);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .course-management .student-info strong {
+  color: #F9FAFB;
+}
+
+body.dark-mode .course-management .student-username {
+  color: #9CA3AF;
+}
+
+body.dark-mode .course-management .no-data {
+  color: #6B7280;
+}
+
+/* ============================================
+   EXAM CREATION FORM - Dark Mode
+   ============================================ */
+
+body.dark-mode .exam-creation-form {
+  color: #F9FAFB;
+}
+
+body.dark-mode .exam-creation-form .form-group label {
+  color: #F9FAFB;
+}
+
+body.dark-mode .exam-creation-form .no-courses-warning {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #FCD34D;
+}
+
+body.dark-mode .exam-creation-form .loading-courses {
+  color: #9CA3AF;
+}
+
+body.dark-mode .exam-creation-form .field-hint {
+  color: #6B7280;
+}
+
+body.dark-mode .exam-creation-form .file-select-btn {
+  background: rgba(15, 20, 25, 0.7);
+  border-color: rgba(59, 130, 246, 0.2);
+  color: #F9FAFB;
+}
+
+body.dark-mode .exam-creation-form .file-select-btn:hover {
+  background: rgba(15, 20, 25, 0.9);
+  border-color: rgba(59, 130, 246, 0.4);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .exam-creation-form .file-info {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34D399;
+}
+
+body.dark-mode .exam-creation-form .file-hint {
+  color: #6B7280;
+}
+
+body.dark-mode .exam-creation-form .allowed-apps-section {
+  background: rgba(15, 20, 25, 0.5);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+
+body.dark-mode .exam-creation-form .allowed-apps-section h4 {
+  color: #F9FAFB;
+}
+
+body.dark-mode .exam-creation-form .app-checkbox {
+  color: #9CA3AF;
+}
+
+body.dark-mode .exam-creation-form .app-checkbox:hover {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+body.dark-mode .exam-creation-form .selected-app-item {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60A5FA;
+}
+
+body.dark-mode .exam-creation-form .remove-app-btn {
+  background: rgba(239, 68, 68, 0.2);
+  color: #F87171;
+}
+
+body.dark-mode .exam-creation-form .remove-app-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+/* ============================================
+   EXAM LIST - Dark Mode
+   ============================================ */
+
+body.dark-mode .exam-list .exam-item {
+  background: rgba(15, 20, 25, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+body.dark-mode .exam-list .exam-item:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .exam-list .exam-item h3 {
+  color: #F9FAFB;
+}
+
+body.dark-mode .exam-list .exam-item p {
+  color: #9CA3AF;
+}
+
+body.dark-mode .exam-list .exam-status-badge {
+  border: 1px solid currentColor;
+  box-shadow: 0 0 10px currentColor;
+}
+
+/* ============================================
+   NETWORK SETTINGS - Dark Mode
+   ============================================ */
+
+body.dark-mode .network-settings {
+  color: #F9FAFB;
+}
+
+body.dark-mode .network-settings .settings-card {
+  background: rgba(15, 20, 25, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+body.dark-mode .network-settings .settings-card h3 {
+  color: #F9FAFB;
+}
+
+body.dark-mode .network-settings .info-box {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60A5FA;
+}
+
+body.dark-mode .network-settings .warning-box {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #FCD34D;
+}
+
+/* ============================================
+   GENERAL IMPROVEMENTS - Dark Mode
+   ============================================ */
+
+body.dark-mode h1,
+body.dark-mode h2,
+body.dark-mode h3,
+body.dark-mode h4,
+body.dark-mode h5,
+body.dark-mode h6 {
+  color: #F9FAFB;
+}
+
+body.dark-mode p {
+  color: #9CA3AF;
+}
+
+body.dark-mode .loading-container p {
+  color: #9CA3AF;
+}
+
+body.dark-mode .retry-btn {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3), 0 0 20px rgba(59, 130, 246, 0.2);
+}
+
+body.dark-mode .retry-btn:hover {
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4), 0 0 30px rgba(59, 130, 246, 0.3);
+}
+
+/* Scrollbar Dark Mode */
+body.dark-mode ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+body.dark-mode ::-webkit-scrollbar-track {
+  background: rgba(15, 20, 25, 0.5);
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.5);
+}
