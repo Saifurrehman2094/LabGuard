@@ -16,12 +16,25 @@ dist/
 .env.production.local
 
 # Database files
-data/database.sqlite
-data/database.sqlite-journal
+backend/data/database.sqlite
+backend/data/database.sqlite-journal
+backend/data/database.sqlite-shm
+backend/data/database.sqlite-wal
 
 # Uploaded files
-data/uploads/*
-!data/uploads/.gitkeep
+backend/data/uploads/*
+!backend/data/uploads/.gitkeep
+
+# Camera violation snapshots
+backend/camera_monitoring/violation_snapshots/*
+!backend/camera_monitoring/violation_snapshots/.gitkeep
+
+# Exam screenshots
+data/screenshots/
+data/screenshots/*
+
+# Blog posts (documentation drafts)
+blog/
 
 # Logs
 logs/
