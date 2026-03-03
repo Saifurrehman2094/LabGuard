@@ -7,15 +7,39 @@
   min-height: 100vh;
   background: linear-gradient(135deg, #4A5FBF 0%, #3B4FA8 100%);
   padding: 20px;
+  position: relative;
+}
+
+[data-theme="dark"] .login-container {
+  background: linear-gradient(135deg, #0a0a0f 0%, #12121a 50%, #0f172a 100%);
+}
+
+.login-theme-toggle {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
 }
 
 .login-card {
-  background: white;
+  background: var(--theme-card, white);
   padding: 40px;
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   width: 100%;
   max-width: 420px;
+}
+
+[data-theme="dark"] .login-card {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .login-header h1,
+[data-theme="dark"] .login-header p {
+  color: var(--theme-text);
+}
+
+[data-theme="dark"] .login-header p {
+  color: var(--theme-text-muted);
 }
 
 .login-header {

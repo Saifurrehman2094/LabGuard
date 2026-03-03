@@ -3,6 +3,7 @@ import ExamCreationForm from './ExamCreationForm';
 import ExamList from './ExamList';
 import ViolationReport from './ViolationReport';
 import CourseManagement from './CourseManagement';
+import ThemeToggle from './ThemeToggle';
 import WebStorageService from '../services/webStorage';
 import './TeacherDashboard.css';
 
@@ -121,9 +122,12 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
             <h1>Teacher Dashboard</h1>
             <p>Welcome back, {user.fullName}</p>
           </div>
-          <button onClick={onLogout} className="logout-btn">
-            Logout
-          </button>
+          <div className="header-actions">
+            <ThemeToggle />
+            <button onClick={onLogout} className="logout-btn">
+              Logout
+            </button>
+          </div>
         </div>
       </div>
 

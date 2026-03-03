@@ -5,6 +5,7 @@ import StudentCourseEnrollment from './StudentCourseEnrollment';
 import PDFViewer from './PDFViewer';
 import ExamPage from './ExamPage';
 import ViolationsTab from './ViolationsTab';
+import ThemeToggle from './ThemeToggle';
 import './StudentDashboard.css';
 
 interface User {
@@ -443,9 +444,12 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
             <p>Welcome, {user.fullName}!</p>
             {user.deviceId && <p className="device-info">Device: {user.deviceId}</p>}
           </div>
-          <button onClick={onLogout} className="logout-btn">
-            Logout
-          </button>
+          <div className="header-actions">
+            <ThemeToggle />
+            <button onClick={onLogout} className="logout-btn">
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 

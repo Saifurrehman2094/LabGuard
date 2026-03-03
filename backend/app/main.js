@@ -1,5 +1,26 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+// Load .env from project root (try multiple paths for dev vs packaged)
 const path = require('path');
+const fs = require('fs');
+const envPaths = [
+  path.join(__dirname, '../../.env'),
+  path.join(process.cwd(), '.env'),
+];
+let loaded = false;
+for (const envPath of envPaths) {
+  if (fs.existsSync(envPath)) {
+    require('dotenv').config({ path: envPath });
+    loaded = true;
+    break;
+  }
+}
+if (!loaded) {
+  require('dotenv').config({ path: envPaths[0] }); // fallback (no-op if missing)
+}
+if (!process.env.GROQ_API_KEY || process.env.GROQ_API_KEY.includes('your_')) {
+  console.warn('GROQ_API_KEY not set. Add your key to .env (get free key at https://console.groq.com/)');
+}
+
+const { app, BrowserWindow, ipcMain } = require('electron');
 
 // Determine run mode based on NODE_ENV
 // If NODE_ENV is 'production', use production build
@@ -26,8 +47,8 @@ function createWindow() {
   console.log('Preload script path:', preloadPath);
   console.log('Preload script exists:', require('fs').existsSync(preloadPath));
 
-  // Create the browser window with security best practices
-  mainWindow = new BrowserWindow({
+  const iconPath = path.join(__dirname, '../assets/icon.png');
+  const browserOptions = {
     width: 1200,
     height: 800,
     webPreferences: {
@@ -39,9 +60,12 @@ function createWindow() {
       allowRunningInsecureContent: false, // Security: block insecure content
       experimentalFeatures: false // Security: disable experimental features
     },
-    show: false, // Don't show until ready-to-show
-    icon: path.join(__dirname, '../assets/icon.png') // App icon
-  });
+    show: false // Don't show until ready-to-show
+  };
+  if (require('fs').existsSync(iconPath)) {
+    browserOptions.icon = iconPath;
+  }
+  mainWindow = new BrowserWindow(browserOptions);
 
   // Load the app
   const startUrl = runInDevMode
@@ -1195,6 +1219,28 @@ ipcMain.handle('course:getEnrolled', async (event, courseId) => {
   }
 });
 
+// Get all students for course enrollment - allows teachers and admins
+ipcMain.handle('course:getStudentsForEnrollment', async () => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized: Teachers and admins only' };
+    }
+
+    const stmt = dbService.db.prepare(`
+      SELECT user_id, username, full_name, email
+      FROM users
+      WHERE role = 'student'
+      ORDER BY full_name ASC
+    `);
+    const students = stmt.all();
+    return { success: true, students };
+  } catch (error) {
+    console.error('Error getting students for enrollment:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('course:getStudentCourses', async (event, studentId) => {
   try {
     const courses = dbService.getStudentCourses(studentId);
@@ -1561,6 +1607,302 @@ ipcMain.handle('system:get-setup-status', async (event) => {
       success: false,
       error: error.message
     };
+  }
+});
+
+// ============================================
+// TEST CASE GENERATION - AI & Code Execution
+// ============================================
+
+const aiService = require('../services/aiService');
+const codeExecutionService = require('../services/codeExecutionService');
+
+ipcMain.handle('ai:extract-questions', async (event, rawText) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const questions = await aiService.extractQuestionsFromText(rawText);
+    return { success: true, questions };
+  } catch (error) {
+    console.error('AI extract questions error:', error);
+    return { success: false, error: error.message, questions: [] };
+  }
+});
+
+ipcMain.handle('ai:generate-test-cases', async (event, questionText, language) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const { testCases, referenceSolution } = await aiService.generateTestCases(questionText, language || 'python');
+    return { success: true, testCases, referenceSolution: referenceSolution || '' };
+  } catch (error) {
+    console.error('AI generate test cases error:', error);
+    return { success: false, error: error.message, testCases: [], referenceSolution: '' };
+  }
+});
+
+ipcMain.handle('ai:is-configured', async () => {
+  return { configured: aiService.isConfigured() };
+});
+
+ipcMain.handle('ai:generate-three-solutions', async (event, questionText, language) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const { solutions } = await aiService.generateThreeSolutions(questionText, language || 'python');
+    return { success: true, solutions: solutions || [] };
+  } catch (error) {
+    console.error('AI generate three solutions error:', error);
+    return { success: false, error: error.message, solutions: [] };
+  }
+});
+
+ipcMain.handle('code:run', async (event, { sourceCode, stdin, language, timeLimit }) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) return { success: false, error: 'Not authenticated' };
+    const result = await codeExecutionService.runCode(sourceCode, stdin, language, timeLimit);
+    return { success: true, ...result };
+  } catch (error) {
+    console.error('Code run error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('code:run-test-cases', async (event, { sourceCode, testCases, language, timeLimit }) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) return { success: false, error: 'Not authenticated' };
+    const results = await codeExecutionService.runAgainstTestCases(sourceCode, testCases, language, timeLimit);
+    const passedCount = results.filter(r => r.passed).length;
+    const totalCount = results.length;
+    return { success: true, results, passedCount, totalCount };
+  } catch (error) {
+    console.error('Code run test cases error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Programming questions CRUD
+ipcMain.handle('programming:get-questions', async (event, examId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) return { success: false, error: 'Not authenticated' };
+    const questions = dbService.getProgrammingQuestionsByExam(examId);
+    return { success: true, questions };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('programming:create-question', async (event, examId, data) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const result = dbService.createProgrammingQuestion(examId, data);
+    return { success: true, question: result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('programming:update-question', async (event, questionId, data) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    dbService.updateProgrammingQuestion(questionId, data);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('programming:delete-question', async (event, questionId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    dbService.deleteProgrammingQuestion(questionId);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('programming:get-test-cases', async (event, questionId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) return { success: false, error: 'Not authenticated' };
+    const testCases = dbService.getTestCasesByQuestion(questionId);
+    return { success: true, testCases };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('programming:add-test-case', async (event, questionId, data) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const result = dbService.createTestCase(questionId, data);
+    return { success: true, testCase: result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('programming:delete-test-case', async (event, testCaseId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    dbService.deleteTestCase(testCaseId);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('programming:update-test-case', async (event, testCaseId, data) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    dbService.updateTestCase(testCaseId, data);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+function normalizeInputForStdin(inputStr) {
+  if (!inputStr || typeof inputStr !== 'string') return inputStr;
+  const s = inputStr.trim();
+  const arrMatch = s.match(/^\[[\d\s,.-]+\]$/);
+  if (arrMatch) {
+    try {
+      const arr = JSON.parse(s);
+      if (Array.isArray(arr) && arr.every(x => typeof x === 'number' || (typeof x === 'string' && /^-?\d+$/.test(x)))) {
+        return arr.map(String).join(' ');
+      }
+    } catch (_) { /* ignore */ }
+  }
+  return inputStr;
+}
+
+ipcMain.handle('code:verify-test-cases-with-solution', async (event, { questionId, sourceCode, language }) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const testCases = dbService.getTestCasesByQuestion(questionId);
+    if (!testCases.length) {
+      return { success: false, error: 'No test cases to verify' };
+    }
+    const updated = [];
+    for (const tc of testCases) {
+      let inputToUse = tc.input_data || '';
+      let runResult = await codeExecutionService.runCode(sourceCode, inputToUse, language || 'python', 2);
+      let expectedOutput = runResult.error ? '' : (runResult.stdout || '').trim();
+      if (!expectedOutput && runResult.error) {
+        const normalized = normalizeInputForStdin(inputToUse);
+        if (normalized !== inputToUse) {
+          runResult = await codeExecutionService.runCode(sourceCode, normalized, language || 'python', 2);
+          if (!runResult.error && runResult.stdout) {
+            expectedOutput = (runResult.stdout || '').trim();
+            inputToUse = normalized;
+          }
+        }
+      }
+      dbService.updateTestCase(tc.test_case_id, { expectedOutput, ...(inputToUse !== tc.input_data ? { input: inputToUse } : {}) });
+      updated.push({ ...tc, expected_output: expectedOutput, input_data: inputToUse });
+    }
+    return { success: true, testCases: updated };
+  } catch (error) {
+    console.error('Verify test cases error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('programming:submit-code', async (event, examId, questionId, sourceCode, language) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'student') {
+      return { success: false, error: 'Only students can submit code' };
+    }
+    const question = dbService.getProgrammingQuestionById(questionId);
+    if (!question) return { success: false, error: 'Question not found' };
+    const testCases = dbService.getTestCasesByQuestion(questionId);
+    const runTestCases = testCases.map(tc => ({
+      testCaseId: tc.test_case_id,
+      input: tc.input_data,
+      expectedOutput: tc.expected_output
+    }));
+    const results = await codeExecutionService.runAgainstTestCases(
+      sourceCode, runTestCases, language || question.language, question.time_limit_seconds || 2
+    );
+    const passedCount = results.filter(r => r.passed).length;
+    const totalCount = results.length;
+    const submission = dbService.createCodeSubmission(
+      examId, questionId, currentUser.userId, sourceCode, language || question.language,
+      passedCount, totalCount, 'completed'
+    );
+    for (const r of results) {
+      dbService.createSubmissionResult(
+        submission.submissionId, r.testCaseId, r.passed, r.actualOutput, r.executionTimeMs, r.error
+      );
+    }
+    return {
+      success: true,
+      submissionId: submission.submissionId,
+      passedCount,
+      totalCount,
+      results
+    };
+  } catch (error) {
+    console.error('Submit code error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('programming:get-submissions', async (event, examId, studentId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) return { success: false, error: 'Not authenticated' };
+    if (currentUser.role !== 'student' && currentUser.userId !== studentId) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const submissions = dbService.getStudentCodeSubmissions(examId, studentId);
+    return { success: true, submissions };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('programming:get-submission-results', async (event, submissionId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) return { success: false, error: 'Not authenticated' };
+    const results = dbService.getCodeSubmissionResults(submissionId);
+    return { success: true, results };
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 });
 

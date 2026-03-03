@@ -18,8 +18,12 @@
 .course-header h2 {
   font-size: var(--text-2xl);
   font-weight: var(--font-semibold);
-  color: var(--color-text-primary);
+  color: var(--theme-text, var(--color-text-primary));
   margin: 0;
+}
+
+[data-theme="dark"] .course-header h2 {
+  color: #e2e8f0;
 }
 
 .btn-primary {
@@ -50,8 +54,8 @@
 }
 
 .course-card {
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-light);
+  background-color: var(--theme-card, var(--color-bg-secondary));
+  border: 1px solid var(--theme-border, var(--color-border-light));
   border-radius: var(--radius-lg);
   padding: var(--space-6);
   box-shadow: var(--shadow-md);
@@ -59,6 +63,12 @@
   transition: all var(--transition-base);
   position: relative;
   overflow: hidden;
+}
+
+[data-theme="dark"] .course-card {
+  background: linear-gradient(145deg, #16161f 0%, #12121a 100%);
+  border-color: #1e293b;
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(14, 165, 233, 0.06);
 }
 
 .course-card::before {
@@ -71,6 +81,10 @@
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
 }
 
+[data-theme="dark"] .course-card::before {
+  background: linear-gradient(135deg, #0EA5E9 0%, #38BDF8 100%);
+}
+
 .course-card:hover {
   box-shadow: var(--shadow-lg);
   transform: translateY(-2px);
@@ -79,8 +93,12 @@
 .course-card h3 {
   font-size: var(--text-xl);
   font-weight: var(--font-semibold);
-  color: var(--color-text-primary);
+  color: var(--theme-text, var(--color-text-primary));
   margin: 0 0 var(--space-2) 0;
+}
+
+[data-theme="dark"] .course-card h3 {
+  color: #e2e8f0;
 }
 
 .course-code {
@@ -96,9 +114,13 @@
 
 .course-description {
   font-size: var(--text-sm);
-  color: var(--color-text-secondary);
+  color: var(--theme-text-muted, var(--color-text-secondary));
   margin: 0 0 var(--space-4) 0;
   line-height: var(--leading-relaxed);
+}
+
+[data-theme="dark"] .course-description {
+  color: #94a3b8;
 }
 
 .course-footer {
@@ -330,6 +352,16 @@
   font-size: var(--text-sm);
   color: var(--color-text-tertiary);
   font-style: italic;
+}
+
+.enroll-modal-hint {
+  font-size: var(--text-sm);
+  color: var(--theme-text-muted, var(--color-text-secondary));
+  margin: 0 0 var(--space-4) 0;
+}
+
+[data-theme="dark"] .enroll-modal-hint {
+  color: #94a3b8;
 }
 
 /* ========== ENROLL MODAL ========== */

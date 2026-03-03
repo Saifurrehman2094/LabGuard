@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import FaceCapture from './FaceCapture';
+import ThemeToggle from './ThemeToggle';
 import './AdminDashboard.css';
 
 interface User {
@@ -44,6 +45,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onLogout }) => {
     const [showFaceRegistration, setShowFaceRegistration] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [registeringUserId, setRegisteringUserId] = useState<string | null>(null);
+    const [openDropdownUserId, setOpenDropdownUserId] = useState<string | null>(null);
+    const [logFilterUser, setLogFilterUser] = useState<string>('');
+    const [logFilterAction, setLogFilterAction] = useState<string>('');
 
     // Form state
     const [userFormData, setUserFormData] = useState({
@@ -61,12 +65,18 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onLogout }) => {
 
     // Load users
     const loadUsers = useCallback(async () => {
+        if (!(window as any).electronAPI) {
+            setError('Run LabGuard via "npm run dev" (Electron window) for full functionality.');
+            setUsers([]);
+            return;
+        }
         try {
             setLoading(true);
-            const result = await window.electronAPI.getUsers();
+            const result = await (window as any).electronAPI.getUsers();
 
             if (result.success) {
                 setUsers(result.users);
+                setError(null);
             } else {
                 setError(result.error || 'Failed to load users');
             }
@@ -184,8 +194,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onLogout }) => {
     const handleUserSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
+        if (!(window as any).electronAPI) {
+            setError('This feature requires the full LabGuard app. Run "npm run dev" from the project folder and use the Electron window (not the browser).');
+            return;
+        }
+
         try {
             setLoading(true);
+            setError(null);
 
             if (editingUser) {
                 // Update existing user
@@ -307,6 +323,20 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onLogout }) => {
         loadAuditLogs();
     }, [loadUsers, loadSystemSettings, loadFaceStats, loadAuditLogs]);
 
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest('.user-manage-dropdown')) {
+                setOpenDropdownUserId(null);
+            }
+        };
+        if (openDropdownUserId) {
+            document.addEventListener('click', handleClickOutside);
+        }
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, [openDropdownUserId]);
+
     return (
         <div className="admin-dashboard">
             <header className="dashboard-header">
@@ -315,7 +345,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onLogout }) => {
                         <h1>Admin Dashboard</h1>
                         <p>Welcome, {currentUser.fullName}</p>
                     </div>
-                    <button onClick={onLogout} className="logout-btn">Logout</button>
+                    <div className="header-actions">
+                        <ThemeToggle />
+                        <button onClick={onLogout} className="logout-btn">Logout</button>
+                    </div>
                 </div>
             </header>
 
@@ -423,28 +456,45 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onLogout }) => {
                                                 }
                                             </td>
                                             <td>
-                                                <div className="user-actions">
+                                                <div className="user-manage-dropdown">
                                                     <button
-                                                        onClick={() => startEditUser(user)}
-                                                        className="btn btn-sm btn-secondary"
+                                                        className="user-manage-trigger"
+                                                        onClick={() => setOpenDropdownUserId(openDropdownUserId === user.user_id ? null : user.user_id)}
                                                         disabled={loading}
                                                     >
-                                                        Edit
+                                                        Manage {user.username}
+                                                        <span className="dropdown-arrow">▼</span>
                                                     </button>
-                                                    <button
-                                                        onClick={() => startFaceRegistration(user.user_id)}
-                                                        className="btn btn-sm btn-primary"
-                                                        disabled={loading}
-                                                    >
-                                                        Face
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleDeleteUser(user.user_id, user.username)}
-                                                        className="btn btn-sm btn-danger"
-                                                        disabled={user.user_id === currentUser.userId || loading}
-                                                    >
-                                                        Delete
-                                                    </button>
+                                                    {openDropdownUserId === user.user_id && (
+                                                        <div className="user-manage-menu">
+                                                            <button
+                                                                onClick={() => {
+                                                                    startEditUser(user);
+                                                                    setOpenDropdownUserId(null);
+                                                                }}
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    startFaceRegistration(user.user_id);
+                                                                    setOpenDropdownUserId(null);
+                                                                }}
+                                                            >
+                                                                Face
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    handleDeleteUser(user.user_id, user.username);
+                                                                    setOpenDropdownUserId(null);
+                                                                }}
+                                                                disabled={user.user_id === currentUser.userId}
+                                                                className="danger-option"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -458,7 +508,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onLogout }) => {
                 {activeTab === 'settings' && (
                     <div className="settings-tab">
                         <h2>System Settings</h2>
-
                         <div className="settings-form">
                             <div className="setting-group">
                                 <label>Face Matching Threshold</label>
@@ -547,7 +596,33 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onLogout }) => {
 
                 {activeTab === 'logs' && (
                     <div className="logs-tab">
-                        <h2>Audit Logs</h2>
+                        <div className="logs-header">
+                            <h2>Audit Logs</h2>
+                            <div className="logs-filters">
+                                <select
+                                    value={logFilterUser}
+                                    onChange={(e) => setLogFilterUser(e.target.value)}
+                                    className="logs-filter-select"
+                                    title="Filter by user"
+                                >
+                                    <option value="">All Users</option>
+                                    {Array.from(new Set(auditLogs.map(l => l.username || 'System'))).sort().map(u => (
+                                        <option key={u} value={u}>{u}</option>
+                                    ))}
+                                </select>
+                                <select
+                                    value={logFilterAction}
+                                    onChange={(e) => setLogFilterAction(e.target.value)}
+                                    className="logs-filter-select"
+                                    title="Filter by action"
+                                >
+                                    <option value="">All Actions</option>
+                                    {Array.from(new Set(auditLogs.map(l => l.action))).sort().map(a => (
+                                        <option key={a} value={a}>{a}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
 
                         <div className="logs-table-container">
                             <table className="logs-table">
@@ -560,16 +635,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onLogout }) => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {auditLogs.map((log, index) => (
-                                        <tr key={index}>
-                                            <td>{new Date(log.timestamp).toLocaleString()}</td>
-                                            <td>{log.username || 'System'}</td>
+                                    {auditLogs
+                                        .filter(log => !logFilterUser || (log.username || 'System') === logFilterUser)
+                                        .filter(log => !logFilterAction || log.action === logFilterAction)
+                                        .map((log, index) => (
+                                        <tr key={index} className="log-row">
+                                            <td className="log-timestamp">{new Date(log.timestamp).toLocaleString()}</td>
+                                            <td className="log-user">{log.username || 'System'}</td>
                                             <td>
-                                                <span className={`action-badge action-${log.action.toLowerCase().replace('_', '-')}`}>
+                                                <span className={`action-badge action-${(log.action || '').toLowerCase().replace(/_/g, '-')}`}>
                                                     {log.action}
                                                 </span>
                                             </td>
-                                            <td>
+                                            <td className="log-details">
                                                 {log.details && typeof log.details === 'object'
                                                     ? JSON.stringify(log.details, null, 2)
                                                     : log.details || '-'
@@ -594,6 +672,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onLogout }) => {
                         </div>
 
                         <form onSubmit={handleUserSubmit} className="user-form">
+                            {error && (
+                                <div className="error-banner" style={{ marginBottom: '16px' }}>
+                                    <span>{error}</span>
+                                    <button type="button" onClick={() => setError(null)}>×</button>
+                                </div>
+                            )}
                             <div className="form-group">
                                 <label>Username</label>
                                 <input

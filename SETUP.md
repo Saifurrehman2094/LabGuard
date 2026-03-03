@@ -72,22 +72,22 @@ cd LAB-Guard
 ```
 
 ### 2. Install Dependencies
-Open Command Prompt or PowerShell in the project folder:
+Open Command Prompt or PowerShell in the project folder.
 
-```bash
-# Install all dependencies (this may take 5-10 minutes)
-npm install
+**If PowerShell blocks scripts**, run first:
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```
 
-**Note**: If you see warnings about optional dependencies, you can ignore them.
-
-### 3. Download Face Recognition Models
+Then install:
 ```bash
-# Download AI models (required for face authentication)
-npm run download-models
+# Install all dependencies (root + frontend + AI models)
+npm install --legacy-peer-deps
 ```
 
-This will download models to `frontend/public/models/` (~30MB).
+This installs root deps, frontend deps (pdfjs-dist, jszip, react-pdf), and downloads face models.
+
+**Note**: Use `--legacy-peer-deps` if you see peer dependency conflicts. The postinstall script will also install frontend dependencies and download models.
 
 ---
 
@@ -130,17 +130,20 @@ npm start
 
 ## 🛠️ Troubleshooting
 
-### Issue: "npm install" fails with Python errors
+### Issue: "npm install" fails with peer dependency errors
 
 **Solution**:
 ```bash
-# Install Windows Build Tools
-npm install --global windows-build-tools
-
-# Or install Visual Studio Build Tools manually:
-# https://visualstudio.microsoft.com/downloads/
-# Select "Desktop development with C++"
+npm install --legacy-peer-deps
 ```
+
+### Issue: "npm install" fails with better-sqlite3 / Python / C++ errors
+
+**Solution**: Install **Visual Studio Build Tools 2022** (not VS 2026):
+1. Download: https://aka.ms/vs/17/release/vs_BuildTools.exe
+2. Run installer → Check **"Desktop development with C++"** only
+3. Install (takes ~10-15 mins)
+4. Use **Node.js v18 LTS** (not v24): https://nodejs.org/dist/v18.20.4/node-v18.20.4-x64.msi
 
 ### Issue: "bcrypt" or "better-sqlite3" errors
 
@@ -162,14 +165,30 @@ npm run download-models
 # Place in: frontend/public/models/
 ```
 
-### Issue: Electron window doesn't open
+### Issue: "Web-only mode" or Electron window doesn't open
+
+**Solution**: Always run from **project root** (not frontend folder):
+```bash
+cd C:\Users\umari\LabGuard
+npm run dev
+```
+Wait 30-60 seconds — the Electron window should open. If not, open http://localhost:3001 in a browser.
+
+### Issue: Module not found (pdfjs-dist, jszip, react-pdf)
 
 **Solution**:
 ```bash
-# Clear cache and reinstall
-rm -rf node_modules
-rm -rf frontend/node_modules
-npm install
+cd frontend
+npm install pdfjs-dist jszip react-pdf --legacy-peer-deps
+cd ..
+npm run dev
+```
+
+### Issue: PowerShell blocks npm
+
+**Solution**:
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```
 
 ### Issue: Port 3001 already in use
@@ -253,11 +272,17 @@ npm run dist             # Create installer package
 
 ### Environment Variables
 
-Create a `.env` file in the root directory (optional):
+Create a `.env` file in the root directory (copy from `.env.example`):
 ```env
 NODE_ENV=development
 PORT=3001
+
+# Programming Questions & Test Case Generation (optional)
+# Get free key at: https://console.groq.com/
+GROQ_API_KEY=gsk_your_key_here
 ```
+
+- **GROQ_API_KEY**: Enables AI-powered question extraction from PDFs and automatic test case generation. Without it, teachers can still add questions and test cases manually.
 
 ### Building Installer
 
@@ -267,6 +292,15 @@ npm run dist
 
 # Output will be in: dist/LAB-Guard Setup.exe
 ```
+
+---
+
+## 🖥️ Using Cursor AI
+
+1. **Open in Cursor**: File → Open Folder → select `C:\Users\umari\LabGuard`
+2. **Terminal**: Press `Ctrl + \`` to open terminal
+3. **Run**: `npm run dev` (from project root)
+4. **AI**: Use `Ctrl + K` for inline edits, `Ctrl + L` for chat
 
 ---
 

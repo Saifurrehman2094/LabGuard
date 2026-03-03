@@ -44,6 +44,26 @@ interface ElectronAPI {
   getSystemSettings: () => Promise<any>;
   updateSystemSettings: (settings: any) => Promise<any>;
   
+  // Test Case Generation
+  aiExtractQuestions?: (rawText: string) => Promise<{ success: boolean; questions?: any[]; error?: string }>;
+  aiGenerateTestCases?: (questionText: string, language?: string) => Promise<{ success: boolean; testCases?: any[]; referenceSolution?: string; error?: string }>;
+  aiGenerateThreeSolutions?: (questionText: string, language?: string) => Promise<{ success: boolean; solutions?: Array<{ label: string; code: string }>; error?: string }>;
+  aiIsConfigured?: () => Promise<{ configured: boolean }>;
+  codeRun?: (params: { sourceCode: string; stdin: string; language?: string; timeLimit?: number }) => Promise<any>;
+  codeRunTestCases?: (params: { sourceCode: string; testCases: any[]; language?: string; timeLimit?: number }) => Promise<any>;
+  getProgrammingQuestions?: (examId: string) => Promise<any>;
+  createProgrammingQuestion?: (examId: string, data: any) => Promise<any>;
+  updateProgrammingQuestion?: (questionId: string, data: any) => Promise<any>;
+  deleteProgrammingQuestion?: (questionId: string) => Promise<any>;
+  getProgrammingTestCases?: (questionId: string) => Promise<any>;
+  addProgrammingTestCase?: (questionId: string, data: any) => Promise<any>;
+  updateProgrammingTestCase?: (testCaseId: string, data: any) => Promise<any>;
+  deleteProgrammingTestCase?: (testCaseId: string) => Promise<any>;
+  verifyTestCasesWithSolution?: (params: { questionId: string; sourceCode: string; language?: string }) => Promise<any>;
+  submitProgrammingCode?: (examId: string, questionId: string, sourceCode: string, language: string) => Promise<any>;
+  getCodeSubmissions?: (examId: string, studentId: string) => Promise<any>;
+  getSubmissionResults?: (submissionId: string) => Promise<any>;
+
   // Event listeners
   onMonitoringEvent: (callback: (...args: any[]) => void) => () => void;
 }

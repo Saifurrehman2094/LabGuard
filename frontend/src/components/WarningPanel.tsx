@@ -33,37 +33,60 @@ const WarningPanel: React.FC<WarningPanelProps> = ({
     const [activeViolations, setActiveViolations] = useState<Set<string>>(new Set());
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [totalViolationTime, setTotalViolationTime] = useState(0);
+    const [countJustUpdated, setCountJustUpdated] = useState(false);
 
     // Check if running in Electron
     const isElectron = () => {
         return !!(window as any).electronAPI;
     };
 
+    // Normalize violation data from backend (startTime -> focusStartTime, etc.)
+    const normalizeViolation = (data: any): ViolationRecord => ({
+        violationId: data.violationId,
+        examId: data.examId || '',
+        studentId: data.studentId || '',
+        deviceId: data.deviceId || '',
+        appName: data.appName || 'Unknown',
+        windowTitle: data.windowTitle || '',
+        focusStartTime: data.focusStartTime || (data.startTime ? (typeof data.startTime === 'string' ? data.startTime : data.startTime.toISOString?.()) : new Date().toISOString()),
+        focusEndTime: data.focusEndTime || (data.endTime ? (typeof data.endTime === 'string' ? data.endTime : data.endTime?.toISOString?.()) : undefined),
+        durationSeconds: data.durationSeconds ?? (data.duration ? Math.floor(data.duration / 1000) : undefined),
+        screenshotPath: data.screenshotPath,
+        screenshotCaptured: data.screenshotCaptured ?? false,
+        createdAt: data.createdAt || new Date().toISOString()
+    });
+
     // Handle new violation events
-    const handleViolationStart = useCallback((violationData: ViolationRecord) => {
+    const handleViolationStart = useCallback((violationData: any) => {
+        const normalized = normalizeViolation(violationData);
         setViolations(prev => {
             // Check if violation already exists
-            const existingIndex = prev.findIndex(v => v.violationId === violationData.violationId);
+            const existingIndex = prev.findIndex(v => v.violationId === normalized.violationId);
             if (existingIndex >= 0) {
                 // Update existing violation
                 const updated = [...prev];
-                updated[existingIndex] = violationData;
+                updated[existingIndex] = normalized;
                 return updated;
             }
             // Add new violation at the beginning (most recent first)
-            return [violationData, ...prev];
+            return [normalized, ...prev];
         });
 
-        setActiveViolations(prev => new Set(prev).add(violationData.violationId));
+        setActiveViolations(prev => new Set(prev).add(normalized.violationId));
+
+        // Highlight count update so user sees it change at the right time
+        setCountJustUpdated(true);
+        setTimeout(() => setCountJustUpdated(false), 800);
     }, []);
 
     // Handle violation end events
-    const handleViolationEnd = useCallback((violationData: ViolationRecord) => {
+    const handleViolationEnd = useCallback((violationData: any) => {
         setViolations(prev => {
-            const updated = prev.map(v =>
-                v.violationId === violationData.violationId ? violationData : v
+            const existing = prev.find(v => v.violationId === violationData.violationId);
+            const normalized = normalizeViolation({ ...existing, ...violationData });
+            return prev.map(v =>
+                v.violationId === violationData.violationId ? normalized : v
             );
-            return updated;
         });
 
         setActiveViolations(prev => {
@@ -189,7 +212,7 @@ const WarningPanel: React.FC<WarningPanelProps> = ({
                 <div className="panel-stats">
                     <div className="stat-item">
                         <span className="stat-label">Total:</span>
-                        <span className="stat-value">{stats.totalCount}</span>
+                        <span className={`stat-value ${countJustUpdated ? 'count-updated' : ''}`}>{stats.totalCount}</span>
                     </div>
                     <div className="stat-item">
                         <span className="stat-label">Time:</span>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import ExamEditModal from './ExamEditModal';
 import PDFViewer from './PDFViewer';
+import ProgrammingQuestionsManager from './ProgrammingQuestionsManager';
 import './ExamList.css';
 
 interface Exam {
@@ -34,6 +35,8 @@ const ExamList: React.FC<ExamListProps> = ({
   const [filterStatus, setFilterStatus] = useState<'all' | 'upcoming' | 'active' | 'completed'>('all');
   const [showPDFViewer, setShowPDFViewer] = useState(false);
   const [selectedExamForPDF, setSelectedExamForPDF] = useState<Exam | null>(null);
+  const [showProgrammingQuestions, setShowProgrammingQuestions] = useState(false);
+  const [selectedExamForProgramming, setSelectedExamForProgramming] = useState<Exam | null>(null);
 
   // Check if running in Electron
   const isElectron = () => {
@@ -167,6 +170,17 @@ const ExamList: React.FC<ExamListProps> = ({
         />
       )}
 
+      {/* Programming Questions Modal */}
+      {showProgrammingQuestions && selectedExamForProgramming && (
+        <ProgrammingQuestionsManager
+          exam={selectedExamForProgramming}
+          onClose={() => {
+            setShowProgrammingQuestions(false);
+            setSelectedExamForProgramming(null);
+          }}
+        />
+      )}
+
       {/* Controls */}
       <div className="exam-list-controls">
         <div className="filter-controls">
@@ -281,6 +295,17 @@ const ExamList: React.FC<ExamListProps> = ({
                 </div>
 
                 <div className="exam-card-actions">
+                  <button
+                    onClick={() => {
+                      setSelectedExamForProgramming(exam);
+                      setShowProgrammingQuestions(true);
+                    }}
+                    className="program-questions-btn"
+                    disabled={isDeleting}
+                    title="Add programming questions & test cases"
+                  >
+                    Program Questions
+                  </button>
                   <button
                     onClick={() => setEditingExam(exam)}
                     className="edit-btn"
