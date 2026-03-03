@@ -81,6 +81,15 @@ npm run download-models
 - **Teacher** - Exam creation, monitoring, reports
 - **Student** - Exam participation with monitoring
 
+### Programming Questions & AI Test Case Generation
+- **AI-powered extraction** - Extract programming questions from PDF/Word exam documents (Groq API)
+- **Automatic test case generation** - AI generates reference solution + test inputs; expected outputs come from **execution** (Judge0), not AI prediction
+- **Multi-language support** - Python, C, C++, Java, JavaScript
+- **3 best solutions** - Generate efficient, readable, and alternative approaches for each problem
+- **Code execution sandbox** - Judge0 CE (free) runs student code in isolated containers
+- **Input normalization** - Handles array inputs (JSON → space-separated) for reliable execution
+- **Fill expected outputs** - Manual verification when needed
+
 ### Security Features
 - bcrypt password hashing (12 rounds)
 - Face embeddings (128-dimension vectors)
@@ -99,6 +108,8 @@ npm run download-models
 - Node.js runtime
 - SQLite database
 - Windows API integration
+- Groq AI (question extraction, test case generation)
+- Judge0 CE (code execution sandbox)
 
 ### Security
 - JWT authentication
@@ -128,6 +139,10 @@ npm test               # Run tests
 
 - **users** - User accounts with roles
 - **exams** - Exam configurations
+- **programming_questions** - Coding problems with problem text, language
+- **question_test_cases** - Input/output pairs for auto-grading
+- **code_submissions** - Student code submissions
+- **submission_results** - Per-test-case pass/fail results
 - **face_embeddings** - Biometric data
 - **events** - Monitoring events
 - **app_violations** - Application violations
