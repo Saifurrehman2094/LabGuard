@@ -48,9 +48,9 @@ const CourseManagement: React.FC<CourseManagementProps> = ({ user }) => {
     };
 
     const loadAllStudents = async () => {
-        const result = await (window as any).electronAPI.getUsers({ role: 'student' });
+        const result = await (window as any).electronAPI.getStudentsForEnrollment();
         if (result.success) {
-            setAllStudents(result.users);
+            setAllStudents(result.students);
         }
     };
 
@@ -67,10 +67,22 @@ const CourseManagement: React.FC<CourseManagementProps> = ({ user }) => {
         const result = await (window as any).electronAPI.createCourse(formData);
 
         if (result.success) {
-            alert('Course created successfully!');
             setFormData({ courseName: '', courseCode: '', description: '' });
             setShowCreateForm(false);
-            loadCourses();
+            await loadCourses();
+
+            // Open the new course so teacher can add students right away
+            const coursesResult = await (window as any).electronAPI.getCoursesByTeacher(user.userId);
+            if (coursesResult.success && coursesResult.courses) {
+                const newCourse = coursesResult.courses.find((c: Course) => c.course_id === result.course.courseId);
+                if (newCourse) {
+                    setSelectedCourse(newCourse);
+                    await loadEnrolledStudents(newCourse.course_id);
+                    await loadAllStudents();
+                    setShowEnrollModal(true);
+                }
+            }
+            alert('Course created! Add students below so they can see exams for this course.');
         } else {
             alert('Error: ' + result.error);
         }
@@ -181,7 +193,10 @@ const CourseManagement: React.FC<CourseManagementProps> = ({ user }) => {
                         <div className="enrolled-students-section">
                             <div className="section-header">
                                 <h4>Enrolled Students ({enrolledStudents.length})</h4>
-                                <button className="btn-primary" onClick={() => setShowEnrollModal(true)}>
+                                <button className="btn-primary" onClick={async () => {
+                                    await loadAllStudents();
+                                    setShowEnrollModal(true);
+                                }}>
                                     Enroll Student
                                 </button>
                             </div>
@@ -211,9 +226,20 @@ const CourseManagement: React.FC<CourseManagementProps> = ({ user }) => {
                         {showEnrollModal && (
                             <div className="enroll-modal">
                                 <h4>Select Student to Enroll</h4>
+                                <p className="enroll-modal-hint">
+                                    {allStudents.length === 0
+                                        ? 'No students in the system yet. Add students via the Admin panel first.'
+                                        : getAvailableStudents().length === 0
+                                            ? 'All students are already enrolled in this course.'
+                                            : `${getAvailableStudents().length} student(s) available to enroll.`}
+                                </p>
                                 <div className="students-list">
                                     {getAvailableStudents().length === 0 ? (
-                                        <p className="no-data">All students are already enrolled</p>
+                                        allStudents.length === 0 ? (
+                                            <p className="no-data">No students available. Ask an admin to add students.</p>
+                                        ) : (
+                                            <p className="no-data">All students are already enrolled in this course.</p>
+                                        )
                                     ) : (
                                         getAvailableStudents().map(student => (
                                             <div key={student.user_id} className="student-item">

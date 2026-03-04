@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import FaceAuth from './FaceAuth';
+import ThemeToggle from './ThemeToggle';
 import WebStorageService from '../services/webStorage';
 import './Login.css';
 
@@ -273,6 +274,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   return (
     <div className="login-container">
+      <div className="login-theme-toggle">
+        <ThemeToggle />
+      </div>
       <div className="login-card">
         <div className="login-header">
           <div className="login-icon">

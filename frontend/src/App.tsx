@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ThemeProvider } from './contexts/ThemeContext';
 import './App.css';
 import Login from './components/Login';
 import TeacherDashboard from './components/TeacherDashboard';
@@ -92,44 +93,52 @@ function App() {
   // Show loading screen while checking session
   if (isLoading) {
     return (
-      <div className="App">
-        <div className="loading-container">
-          <div className="loading-spinner-large"></div>
-          <p>Loading LAB-Guard...</p>
+      <ThemeProvider>
+        <div className="App">
+          <div className="loading-container">
+            <div className="loading-spinner-large"></div>
+            <p>Loading LAB-Guard...</p>
+          </div>
         </div>
-      </div>
+      </ThemeProvider>
     );
   }
 
   // Show setup wizard if needed
   if (showSetupWizard) {
     return (
-      <div className="App">
-        <SetupWizard onSetupComplete={handleSetupComplete} />
-      </div>
+      <ThemeProvider>
+        <div className="App">
+          <SetupWizard onSetupComplete={handleSetupComplete} />
+        </div>
+      </ThemeProvider>
     );
   }
 
   // Show login if no user is authenticated
   if (!user) {
     return (
-      <div className="App">
-        <Login onLoginSuccess={handleLoginSuccess} />
-      </div>
+      <ThemeProvider>
+        <div className="App">
+          <Login onLoginSuccess={handleLoginSuccess} />
+        </div>
+      </ThemeProvider>
     );
   }
 
   // Show appropriate dashboard based on user role
   return (
-    <div className="App">
-      {user.role === 'admin' ? (
-        <AdminPanel currentUser={user} onLogout={handleLogout} />
-      ) : user.role === 'teacher' ? (
-        <TeacherDashboard user={user} onLogout={handleLogout} />
-      ) : (
-        <StudentDashboard user={user} onLogout={handleLogout} />
-      )}
-    </div>
+    <ThemeProvider>
+      <div className="App">
+        {user.role === 'admin' ? (
+          <AdminPanel currentUser={user} onLogout={handleLogout} />
+        ) : user.role === 'teacher' ? (
+          <TeacherDashboard user={user} onLogout={handleLogout} />
+        ) : (
+          <StudentDashboard user={user} onLogout={handleLogout} />
+        )}
+      </div>
+    </ThemeProvider>
   );
 }
 

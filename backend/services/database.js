@@ -120,6 +120,73 @@ class DatabaseService {
         WHERE type='table' AND name='app_violations'
       `).get();
 
+      // Create programming_questions table for test case generation
+      const progQuestionsExists = this.db.prepare(`
+        SELECT name FROM sqlite_master WHERE type='table' AND name='programming_questions'
+      `).get();
+      if (!progQuestionsExists) {
+        this.db.exec(`
+          CREATE TABLE programming_questions (
+            question_id TEXT PRIMARY KEY,
+            exam_id TEXT NOT NULL,
+            title TEXT,
+            problem_text TEXT NOT NULL,
+            sample_input TEXT,
+            sample_output TEXT,
+            language TEXT DEFAULT 'python',
+            time_limit_seconds INTEGER DEFAULT 2,
+            memory_limit_mb INTEGER DEFAULT 256,
+            sort_order INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (exam_id) REFERENCES exams(exam_id)
+          )
+        `);
+        this.db.exec(`
+          CREATE TABLE question_test_cases (
+            test_case_id TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL,
+            input_data TEXT NOT NULL,
+            expected_output TEXT NOT NULL,
+            description TEXT,
+            is_sample INTEGER DEFAULT 0,
+            sort_order INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (question_id) REFERENCES programming_questions(question_id)
+          )
+        `);
+        this.db.exec(`
+          CREATE TABLE code_submissions (
+            submission_id TEXT PRIMARY KEY,
+            exam_id TEXT NOT NULL,
+            question_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            source_code TEXT NOT NULL,
+            language TEXT NOT NULL,
+            passed_count INTEGER DEFAULT 0,
+            total_count INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'pending',
+            submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (exam_id) REFERENCES exams(exam_id),
+            FOREIGN KEY (question_id) REFERENCES programming_questions(question_id),
+            FOREIGN KEY (student_id) REFERENCES users(user_id)
+          )
+        `);
+        this.db.exec(`
+          CREATE TABLE submission_results (
+            result_id TEXT PRIMARY KEY,
+            submission_id TEXT NOT NULL,
+            test_case_id TEXT NOT NULL,
+            passed INTEGER NOT NULL,
+            actual_output TEXT,
+            execution_time_ms INTEGER,
+            error_message TEXT,
+            FOREIGN KEY (submission_id) REFERENCES code_submissions(submission_id),
+            FOREIGN KEY (test_case_id) REFERENCES question_test_cases(test_case_id)
+          )
+        `);
+        console.log('Created programming_questions, question_test_cases, code_submissions, submission_results tables');
+      }
+
       if (!appViolationsExists) {
         this.db.exec(`
           CREATE TABLE app_violations (
@@ -1725,6 +1792,139 @@ class DatabaseService {
   /**
    * Close database connection
    */
+  /**
+   * Programming questions & test cases (Test Case Generation module)
+   */
+  createProgrammingQuestion(examId, data) {
+    const { v4: uuidv4 } = require('uuid');
+    const questionId = uuidv4();
+    const stmt = this.db.prepare(`
+      INSERT INTO programming_questions (question_id, exam_id, title, problem_text, sample_input, sample_output, language, time_limit_seconds, memory_limit_mb, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      questionId,
+      examId,
+      data.title || `Question ${Date.now()}`,
+      data.problemText || '',
+      data.sampleInput || null,
+      data.sampleOutput || null,
+      data.language || 'python',
+      data.timeLimitSeconds || 2,
+      data.memoryLimitMb || 256,
+      data.sortOrder ?? 0
+    );
+    return { questionId, ...data };
+  }
+
+  getProgrammingQuestionsByExam(examId) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM programming_questions WHERE exam_id = ? ORDER BY sort_order, created_at
+    `);
+    return stmt.all(examId);
+  }
+
+  getProgrammingQuestionById(questionId) {
+    return this.db.prepare('SELECT * FROM programming_questions WHERE question_id = ?').get(questionId);
+  }
+
+  updateProgrammingQuestion(questionId, data) {
+    const updates = [];
+    const values = [];
+    if (data.title !== undefined) { updates.push('title = ?'); values.push(data.title); }
+    if (data.problemText !== undefined) { updates.push('problem_text = ?'); values.push(data.problemText); }
+    if (data.sampleInput !== undefined) { updates.push('sample_input = ?'); values.push(data.sampleInput); }
+    if (data.sampleOutput !== undefined) { updates.push('sample_output = ?'); values.push(data.sampleOutput); }
+    if (data.language !== undefined) { updates.push('language = ?'); values.push(data.language); }
+    if (data.timeLimitSeconds !== undefined) { updates.push('time_limit_seconds = ?'); values.push(data.timeLimitSeconds); }
+    if (updates.length === 0) return false;
+    values.push(questionId);
+    this.db.prepare(`UPDATE programming_questions SET ${updates.join(', ')} WHERE question_id = ?`).run(...values);
+    return true;
+  }
+
+  deleteProgrammingQuestion(questionId) {
+    this.db.prepare('DELETE FROM question_test_cases WHERE question_id = ?').run(questionId);
+    this.db.prepare('DELETE FROM programming_questions WHERE question_id = ?').run(questionId);
+    return true;
+  }
+
+  createTestCase(questionId, data) {
+    const { v4: uuidv4 } = require('uuid');
+    const testCaseId = uuidv4();
+    this.db.prepare(`
+      INSERT INTO question_test_cases (test_case_id, question_id, input_data, expected_output, description, is_sample, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      testCaseId,
+      questionId,
+      data.input,
+      data.expectedOutput,
+      data.description || null,
+      data.isSample ? 1 : 0,
+      data.sortOrder ?? 0
+    );
+    return { testCaseId, ...data };
+  }
+
+  getTestCasesByQuestion(questionId) {
+    return this.db.prepare(`
+      SELECT * FROM question_test_cases WHERE question_id = ? ORDER BY sort_order, created_at
+    `).all(questionId);
+  }
+
+  deleteTestCase(testCaseId) {
+    this.db.prepare('DELETE FROM question_test_cases WHERE test_case_id = ?').run(testCaseId);
+    return true;
+  }
+
+  updateTestCase(testCaseId, data) {
+    const updates = [];
+    const values = [];
+    if (data.input !== undefined) { updates.push('input_data = ?'); values.push(data.input); }
+    if (data.expectedOutput !== undefined) { updates.push('expected_output = ?'); values.push(data.expectedOutput); }
+    if (data.description !== undefined) { updates.push('description = ?'); values.push(data.description); }
+    if (updates.length === 0) return false;
+    values.push(testCaseId);
+    this.db.prepare(`UPDATE question_test_cases SET ${updates.join(', ')} WHERE test_case_id = ?`).run(...values);
+    return true;
+  }
+
+  createCodeSubmission(examId, questionId, studentId, sourceCode, language, passedCount, totalCount, status = 'completed') {
+    const { v4: uuidv4 } = require('uuid');
+    const submissionId = uuidv4();
+    this.db.prepare(`
+      INSERT INTO code_submissions (submission_id, exam_id, question_id, student_id, source_code, language, passed_count, total_count, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(submissionId, examId, questionId, studentId, sourceCode, language, passedCount, totalCount, status);
+    return { submissionId };
+  }
+
+  createSubmissionResult(submissionId, testCaseId, passed, actualOutput, executionTimeMs, errorMessage) {
+    const { v4: uuidv4 } = require('uuid');
+    const resultId = uuidv4();
+    this.db.prepare(`
+      INSERT INTO submission_results (result_id, submission_id, test_case_id, passed, actual_output, execution_time_ms, error_message)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(resultId, submissionId, testCaseId, passed ? 1 : 0, actualOutput, executionTimeMs, errorMessage);
+    return resultId;
+  }
+
+  getStudentCodeSubmissions(examId, studentId) {
+    return this.db.prepare(`
+      SELECT * FROM code_submissions WHERE exam_id = ? AND student_id = ? ORDER BY submitted_at DESC
+    `).all(examId, studentId);
+  }
+
+  getCodeSubmissionResults(submissionId) {
+    return this.db.prepare(`
+      SELECT sr.*, qt.input_data, qt.expected_output, qt.description
+      FROM submission_results sr
+      JOIN question_test_cases qt ON sr.test_case_id = qt.test_case_id
+      WHERE sr.submission_id = ?
+    `).all(submissionId);
+  }
+
   close() {
     if (this.db) {
       this.db.close();

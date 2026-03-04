@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCoursesByTeacher: (teacherId) => ipcRenderer.invoke('course:getByTeacher', teacherId),
   enrollStudent: (courseId, studentId) => ipcRenderer.invoke('course:enroll', courseId, studentId),
   getEnrolledStudents: (courseId) => ipcRenderer.invoke('course:getEnrolled', courseId),
+  getStudentsForEnrollment: () => ipcRenderer.invoke('course:getStudentsForEnrollment'),
   getStudentCourses: (studentId) => ipcRenderer.invoke('course:getStudentCourses', studentId),
   unenrollStudent: (courseId, studentId) => ipcRenderer.invoke('course:unenroll', courseId, studentId),
   getAllCourses: () => ipcRenderer.invoke('course:getAllCourses'),
@@ -79,6 +80,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // PDF methods
   viewPDF: (examId) => ipcRenderer.invoke('pdf:view', examId),
   getPDFData: (examId) => ipcRenderer.invoke('pdf:get-data', examId),
+
+  // Test Case Generation - AI & Code Execution
+  aiExtractQuestions: (rawText) => ipcRenderer.invoke('ai:extract-questions', rawText),
+  aiGenerateTestCases: (questionText, language) => ipcRenderer.invoke('ai:generate-test-cases', questionText, language),
+  aiGenerateThreeSolutions: (questionText, language) => ipcRenderer.invoke('ai:generate-three-solutions', questionText, language),
+  aiIsConfigured: () => ipcRenderer.invoke('ai:is-configured'),
+  codeRun: (params) => ipcRenderer.invoke('code:run', params),
+  codeRunTestCases: (params) => ipcRenderer.invoke('code:run-test-cases', params),
+  getProgrammingQuestions: (examId) => ipcRenderer.invoke('programming:get-questions', examId),
+  createProgrammingQuestion: (examId, data) => ipcRenderer.invoke('programming:create-question', examId, data),
+  updateProgrammingQuestion: (questionId, data) => ipcRenderer.invoke('programming:update-question', questionId, data),
+  deleteProgrammingQuestion: (questionId) => ipcRenderer.invoke('programming:delete-question', questionId),
+  getProgrammingTestCases: (questionId) => ipcRenderer.invoke('programming:get-test-cases', questionId),
+  addProgrammingTestCase: (questionId, data) => ipcRenderer.invoke('programming:add-test-case', questionId, data),
+  updateProgrammingTestCase: (testCaseId, data) => ipcRenderer.invoke('programming:update-test-case', testCaseId, data),
+  deleteProgrammingTestCase: (testCaseId) => ipcRenderer.invoke('programming:delete-test-case', testCaseId),
+  verifyTestCasesWithSolution: (params) => ipcRenderer.invoke('code:verify-test-cases-with-solution', params),
+  submitProgrammingCode: (examId, questionId, sourceCode, language) =>
+    ipcRenderer.invoke('programming:submit-code', examId, questionId, sourceCode, language),
+  getCodeSubmissions: (examId, studentId) => ipcRenderer.invoke('programming:get-submissions', examId, studentId),
+  getSubmissionResults: (submissionId) => ipcRenderer.invoke('programming:get-submission-results', submissionId),
 
   // Event listeners
   onMonitoringEvent: (callback) => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import JSZip from 'jszip';
+import ProgrammingCodeEditor from './ProgrammingCodeEditor';
 import './ExamPage.css';
 
 // Configure PDF.js worker
@@ -57,6 +58,7 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
     }>({ submitted: false });
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [zipContents, setZipContents] = useState<{ [key: string]: string[] }>({});
+    const [programmingQuestions, setProgrammingQuestions] = useState<any[]>([]);
 
     const isElectron = () => !!(window as any).electronAPI;
 
@@ -144,6 +146,31 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
             }
         }
     }, [timeRemaining, examStarted, submissionStatus.submitted]);
+
+    // Load programming questions when exam is started
+    useEffect(() => {
+        const loadProgrammingQuestions = async () => {
+            if (!examStarted || !isElectron()) return;
+            const api = (window as any).electronAPI;
+            if (!api?.getProgrammingQuestions) return;
+            try {
+                const r = await api.getProgrammingQuestions(exam.exam_id);
+                if (r.success && Array.isArray(r.questions)) {
+                    setProgrammingQuestions(r.questions.map((q: any) => ({
+                        question_id: q.question_id,
+                        title: q.title || 'Question',
+                        problem_text: q.problem_text || '',
+                        sample_input: q.sample_input,
+                        sample_output: q.sample_output,
+                        language: q.language || 'python'
+                    })));
+                }
+            } catch {
+                setProgrammingQuestions([]);
+            }
+        };
+        loadProgrammingQuestions();
+    }, [examStarted, exam.exam_id]);
 
     // Load submission status and check if exam was already started
     useEffect(() => {
@@ -387,7 +414,7 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                         const zipData = await zip.loadAsync(file);
                         const fileNames: string[] = [];
 
-                        zipData.forEach((relativePath, zipEntry) => {
+                        zipData.forEach((relativePath: string, zipEntry: JSZip.JSZipObject) => {
                             if (!zipEntry.dir) {
                                 fileNames.push(relativePath);
                             }
@@ -605,6 +632,29 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                             <div className="no-content">
                                 <p>No exam paper available</p>
                             </div>
+                        )}
+
+                        {/* Programming Questions - Student code editor */}
+                        {examStarted && user.role === 'student' && programmingQuestions.length > 0 && (
+                            <ProgrammingCodeEditor
+                                examId={exam.exam_id}
+                                studentId={user.userId}
+                                questions={programmingQuestions}
+                                onLoadTestCases={async (questionId) => {
+                                    const api = (window as any).electronAPI;
+                                    if (!api?.getProgrammingTestCases) return [];
+                                    const r = await api.getProgrammingTestCases(questionId);
+                                    if (r.success && Array.isArray(r.testCases)) {
+                                        return r.testCases.map((tc: any) => ({
+                                            test_case_id: tc.test_case_id,
+                                            input_data: tc.input_data || '',
+                                            expected_output: tc.expected_output || '',
+                                            description: tc.description
+                                        }));
+                                    }
+                                    return [];
+                                }}
+                            />
                         )}
                     </div>
                 </div>
