@@ -77,3 +77,13 @@ __pycache__/
 *.egg-info/
 dist/
 *.egg
+
+# Local C++ testing planning docs
+cpp-testing-plan/
+.cursor/plans/
+
+# Iteration3Testing generated assets (scripts create these when run)
+Iteration3Testing/sample-questions.pdf
+
+# LLM API keys (use llm-config.example.json as template; never commit real keys)
+backend/data/llm-config.json

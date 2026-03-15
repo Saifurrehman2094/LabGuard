@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   submitExam: (examId, filesData) => ipcRenderer.invoke('exam:submit', examId, filesData),
   getExamSubmission: (examId) => ipcRenderer.invoke('exam:get-submission', examId),
   unsubmitExam: (examId) => ipcRenderer.invoke('exam:unsubmit', examId),
+  extractQuestions: (examId) => ipcRenderer.invoke('exam:extract-questions', examId),
+  generateTestCases: (examId, questionId, llmProvider) =>
+    ipcRenderer.invoke('exam:generate-testcases', examId, questionId, llmProvider),
 
   // Monitoring methods
   startMonitoring: (examId, studentId, allowedApps) =>
@@ -122,6 +125,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // PDF methods
   viewPDF: (examId) => ipcRenderer.invoke('pdf:view', examId),
   getPDFData: (examId) => ipcRenderer.invoke('pdf:get-data', examId),
+
+  // Dev: Phase 1 Code Eval DB test (T2, T3)
+  phase1CodeEvalDbTest: () => ipcRenderer.invoke('code-eval:phase1-db-test'),
 
   // Event listeners
   onMonitoringEvent: (callback) => {

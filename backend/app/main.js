@@ -12,11 +12,15 @@ const DatabaseService = require('../services/database'); // Using SQLite databas
 const FileService = require('../services/files');
 const MonitoringController = require('../services/monitoringController');
 const CameraMonitoringService = require('../services/cameraMonitoringService');
+const PDFTextExtractor = require('../services/pdfTextExtractor');
+const LLMTestCaseService = require('../services/llmTestCaseService');
 
 // Initialize services
 let authService;
 let dbService;
 let fileService;
+let pdfTextExtractor;
+let llmTestCaseService;
 let monitoringController;
 let cameraMonitoringService;
 
@@ -126,6 +130,9 @@ async function initializeServices() {
     console.log('Initializing file service...');
     fileService = new FileService();
     console.log('File service initialized');
+
+    pdfTextExtractor = new PDFTextExtractor();
+    llmTestCaseService = new LLMTestCaseService();
 
     console.log('Initializing monitoring controller...');
     monitoringController = new MonitoringController(dbService);
@@ -1282,6 +1289,170 @@ ipcMain.handle('exam:unsubmit', async (event, examId) => {
       success: false,
       error: error.message
     };
+  }
+});
+
+// Extract candidate questions from exam PDF (Code Eval – teacher)
+ipcMain.handle('exam:extract-questions', async (event, examId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const exam = dbService.getExamById(examId);
+    if (!exam) {
+      return { success: false, error: 'Exam not found' };
+    }
+
+    if (!exam.pdfPath) {
+      return {
+        success: false,
+        error: 'No PDF uploaded for this exam. You can add questions manually.'
+      };
+    }
+
+    const fs = require('fs');
+    if (!fs.existsSync(exam.pdfPath)) {
+      return {
+        success: false,
+        error: 'PDF file not found on disk. You can add questions manually.'
+      };
+    }
+
+    const { questions } = await pdfTextExtractor.extractAndSplit(exam.pdfPath);
+    const result = questions.map((q, i) => ({
+      tempId: `temp-${examId}-${i + 1}`,
+      title: q.title,
+      description: q.description,
+      page: q.page
+    }));
+
+    return { success: true, questions: result };
+  } catch (error) {
+    console.error('exam:extract-questions error:', error);
+    const message = error.message || 'Unknown error';
+    if (message.includes('not found') || message.includes('Invalid PDF') || message.includes('corrupt')) {
+      return {
+        success: false,
+        error: 'Could not read PDF. The file may be corrupted or password-protected. You can add questions manually.'
+      };
+    }
+    return {
+      success: false,
+      error: `Extraction failed: ${message}. You can add questions manually.`
+    };
+  }
+});
+
+// Generate test cases for a question via LLM (Code Eval – teacher)
+ipcMain.handle('exam:generate-testcases', async (event, examId, questionId, llmProvider = 'gemini') => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' };
+    }
+
+    const question = dbService.getExamQuestionById(questionId);
+    if (!question) {
+      return { success: false, error: 'Question not found', code: 'NOT_FOUND' };
+    }
+    if (question.exam_id !== examId) {
+      return { success: false, error: 'Question does not belong to this exam', code: 'MISMATCH' };
+    }
+
+    const questionText = [question.title, question.description].filter(Boolean).join('\n\n');
+    if (!questionText.trim()) {
+      return { success: false, error: 'Question has no text to send to the LLM', code: 'EMPTY_QUESTION' };
+    }
+
+    const result = await llmTestCaseService.generateTestCases(questionText, { provider: llmProvider });
+    if (result.success) {
+      return { success: true, testCases: result.testCases };
+    }
+    return {
+      success: false,
+      error: result.error || 'Failed to generate test cases',
+      code: result.code || 'UNKNOWN'
+    };
+  } catch (error) {
+    console.error('exam:generate-testcases error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error',
+      code: 'ERROR'
+    };
+  }
+});
+
+// Dev-only: Phase 1 Code Eval DB test (T2, T3) – call from DevTools: require('electron').ipcRenderer.invoke('code-eval:phase1-db-test')
+const PHASE1_TEST_EXAM_ID = 'phase1-test-exam-id';
+const PHASE1_TEST_SUBMISSION_ID = 'phase1-test-submission-id';
+ipcMain.handle('code-eval:phase1-db-test', async () => {
+  try {
+    const q = dbService.insertExamQuestion({
+      exam_id: PHASE1_TEST_EXAM_ID,
+      title: 'Q1',
+      description: 'Add two numbers',
+      source_page: 1,
+      max_score: 10
+    });
+    if (!q || !q.question_id) throw new Error('T2: insertExamQuestion failed');
+
+    const tc = dbService.insertQuestionTestCase({
+      question_id: q.question_id,
+      name: 'TC1',
+      input: '1 2',
+      expected_output: '3',
+      is_hidden: 0,
+      weight: 1
+    });
+    if (!tc || !tc.test_case_id) throw new Error('T2: insertQuestionTestCase failed');
+
+    const ev = dbService.insertCodeEvaluation({
+      submission_id: PHASE1_TEST_SUBMISSION_ID,
+      question_id: q.question_id,
+      score: 8,
+      max_score: 10,
+      status: 'completed'
+    });
+    if (!ev || !ev.evaluation_id) throw new Error('T2: insertCodeEvaluation failed');
+
+    const res = dbService.insertTestCaseResult({
+      evaluation_id: ev.evaluation_id,
+      test_case_id: tc.test_case_id,
+      passed: 1,
+      execution_time_ms: 5,
+      stdout: '3',
+      stderr: ''
+    });
+    if (!res || !res.result_id) throw new Error('T2: insertTestCaseResult failed');
+
+    if (dbService.getExamQuestionsByExamId(PHASE1_TEST_EXAM_ID).length === 0) throw new Error('T2: getExamQuestionsByExamId empty');
+    if (dbService.getQuestionTestCasesByQuestionId(q.question_id).length === 0) throw new Error('T2: getQuestionTestCasesByQuestionId empty');
+    if (dbService.getCodeEvaluationsBySubmissionId(PHASE1_TEST_SUBMISSION_ID).length === 0) throw new Error('T2: getCodeEvaluationsBySubmissionId empty');
+    if (dbService.getTestCaseResultsByEvaluationId(ev.evaluation_id).length === 0) throw new Error('T2: getTestCaseResultsByEvaluationId empty');
+
+    const before = dbService.getCodeEvaluationById(ev.evaluation_id);
+    if (before.final_score !== 8) throw new Error(`T3: expected final_score 8, got ${before.final_score}`);
+
+    dbService.updateCodeEvaluationManualScore(ev.evaluation_id, 9);
+    const after = dbService.getCodeEvaluationById(ev.evaluation_id);
+    if (after.manual_score !== 9 || after.final_score !== 9) throw new Error(`T3: manual_score/final_score expected 9, got ${after.manual_score}/${after.final_score}`);
+
+    dbService.updateCodeEvaluation(ev.evaluation_id, { manual_score: null });
+    const afterClear = dbService.getCodeEvaluationById(ev.evaluation_id);
+    if (afterClear.final_score !== 8) throw new Error(`T3: after clear manual_score expected final_score 8, got ${afterClear.final_score}`);
+
+    dbService.db.prepare('DELETE FROM test_case_results WHERE evaluation_id = ?').run(ev.evaluation_id);
+    dbService.db.prepare('DELETE FROM code_evaluations WHERE evaluation_id = ?').run(ev.evaluation_id);
+    dbService.deleteQuestionTestCase(tc.test_case_id);
+    dbService.deleteExamQuestion(q.question_id);
+
+    return { success: true, message: 'Phase 1 DB tests T2, T3 passed.' };
+  } catch (err) {
+    console.error('Phase 1 DB test failed:', err);
+    return { success: false, error: err.message };
   }
 });
 

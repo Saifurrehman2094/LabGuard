@@ -295,6 +295,78 @@ class DatabaseService {
       )
     `);
 
+    // --- Code Evaluation Module: exam questions, test cases, evaluations, results ---
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS exam_questions (
+        question_id TEXT PRIMARY KEY,
+        exam_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        source_page INTEGER,
+        max_score REAL DEFAULT 100,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (exam_id) REFERENCES exams (exam_id)
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS question_test_cases (
+        test_case_id TEXT PRIMARY KEY,
+        question_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        input TEXT,
+        expected_output TEXT,
+        is_hidden INTEGER DEFAULT 0,
+        is_edge_case INTEGER DEFAULT 0,
+        is_generated INTEGER DEFAULT 0,
+        time_limit_ms INTEGER,
+        memory_limit_kb INTEGER,
+        weight REAL DEFAULT 1.0,
+        metadata TEXT,
+        FOREIGN KEY (question_id) REFERENCES exam_questions (question_id)
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS code_evaluations (
+        evaluation_id TEXT PRIMARY KEY,
+        submission_id TEXT NOT NULL,
+        question_id TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        score REAL DEFAULT 0,
+        max_score REAL DEFAULT 0,
+        status TEXT DEFAULT 'pending',
+        compile_exit_code INTEGER,
+        compile_stdout TEXT,
+        compile_stderr TEXT,
+        error_summary TEXT,
+        manual_score REAL,
+        final_score REAL DEFAULT 0,
+        FOREIGN KEY (submission_id) REFERENCES exam_submissions (submission_id),
+        FOREIGN KEY (question_id) REFERENCES exam_questions (question_id)
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS test_case_results (
+        result_id TEXT PRIMARY KEY,
+        evaluation_id TEXT NOT NULL,
+        test_case_id TEXT NOT NULL,
+        passed INTEGER DEFAULT 0,
+        execution_time_ms INTEGER,
+        memory_kb INTEGER,
+        exit_code INTEGER,
+        stdout TEXT,
+        stderr TEXT,
+        FOREIGN KEY (evaluation_id) REFERENCES code_evaluations (evaluation_id),
+        FOREIGN KEY (test_case_id) REFERENCES question_test_cases (test_case_id)
+      )
+    `);
+
+    // Indexes for code evaluation tables
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_exam_questions_exam ON exam_questions (exam_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_test_cases_question ON question_test_cases (question_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_code_evaluations_submission ON code_evaluations (submission_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_code_evaluations_question ON code_evaluations (question_id)`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_results_eval ON test_case_results (evaluation_id)`);
+
     console.log('Database tables created successfully');
   }
 
@@ -788,7 +860,23 @@ class DatabaseService {
     try {
       // Start a transaction to ensure all deletions succeed or fail together
       const transaction = this.db.transaction(() => {
-        // Delete related exam_submissions first
+        // Code eval: delete test_case_results for evaluations of this exam's submissions, then code_evaluations
+        const submissionIds = this.db.prepare('SELECT submission_id FROM exam_submissions WHERE exam_id = ?').all(examId).map(r => r.submission_id);
+        for (const sid of submissionIds) {
+          const evalIds = this.db.prepare('SELECT evaluation_id FROM code_evaluations WHERE submission_id = ?').all(sid).map(r => r.evaluation_id);
+          for (const eid of evalIds) {
+            this.db.prepare('DELETE FROM test_case_results WHERE evaluation_id = ?').run(eid);
+          }
+          this.db.prepare('DELETE FROM code_evaluations WHERE submission_id = ?').run(sid);
+        }
+        // Code eval: delete question_test_cases for exam's questions, then exam_questions
+        const questionIds = this.db.prepare('SELECT question_id FROM exam_questions WHERE exam_id = ?').all(examId).map(r => r.question_id);
+        for (const qid of questionIds) {
+          this.db.prepare('DELETE FROM question_test_cases WHERE question_id = ?').run(qid);
+        }
+        this.db.prepare('DELETE FROM exam_questions WHERE exam_id = ?').run(examId);
+
+        // Delete related exam_submissions
         const deleteSubmissionsStmt = this.db.prepare('DELETE FROM exam_submissions WHERE exam_id = ?');
         deleteSubmissionsStmt.run(examId);
 
@@ -1734,6 +1822,369 @@ class DatabaseService {
       console.error('Error unsubmitting exam:', error);
       throw error;
     }
+  }
+
+  // --- CODE EVALUATION MODULE: exam_questions, question_test_cases, code_evaluations, test_case_results ---
+
+  /**
+   * Insert exam question
+   */
+  insertExamQuestion(data) {
+    const questionId = data.question_id || uuidv4();
+    const stmt = this.db.prepare(`
+      INSERT INTO exam_questions (question_id, exam_id, title, description, source_page, max_score)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      questionId,
+      data.exam_id,
+      data.title || '',
+      data.description || null,
+      data.source_page ?? null,
+      data.max_score ?? 100
+    );
+    return this.getExamQuestionById(questionId);
+  }
+
+  /**
+   * Get exam question by ID
+   */
+  getExamQuestionById(questionId) {
+    const row = this.db.prepare('SELECT * FROM exam_questions WHERE question_id = ?').get(questionId);
+    return row ? this._rowToExamQuestion(row) : null;
+  }
+
+  /**
+   * Get all questions for an exam
+   */
+  getExamQuestionsByExamId(examId) {
+    const rows = this.db.prepare('SELECT * FROM exam_questions WHERE exam_id = ? ORDER BY created_at ASC').all(examId);
+    return rows.map(r => this._rowToExamQuestion(r));
+  }
+
+  /**
+   * Update exam question
+   */
+  updateExamQuestion(questionId, data) {
+    const updates = [];
+    const params = [];
+    const allowed = ['title', 'description', 'source_page', 'max_score'];
+    for (const key of allowed) {
+      if (data[key] !== undefined) {
+        const col = key.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+        updates.push(`${col} = ?`);
+        params.push(data[key]);
+      }
+    }
+    if (updates.length === 0) return false;
+    params.push(questionId);
+    const stmt = this.db.prepare(`UPDATE exam_questions SET ${updates.join(', ')} WHERE question_id = ?`);
+    stmt.run(...params);
+    return true;
+  }
+
+  /**
+   * Delete exam question (caller should delete test cases first or cascade)
+   */
+  deleteExamQuestion(questionId) {
+    this.db.prepare('DELETE FROM question_test_cases WHERE question_id = ?').run(questionId);
+    const result = this.db.prepare('DELETE FROM exam_questions WHERE question_id = ?').run(questionId);
+    return result.changes > 0;
+  }
+
+  _rowToExamQuestion(row) {
+    return {
+      question_id: row.question_id,
+      exam_id: row.exam_id,
+      title: row.title,
+      description: row.description,
+      source_page: row.source_page,
+      max_score: row.max_score,
+      created_at: row.created_at
+    };
+  }
+
+  /**
+   * Insert question test case
+   */
+  insertQuestionTestCase(data) {
+    const testCaseId = data.test_case_id || uuidv4();
+    const stmt = this.db.prepare(`
+      INSERT INTO question_test_cases (
+        test_case_id, question_id, name, input, expected_output,
+        is_hidden, is_edge_case, is_generated, time_limit_ms, memory_limit_kb, weight, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      testCaseId,
+      data.question_id,
+      data.name || '',
+      data.input ?? null,
+      data.expected_output ?? null,
+      data.is_hidden ? 1 : 0,
+      data.is_edge_case ? 1 : 0,
+      data.is_generated ? 1 : 0,
+      data.time_limit_ms ?? null,
+      data.memory_limit_kb ?? null,
+      data.weight ?? 1.0,
+      data.metadata ? JSON.stringify(data.metadata) : null
+    );
+    return this.getQuestionTestCaseById(testCaseId);
+  }
+
+  /**
+   * Get test case by ID
+   */
+  getQuestionTestCaseById(testCaseId) {
+    const row = this.db.prepare('SELECT * FROM question_test_cases WHERE test_case_id = ?').get(testCaseId);
+    return row ? this._rowToQuestionTestCase(row) : null;
+  }
+
+  /**
+   * Get all test cases for a question
+   */
+  getQuestionTestCasesByQuestionId(questionId) {
+    const rows = this.db.prepare('SELECT * FROM question_test_cases WHERE question_id = ?').all(questionId);
+    return rows.map(r => this._rowToQuestionTestCase(r));
+  }
+
+  /**
+   * Update question test case
+   */
+  updateQuestionTestCase(testCaseId, data) {
+    const updates = [];
+    const params = [];
+    const allowed = ['name', 'input', 'expected_output', 'is_hidden', 'is_edge_case', 'is_generated', 'time_limit_ms', 'memory_limit_kb', 'weight', 'metadata'];
+    for (const key of allowed) {
+      if (data[key] !== undefined) {
+        const col = key.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+        let val = data[key];
+        if (key === 'metadata' && val != null) val = JSON.stringify(val);
+        updates.push(`${col} = ?`);
+        params.push(val);
+      }
+    }
+    if (updates.length === 0) return false;
+    params.push(testCaseId);
+    const stmt = this.db.prepare(`UPDATE question_test_cases SET ${updates.join(', ')} WHERE test_case_id = ?`);
+    stmt.run(...params);
+    return true;
+  }
+
+  /**
+   * Delete question test case
+   */
+  deleteQuestionTestCase(testCaseId) {
+    const result = this.db.prepare('DELETE FROM question_test_cases WHERE test_case_id = ?').run(testCaseId);
+    return result.changes > 0;
+  }
+
+  _rowToQuestionTestCase(row) {
+    return {
+      test_case_id: row.test_case_id,
+      question_id: row.question_id,
+      name: row.name,
+      input: row.input,
+      expected_output: row.expected_output,
+      is_hidden: !!row.is_hidden,
+      is_edge_case: !!row.is_edge_case,
+      is_generated: !!row.is_generated,
+      time_limit_ms: row.time_limit_ms,
+      memory_limit_kb: row.memory_limit_kb,
+      weight: row.weight,
+      metadata: row.metadata ? JSON.parse(row.metadata) : null
+    };
+  }
+
+  /**
+   * Insert code evaluation
+   */
+  insertCodeEvaluation(data) {
+    const evaluationId = data.evaluation_id || uuidv4();
+    const score = data.score ?? 0;
+    const maxScore = data.max_score ?? 0;
+    const manualScore = data.manual_score ?? null;
+    const finalScore = manualScore != null ? manualScore : score;
+    const stmt = this.db.prepare(`
+      INSERT INTO code_evaluations (
+        evaluation_id, submission_id, question_id, score, max_score, status,
+        compile_exit_code, compile_stdout, compile_stderr, error_summary, manual_score, final_score
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      evaluationId,
+      data.submission_id,
+      data.question_id,
+      score,
+      maxScore,
+      data.status || 'pending',
+      data.compile_exit_code ?? null,
+      data.compile_stdout ?? null,
+      data.compile_stderr ?? null,
+      data.error_summary ?? null,
+      manualScore,
+      finalScore
+    );
+    return this.getCodeEvaluationById(evaluationId);
+  }
+
+  /**
+   * Get code evaluation by ID
+   */
+  getCodeEvaluationById(evaluationId) {
+    const row = this.db.prepare('SELECT * FROM code_evaluations WHERE evaluation_id = ?').get(evaluationId);
+    return row ? this._rowToCodeEvaluation(row) : null;
+  }
+
+  /**
+   * Get code evaluations by submission ID
+   */
+  getCodeEvaluationsBySubmissionId(submissionId) {
+    const rows = this.db.prepare('SELECT * FROM code_evaluations WHERE submission_id = ? ORDER BY created_at ASC').all(submissionId);
+    return rows.map(r => this._rowToCodeEvaluation(r));
+  }
+
+  /**
+   * Get code evaluations by question ID (across all submissions)
+   */
+  getCodeEvaluationsByQuestionId(questionId) {
+    const rows = this.db.prepare('SELECT * FROM code_evaluations WHERE question_id = ? ORDER BY created_at ASC').all(questionId);
+    return rows.map(r => this._rowToCodeEvaluation(r));
+  }
+
+  /**
+   * Update code evaluation (e.g. status, compile_*, score)
+   */
+  updateCodeEvaluation(evaluationId, data) {
+    const updates = [];
+    const params = [];
+    const allowed = ['score', 'max_score', 'status', 'compile_exit_code', 'compile_stdout', 'compile_stderr', 'error_summary', 'manual_score'];
+    for (const key of allowed) {
+      if (data[key] !== undefined) {
+        const col = key.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+        updates.push(`${col} = ?`);
+        params.push(data[key]);
+      }
+    }
+    if (updates.length === 0) return false;
+    params.push(evaluationId);
+    const stmt = this.db.prepare(`UPDATE code_evaluations SET ${updates.join(', ')} WHERE evaluation_id = ?`);
+    stmt.run(...params);
+    this.recomputeCodeEvaluationFinalScore(evaluationId);
+    return true;
+  }
+
+  /**
+   * Set manual score and recompute final_score (final_score = manual_score if set, else score)
+   */
+  updateCodeEvaluationManualScore(evaluationId, manualScore) {
+    const stmt = this.db.prepare('UPDATE code_evaluations SET manual_score = ? WHERE evaluation_id = ?');
+    stmt.run(manualScore, evaluationId);
+    return this.recomputeCodeEvaluationFinalScore(evaluationId);
+  }
+
+  /**
+   * Recompute final_score for an evaluation: final_score = manual_score if not null, else score
+   */
+  recomputeCodeEvaluationFinalScore(evaluationId) {
+    const row = this.db.prepare('SELECT manual_score, score FROM code_evaluations WHERE evaluation_id = ?').get(evaluationId);
+    if (!row) return false;
+    const finalScore = row.manual_score != null ? row.manual_score : row.score;
+    this.db.prepare('UPDATE code_evaluations SET final_score = ? WHERE evaluation_id = ?').run(finalScore, evaluationId);
+    return true;
+  }
+
+  _rowToCodeEvaluation(row) {
+    return {
+      evaluation_id: row.evaluation_id,
+      submission_id: row.submission_id,
+      question_id: row.question_id,
+      created_at: row.created_at,
+      score: row.score,
+      max_score: row.max_score,
+      status: row.status,
+      compile_exit_code: row.compile_exit_code,
+      compile_stdout: row.compile_stdout,
+      compile_stderr: row.compile_stderr,
+      error_summary: row.error_summary,
+      manual_score: row.manual_score,
+      final_score: row.final_score
+    };
+  }
+
+  /**
+   * Insert test case result
+   */
+  insertTestCaseResult(data) {
+    const resultId = data.result_id || uuidv4();
+    const stmt = this.db.prepare(`
+      INSERT INTO test_case_results (
+        result_id, evaluation_id, test_case_id, passed, execution_time_ms, memory_kb, exit_code, stdout, stderr
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      resultId,
+      data.evaluation_id,
+      data.test_case_id,
+      data.passed ? 1 : 0,
+      data.execution_time_ms ?? null,
+      data.memory_kb ?? null,
+      data.exit_code ?? null,
+      data.stdout ?? null,
+      data.stderr ?? null
+    );
+    return this.getTestCaseResultById(resultId);
+  }
+
+  /**
+   * Get test case result by ID
+   */
+  getTestCaseResultById(resultId) {
+    const row = this.db.prepare('SELECT * FROM test_case_results WHERE result_id = ?').get(resultId);
+    return row ? this._rowToTestCaseResult(row) : null;
+  }
+
+  /**
+   * Get all test case results for an evaluation
+   */
+  getTestCaseResultsByEvaluationId(evaluationId) {
+    const rows = this.db.prepare('SELECT * FROM test_case_results WHERE evaluation_id = ?').all(evaluationId);
+    return rows.map(r => this._rowToTestCaseResult(r));
+  }
+
+  /**
+   * Update test case result
+   */
+  updateTestCaseResult(resultId, data) {
+    const updates = [];
+    const params = [];
+    const allowed = ['passed', 'execution_time_ms', 'memory_kb', 'exit_code', 'stdout', 'stderr'];
+    for (const key of allowed) {
+      if (data[key] !== undefined) {
+        const col = key.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+        updates.push(`${col} = ?`);
+        params.push(data[key]);
+      }
+    }
+    if (updates.length === 0) return false;
+    params.push(resultId);
+    const stmt = this.db.prepare(`UPDATE test_case_results SET ${updates.join(', ')} WHERE result_id = ?`);
+    stmt.run(...params);
+    return true;
+  }
+
+  _rowToTestCaseResult(row) {
+    return {
+      result_id: row.result_id,
+      evaluation_id: row.evaluation_id,
+      test_case_id: row.test_case_id,
+      passed: !!row.passed,
+      execution_time_ms: row.execution_time_ms,
+      memory_kb: row.memory_kb,
+      exit_code: row.exit_code,
+      stdout: row.stdout,
+      stderr: row.stderr
+    };
   }
 
   /**
