@@ -164,6 +164,7 @@ class DatabaseService {
             language TEXT NOT NULL,
             passed_count INTEGER DEFAULT 0,
             total_count INTEGER DEFAULT 0,
+            score INTEGER DEFAULT 0,
             status TEXT DEFAULT 'pending',
             submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (exam_id) REFERENCES exams(exam_id),
@@ -177,6 +178,7 @@ class DatabaseService {
             submission_id TEXT NOT NULL,
             test_case_id TEXT NOT NULL,
             passed INTEGER NOT NULL,
+            score INTEGER DEFAULT 0,
             actual_output TEXT,
             execution_time_ms INTEGER,
             error_message TEXT,
@@ -185,6 +187,71 @@ class DatabaseService {
           )
         `);
         console.log('Created programming_questions, question_test_cases, code_submissions, submission_results tables');
+      }
+
+      // Add score column to code_submissions (0-100, replaces pass/fail for grading)
+      const codeSubmissionsExists = this.db.prepare(`
+        SELECT name FROM sqlite_master WHERE type='table' AND name='code_submissions'
+      `).get();
+      if (codeSubmissionsExists) {
+        const csCols = this.db.prepare("PRAGMA table_info(code_submissions)").all().map(c => c.name);
+        if (!csCols.includes('score')) {
+          this.db.exec('ALTER TABLE code_submissions ADD COLUMN score INTEGER DEFAULT 0');
+          console.log('Added score column to code_submissions');
+        }
+      }
+
+      // Add score column to submission_results (0-100 per test case)
+      const submissionResultsExists = this.db.prepare(`
+        SELECT name FROM sqlite_master WHERE type='table' AND name='submission_results'
+      `).get();
+      if (submissionResultsExists) {
+        const srCols = this.db.prepare("PRAGMA table_info(submission_results)").all().map(c => c.name);
+        if (!srCols.includes('score')) {
+          this.db.exec('ALTER TABLE submission_results ADD COLUMN score INTEGER DEFAULT 0');
+          console.log('Added score column to submission_results');
+        }
+      }
+
+      // Add programming fundamentals columns to programming_questions
+      const progQExists = this.db.prepare(`
+        SELECT name FROM sqlite_master WHERE type='table' AND name='programming_questions'
+      `).get();
+      if (progQExists) {
+        const pqCols = this.db.prepare("PRAGMA table_info(programming_questions)").all().map(c => c.name);
+        if (!pqCols.includes('required_concepts')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN required_concepts TEXT');
+          console.log('Added required_concepts to programming_questions');
+        }
+        if (!pqCols.includes('concept_threshold')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN concept_threshold INTEGER DEFAULT 99');
+          console.log('Added concept_threshold to programming_questions');
+        }
+        if (!pqCols.includes('is_pattern_question')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN is_pattern_question INTEGER DEFAULT 0');
+          console.log('Added is_pattern_question to programming_questions');
+        }
+        if (!pqCols.includes('reference_solution')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN reference_solution TEXT');
+          console.log('Added reference_solution to programming_questions');
+        }
+        if (!pqCols.includes('max_marks')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN max_marks INTEGER DEFAULT 20');
+          console.log('Added max_marks to programming_questions');
+        }
+      }
+
+      // Add concept compliance to code_submissions
+      if (codeSubmissionsExists) {
+        const csCols2 = this.db.prepare("PRAGMA table_info(code_submissions)").all().map(c => c.name);
+        if (!csCols2.includes('concept_passed')) {
+          this.db.exec('ALTER TABLE code_submissions ADD COLUMN concept_passed INTEGER DEFAULT 1');
+          console.log('Added concept_passed to code_submissions');
+        }
+        if (!csCols2.includes('concept_details')) {
+          this.db.exec('ALTER TABLE code_submissions ADD COLUMN concept_details TEXT');
+          console.log('Added concept_details to code_submissions');
+        }
       }
 
       if (!appViolationsExists) {
@@ -1798,22 +1865,29 @@ class DatabaseService {
   createProgrammingQuestion(examId, data) {
     const { v4: uuidv4 } = require('uuid');
     const questionId = uuidv4();
-    const stmt = this.db.prepare(`
-      INSERT INTO programming_questions (question_id, exam_id, title, problem_text, sample_input, sample_output, language, time_limit_seconds, memory_limit_mb, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(
-      questionId,
-      examId,
-      data.title || `Question ${Date.now()}`,
-      data.problemText || '',
-      data.sampleInput || null,
-      data.sampleOutput || null,
-      data.language || 'python',
-      data.timeLimitSeconds || 2,
-      data.memoryLimitMb || 256,
-      data.sortOrder ?? 0
-    );
+    const requiredConcepts = data.requiredConcepts ? JSON.stringify(data.requiredConcepts) : null;
+    const cols = this.db.prepare("PRAGMA table_info(programming_questions)").all().map(c => c.name);
+    const hasConcepts = cols.includes('required_concepts');
+    if (hasConcepts) {
+      this.db.prepare(`
+        INSERT INTO programming_questions (question_id, exam_id, title, problem_text, sample_input, sample_output, language, time_limit_seconds, memory_limit_mb, sort_order, required_concepts, concept_threshold, is_pattern_question)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        questionId, examId, data.title || `Question ${Date.now()}`, data.problemText || '',
+        data.sampleInput || null, data.sampleOutput || null, data.language || 'python',
+        data.timeLimitSeconds || 2, data.memoryLimitMb || 256, data.sortOrder ?? 0,
+        requiredConcepts, data.conceptThreshold ?? 99, data.isPatternQuestion ? 1 : 0
+      );
+    } else {
+      this.db.prepare(`
+        INSERT INTO programming_questions (question_id, exam_id, title, problem_text, sample_input, sample_output, language, time_limit_seconds, memory_limit_mb, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        questionId, examId, data.title || `Question ${Date.now()}`, data.problemText || '',
+        data.sampleInput || null, data.sampleOutput || null, data.language || 'python',
+        data.timeLimitSeconds || 2, data.memoryLimitMb || 256, data.sortOrder ?? 0
+      );
+    }
     return { questionId, ...data };
   }
 
@@ -1831,12 +1905,19 @@ class DatabaseService {
   updateProgrammingQuestion(questionId, data) {
     const updates = [];
     const values = [];
-    if (data.title !== undefined) { updates.push('title = ?'); values.push(data.title); }
-    if (data.problemText !== undefined) { updates.push('problem_text = ?'); values.push(data.problemText); }
-    if (data.sampleInput !== undefined) { updates.push('sample_input = ?'); values.push(data.sampleInput); }
-    if (data.sampleOutput !== undefined) { updates.push('sample_output = ?'); values.push(data.sampleOutput); }
-    if (data.language !== undefined) { updates.push('language = ?'); values.push(data.language); }
-    if (data.timeLimitSeconds !== undefined) { updates.push('time_limit_seconds = ?'); values.push(data.timeLimitSeconds); }
+    const cols = this.db.prepare("PRAGMA table_info(programming_questions)").all().map(c => c.name);
+    const add = (col, val) => { if (cols.includes(col)) { updates.push(`${col} = ?`); values.push(val); } };
+    if (data.title !== undefined) add('title', data.title);
+    if (data.problemText !== undefined) add('problem_text', data.problemText);
+    if (data.sampleInput !== undefined) add('sample_input', data.sampleInput);
+    if (data.sampleOutput !== undefined) add('sample_output', data.sampleOutput);
+    if (data.language !== undefined) add('language', data.language);
+    if (data.timeLimitSeconds !== undefined) add('time_limit_seconds', data.timeLimitSeconds);
+    if (data.requiredConcepts !== undefined) add('required_concepts', Array.isArray(data.requiredConcepts) ? JSON.stringify(data.requiredConcepts) : data.requiredConcepts);
+    if (data.conceptThreshold !== undefined) add('concept_threshold', data.conceptThreshold);
+    if (data.isPatternQuestion !== undefined) add('is_pattern_question', data.isPatternQuestion ? 1 : 0);
+    if (data.referenceSolution !== undefined) add('reference_solution', data.referenceSolution);
+    if (data.maxMarks !== undefined) add('max_marks', data.maxMarks);
     if (updates.length === 0) return false;
     values.push(questionId);
     this.db.prepare(`UPDATE programming_questions SET ${updates.join(', ')} WHERE question_id = ?`).run(...values);
@@ -1890,23 +1971,49 @@ class DatabaseService {
     return true;
   }
 
-  createCodeSubmission(examId, questionId, studentId, sourceCode, language, passedCount, totalCount, status = 'completed') {
+  createCodeSubmission(examId, questionId, studentId, sourceCode, language, passedCount, totalCount, status = 'completed', score = 0, conceptPassed = 1, conceptDetails = null) {
     const { v4: uuidv4 } = require('uuid');
     const submissionId = uuidv4();
-    this.db.prepare(`
-      INSERT INTO code_submissions (submission_id, exam_id, question_id, student_id, source_code, language, passed_count, total_count, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(submissionId, examId, questionId, studentId, sourceCode, language, passedCount, totalCount, status);
+    const cols = this.db.prepare("PRAGMA table_info(code_submissions)").all().map(c => c.name);
+    const hasScore = cols.includes('score');
+    const hasConcept = cols.includes('concept_passed');
+    const detailsStr = conceptDetails ? JSON.stringify(conceptDetails) : null;
+    if (hasScore && hasConcept) {
+      this.db.prepare(`
+        INSERT INTO code_submissions (submission_id, exam_id, question_id, student_id, source_code, language, passed_count, total_count, score, status, concept_passed, concept_details)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(submissionId, examId, questionId, studentId, sourceCode, language, passedCount, totalCount, score, status, conceptPassed ? 1 : 0, detailsStr);
+    } else if (hasScore) {
+      this.db.prepare(`
+        INSERT INTO code_submissions (submission_id, exam_id, question_id, student_id, source_code, language, passed_count, total_count, score, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(submissionId, examId, questionId, studentId, sourceCode, language, passedCount, totalCount, score, status);
+    } else {
+      this.db.prepare(`
+        INSERT INTO code_submissions (submission_id, exam_id, question_id, student_id, source_code, language, passed_count, total_count, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(submissionId, examId, questionId, studentId, sourceCode, language, passedCount, totalCount, status);
+    }
     return { submissionId };
   }
 
-  createSubmissionResult(submissionId, testCaseId, passed, actualOutput, executionTimeMs, errorMessage) {
+  createSubmissionResult(submissionId, testCaseId, passed, actualOutput, executionTimeMs, errorMessage, score = null) {
     const { v4: uuidv4 } = require('uuid');
     const resultId = uuidv4();
-    this.db.prepare(`
-      INSERT INTO submission_results (result_id, submission_id, test_case_id, passed, actual_output, execution_time_ms, error_message)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(resultId, submissionId, testCaseId, passed ? 1 : 0, actualOutput, executionTimeMs, errorMessage);
+    const cols = this.db.prepare("PRAGMA table_info(submission_results)").all().map(c => c.name);
+    const hasScore = cols.includes('score');
+    const scoreVal = score != null ? score : (passed ? 100 : 0);
+    if (hasScore) {
+      this.db.prepare(`
+        INSERT INTO submission_results (result_id, submission_id, test_case_id, passed, score, actual_output, execution_time_ms, error_message)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(resultId, submissionId, testCaseId, passed ? 1 : 0, scoreVal, actualOutput, executionTimeMs, errorMessage);
+    } else {
+      this.db.prepare(`
+        INSERT INTO submission_results (result_id, submission_id, test_case_id, passed, actual_output, execution_time_ms, error_message)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(resultId, submissionId, testCaseId, passed ? 1 : 0, actualOutput, executionTimeMs, errorMessage);
+    }
     return resultId;
   }
 

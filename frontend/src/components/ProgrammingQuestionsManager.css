@@ -145,6 +145,19 @@
 }
 
 /* Inline upload row */
+.prog-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--theme-text);
+}
+
+.prog-checkbox-row input {
+  flex-shrink: 0;
+}
+
 .prog-upload-row {
   display: flex;
   gap: 0.5rem;
@@ -324,15 +337,102 @@
 
 /* Inline action buttons */
 .prog-question-actions {
-  display: inline-flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  display: flex;
   flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+  align-items: flex-start;
 }
 
 .prog-question-actions .btn-sm {
   padding: 0.35rem 0.7rem;
   font-size: 0.82rem;
+}
+
+/* Programming fundamentals - required concepts */
+.prog-concepts-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--theme-bg-muted);
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.prog-requirements-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  width: 100%;
+}
+
+.prog-requirements-mode-select {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.82rem;
+  border-radius: 6px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-bg);
+  color: var(--theme-text);
+}
+
+.prog-requirements-summary {
+  color: var(--theme-text-muted);
+  font-size: 0.85rem;
+}
+
+.prog-manual-concepts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.prog-concepts-label {
+  font-weight: 600;
+  color: var(--theme-text);
+  margin-right: 0.25rem;
+}
+
+.prog-concept-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  color: var(--theme-text-muted);
+  margin: 0;
+}
+
+.prog-concept-check input {
+  cursor: pointer;
+}
+
+.prog-pattern-check {
+  margin-left: 0.5rem;
+  padding-left: 0.5rem;
+  border-left: 1px solid var(--theme-border);
+}
+
+.prog-threshold-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  color: var(--theme-text-muted);
+}
+
+.prog-threshold-label select {
+  padding: 0.2rem 0.4rem;
+  font-size: 0.82rem;
+  border: 1px solid var(--theme-border);
+  border-radius: 4px;
+  background: var(--theme-bg);
+  color: var(--theme-text);
 }
 
 /* 3 best solutions */
@@ -435,7 +535,8 @@
   margin: 0;
 }
 
-.prog-lang-select {
+.prog-lang-select,
+.prog-type-select {
   padding: 0.35rem 0.6rem;
   font-size: 0.85rem;
   border: 1px solid var(--theme-border);
@@ -559,18 +660,22 @@
   min-width: 2rem;
 }
 
-.prog-test-cases-table .tc-cell {
+.prog-test-cases-table .tc-cell-pre {
+  font-family: 'Consolas', 'Fira Code', 'Cascadia Code', monospace;
   font-size: 0.78em;
   background: rgba(0, 0, 0, 0.06);
-  padding: 0.15em 0.35em;
+  padding: 0.2em 0.45em;
   border-radius: 4px;
-  max-width: 200px;
-  display: inline-block;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-width: 260px;
+  max-height: 6rem;
+  overflow-y: auto;
+  line-height: 1.45;
 }
 
-[data-theme="dark"] .prog-test-cases-table .tc-cell {
+[data-theme="dark"] .prog-test-cases-table .tc-cell-pre {
   background: rgba(255, 255, 255, 0.08);
 }
 
@@ -642,8 +747,8 @@
 }
 
 .prog-test-case .tc-row {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  align-items: flex-start;
   gap: 0.35rem;
   margin: 0 0 0.35rem 0;
 }
@@ -652,6 +757,7 @@
   font-size: 0.75rem;
   color: var(--theme-text-muted);
   white-space: nowrap;
+  padding-top: 0.15em; /* align with first line of pre */
 }
 
 .prog-test-case code {
@@ -664,6 +770,27 @@
 [data-theme="dark"] .prog-test-case code {
   background: rgba(255, 255, 255, 0.1);
 }
+
+/* Multi-line output block used in cards expanded view */
+.prog-test-case .tc-pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.08);
+  padding: 0.2em 0.45em;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-family: 'Consolas', 'Fira Code', 'Cascadia Code', monospace;
+  margin: 0;
+  line-height: 1.5;
+  max-height: 10rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+[data-theme="dark"] .prog-test-case .tc-pre {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 
 .btn-delete-tc {
   padding: 0.2rem 0.5rem;
@@ -990,6 +1117,15 @@
 .prog-filter-btn:hover:not(:disabled) {
   border-color: var(--theme-accent);
   color: var(--theme-accent);
+}
+
+.prog-clear-all {
+  color: var(--color-error, #ef4444);
+  margin-left: auto;
+}
+
+.prog-clear-all:hover {
+  background: rgba(239, 68, 68, 0.15);
 }
 
 .prog-filter-btn.active {

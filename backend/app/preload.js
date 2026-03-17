@@ -76,6 +76,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // System methods
   getSystemSetupStatus: () => ipcRenderer.invoke('system:get-setup-status'),
+  getInitError: () => ipcRenderer.invoke('system:get-init-error'),
 
   // PDF methods
   viewPDF: (examId) => ipcRenderer.invoke('pdf:view', examId),
@@ -83,9 +84,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Test Case Generation - AI & Code Execution
   aiExtractQuestions: (rawText) => ipcRenderer.invoke('ai:extract-questions', rawText),
-  aiGenerateTestCases: (questionText, language) => ipcRenderer.invoke('ai:generate-test-cases', questionText, language),
+  aiExtractQuestionAtIndex: (rawText, index) => ipcRenderer.invoke('ai:extract-question-at-index', rawText, index),
+  aiGenerateTestCases: (questionText, language, problemType, requiredConcepts) => ipcRenderer.invoke('ai:generate-test-cases', questionText, language, problemType, requiredConcepts),
+  aiAnalyzeRequirements: (problemText) => ipcRenderer.invoke('ai:analyze-requirements', problemText),
   aiGenerateThreeSolutions: (questionText, language) => ipcRenderer.invoke('ai:generate-three-solutions', questionText, language),
   aiIsConfigured: () => ipcRenderer.invoke('ai:is-configured'),
+  aiFixPatternTestCases: (questionId) => ipcRenderer.invoke('ai:fix-pattern-test-cases', questionId),
   codeRun: (params) => ipcRenderer.invoke('code:run', params),
   codeRunTestCases: (params) => ipcRenderer.invoke('code:run-test-cases', params),
   getProgrammingQuestions: (examId) => ipcRenderer.invoke('programming:get-questions', examId),

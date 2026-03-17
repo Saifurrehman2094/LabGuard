@@ -16,8 +16,10 @@ for (const envPath of envPaths) {
 if (!loaded) {
   require('dotenv').config({ path: envPaths[0] }); // fallback (no-op if missing)
 }
-if (!process.env.GROQ_API_KEY || process.env.GROQ_API_KEY.includes('your_')) {
-  console.warn('GROQ_API_KEY not set. Add your key to .env (get free key at https://console.groq.com/)');
+const hasGroq = process.env.GROQ_API_KEY && !process.env.GROQ_API_KEY.includes('your_');
+const hasGemini = process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes('your_');
+if (!hasGroq && !hasGemini) {
+  console.warn('No AI key set. Add GROQ_API_KEY (https://console.groq.com/) or GEMINI_API_KEY (https://aistudio.google.com/) to .env');
 }
 
 const { app, BrowserWindow, ipcMain } = require('electron');
@@ -128,6 +130,9 @@ function createWindow() {
 
 // No test data seeding - all data will be managed dynamically by admin
 
+// Store init error so frontend can display it (e.g. when better-sqlite3 is blocked)
+let initError = null;
+
 // Initialize services
 async function initializeServices() {
   try {
@@ -157,7 +162,8 @@ async function initializeServices() {
     console.log('All services initialized successfully');
   } catch (error) {
     console.error('Failed to initialize services:', error);
-    throw error;
+    initError = error;
+    // Don't throw - let createWindow run so user sees the app and error message
   }
 }
 
@@ -202,6 +208,9 @@ ipcMain.handle('auth:logout', async (event) => {
 
 ipcMain.handle('auth:getCurrentUser', async (event) => {
   try {
+    if (!authService) {
+      return { success: false, error: initError?.message || 'System not initialized' };
+    }
     const user = authService.getCurrentUser();
     return {
       success: true,
@@ -1596,6 +1605,9 @@ ipcMain.handle('admin:update-system-settings', async (event, settings) => {
 
 ipcMain.handle('system:get-setup-status', async (event) => {
   try {
+    if (!dbService) {
+      return { success: false, error: initError?.message || 'System not initialized' };
+    }
     const setupStatus = dbService.isSystemSetup();
     return {
       success: true,
@@ -1610,12 +1622,45 @@ ipcMain.handle('system:get-setup-status', async (event) => {
   }
 });
 
+// Return init error so frontend can show user-friendly message
+ipcMain.handle('system:get-init-error', async () => {
+  return initError ? { hasError: true, message: initError.message } : { hasError: false };
+});
+
 // ============================================
 // TEST CASE GENERATION - AI & Code Execution
 // ============================================
 
 const aiService = require('../services/aiService');
 const codeExecutionService = require('../services/codeExecutionService');
+const conceptDetectionService = require('../services/conceptDetectionService');
+
+// Concurrency limit for code submissions (multiple students can submit at once)
+const SUBMISSION_CONCURRENCY = 10;
+let activeSubmissions = 0;
+const submissionQueue = [];
+
+function acquireSubmissionSlot() {
+  return new Promise((resolve) => {
+    function tryAcquire() {
+      if (activeSubmissions < SUBMISSION_CONCURRENCY) {
+        activeSubmissions++;
+        resolve();
+      } else {
+        submissionQueue.push(tryAcquire);
+      }
+    }
+    tryAcquire();
+  });
+}
+
+function releaseSubmissionSlot() {
+  activeSubmissions--;
+  if (submissionQueue.length > 0) {
+    const next = submissionQueue.shift();
+    next();
+  }
+}
 
 ipcMain.handle('ai:extract-questions', async (event, rawText) => {
   try {
@@ -1631,17 +1676,50 @@ ipcMain.handle('ai:extract-questions', async (event, rawText) => {
   }
 });
 
-ipcMain.handle('ai:generate-test-cases', async (event, questionText, language) => {
+ipcMain.handle('ai:extract-question-at-index', async (event, rawText, index) => {
   try {
     const currentUser = authService.getCurrentUser();
     if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
       return { success: false, error: 'Unauthorized' };
     }
-    const { testCases, referenceSolution } = await aiService.generateTestCases(questionText, language || 'python');
+    const question = await aiService.extractQuestionAtIndex(rawText || '', index);
+    return { success: true, question };
+  } catch (error) {
+    console.error('AI extract question at index error:', error);
+    return { success: false, error: error.message, question: null };
+  }
+});
+
+ipcMain.handle('ai:generate-test-cases', async (event, questionText, language, problemType, requiredConcepts) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const { testCases, referenceSolution } = await aiService.generateTestCases(
+      questionText,
+      language || 'python',
+      problemType || 'basic_programming',
+      Array.isArray(requiredConcepts) ? requiredConcepts : []
+    );
     return { success: true, testCases, referenceSolution: referenceSolution || '' };
   } catch (error) {
     console.error('AI generate test cases error:', error);
     return { success: false, error: error.message, testCases: [], referenceSolution: '' };
+  }
+});
+
+ipcMain.handle('ai:analyze-requirements', async (event, problemText) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const result = await aiService.analyzeProblemRequirements(problemText || '');
+    return { success: true, ...result };
+  } catch (error) {
+    console.error('AI analyze requirements error:', error);
+    return { success: false, error: error.message, requiredConcepts: [], isPatternQuestion: false, problemType: 'algorithm' };
   }
 });
 
@@ -1660,6 +1738,49 @@ ipcMain.handle('ai:generate-three-solutions', async (event, questionText, langua
   } catch (error) {
     console.error('AI generate three solutions error:', error);
     return { success: false, error: error.message, solutions: [] };
+  }
+});
+
+ipcMain.handle('ai:fix-pattern-test-cases', async (event, questionId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Load question (for reference solution + language)
+    const question = db.getProgrammingQuestionById(questionId);
+    if (!question) return { success: false, error: 'Question not found' };
+    if (!question.reference_solution) return { success: false, error: 'No reference solution stored for this question — regenerate test cases first' };
+
+    // Load existing test cases
+    const testCases = db.getTestCasesByQuestion(questionId);
+    if (!testCases || testCases.length === 0) return { success: false, error: 'No test cases found for this question' };
+
+    const language = question.language || 'python';
+    const fixResults = await aiService.fixPatternTestCases(question.reference_solution, testCases, language);
+
+    let fixedCount = 0;
+    for (const r of fixResults) {
+      if (r.fixed && r.newOutput) {
+        db.updateTestCase(r.testCaseId, { expected_output: r.newOutput });
+        fixedCount++;
+      }
+    }
+
+    return {
+      success: true,
+      fixedCount,
+      totalChecked: fixResults.length,
+      details: fixResults.map(r => ({
+        testCaseId: r.testCaseId,
+        fixed: r.fixed,
+        error: r.error || null
+      }))
+    };
+  } catch (error) {
+    console.error('ai:fix-pattern-test-cases error:', error);
+    return { success: false, error: error.message };
   }
 });
 
@@ -1682,7 +1803,8 @@ ipcMain.handle('code:run-test-cases', async (event, { sourceCode, testCases, lan
     const results = await codeExecutionService.runAgainstTestCases(sourceCode, testCases, language, timeLimit);
     const passedCount = results.filter(r => r.passed).length;
     const totalCount = results.length;
-    return { success: true, results, passedCount, totalCount };
+    const score = codeExecutionService.computeSubmissionScore(results);
+    return { success: true, results, passedCount, totalCount, score };
   } catch (error) {
     console.error('Code run test cases error:', error);
     return { success: false, error: error.message };
@@ -1802,6 +1924,26 @@ function normalizeInputForStdin(inputStr) {
       }
     } catch (_) { /* ignore */ }
   }
+  try {
+    const parsed = JSON.parse(s);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      const first = parsed[0];
+      if (Array.isArray(first)) {
+        const allPairs = first.length === 2 && parsed.every(r => Array.isArray(r) && r.length === 2);
+        if (allPairs) {
+          return [parsed.length, ...parsed.map(r => r.map(String).join(' '))].join('\n');
+        }
+        const allSameLen = parsed.every(r => Array.isArray(r) && r.length === first.length);
+        if (allSameLen) {
+          const lines = [parsed.length + ' ' + first.length];
+          for (const row of parsed) {
+            lines.push(row.map(String).join(' '));
+          }
+          return lines.join('\n');
+        }
+      }
+    }
+  } catch (_) { /* ignore */ }
   return inputStr;
 }
 
@@ -1816,14 +1958,15 @@ ipcMain.handle('code:verify-test-cases-with-solution', async (event, { questionI
       return { success: false, error: 'No test cases to verify' };
     }
     const updated = [];
+    const timeLimit = 5; // 5 seconds for complex problems (billing, etc.)
     for (const tc of testCases) {
       let inputToUse = tc.input_data || '';
-      let runResult = await codeExecutionService.runCode(sourceCode, inputToUse, language || 'python', 2);
+      let runResult = await codeExecutionService.runCode(sourceCode, inputToUse, language || 'python', timeLimit);
       let expectedOutput = runResult.error ? '' : (runResult.stdout || '').trim();
       if (!expectedOutput && runResult.error) {
         const normalized = normalizeInputForStdin(inputToUse);
         if (normalized !== inputToUse) {
-          runResult = await codeExecutionService.runCode(sourceCode, normalized, language || 'python', 2);
+          runResult = await codeExecutionService.runCode(sourceCode, normalized, language || 'python', timeLimit);
           if (!runResult.error && runResult.stdout) {
             expectedOutput = (runResult.stdout || '').trim();
             inputToUse = normalized;
@@ -1841,6 +1984,7 @@ ipcMain.handle('code:verify-test-cases-with-solution', async (event, { questionI
 });
 
 ipcMain.handle('programming:submit-code', async (event, examId, questionId, sourceCode, language) => {
+  await acquireSubmissionSlot();
   try {
     const currentUser = authService.getCurrentUser();
     if (!currentUser || currentUser.role !== 'student') {
@@ -1854,18 +1998,67 @@ ipcMain.handle('programming:submit-code', async (event, examId, questionId, sour
       input: tc.input_data,
       expectedOutput: tc.expected_output
     }));
+    const opts = {
+      problemText: question.problem_text,
+      analyzeLogic: aiService.analyzeCodeLogicForPartialCredit.bind(aiService)
+    };
     const results = await codeExecutionService.runAgainstTestCases(
-      sourceCode, runTestCases, language || question.language, question.time_limit_seconds || 2
+      sourceCode, runTestCases, language || question.language, question.time_limit_seconds || 2, opts
     );
     const passedCount = results.filter(r => r.passed).length;
     const totalCount = results.length;
+    let rawScore = codeExecutionService.computeSubmissionScore(results);
+
+    // Programming fundamentals: concept compliance
+    let conceptPassed = true;
+    let conceptDetails = null;
+    let requiredConcepts = [];
+    try {
+      requiredConcepts = question.required_concepts
+        ? (typeof question.required_concepts === 'string' ? JSON.parse(question.required_concepts || '[]') : question.required_concepts)
+        : [];
+    } catch (_) { requiredConcepts = []; }
+    const conceptThreshold = question.concept_threshold ?? 99;
+    const isPatternQuestion = !!(question.is_pattern_question);
+
+    if (requiredConcepts.length > 0 || isPatternQuestion) {
+      const expectedOutputs = testCases.map(tc => tc.expected_output).filter(Boolean);
+      const detected = conceptDetectionService.analyzeConcepts(sourceCode, language || question.language, expectedOutputs, isPatternQuestion);
+      const compliance = conceptDetectionService.checkConceptCompliance(detected, requiredConcepts, conceptThreshold);
+      conceptPassed = compliance.passed;
+      conceptDetails = { ...compliance.details, message: compliance.message, complianceScore: compliance.score };
+      if (!conceptPassed) {
+        rawScore = Math.min(rawScore, compliance.score);
+      }
+    }
+
+    // When not all test cases pass: use reference solution + AI for partial credit (concepts used, logic correctness)
+    const referenceSolution = question.reference_solution || '';
+    if (rawScore < 100 && referenceSolution && referenceSolution.trim().length >= 20) {
+      try {
+        const partialScore = await aiService.analyzeSolutionForPartialCredit(
+          question.problem_text,
+          sourceCode,
+          referenceSolution,
+          requiredConcepts,
+          results.map(r => ({ passed: r.passed, score: r.score ?? (r.passed ? 100 : 0) }))
+        );
+        rawScore = Math.max(rawScore, partialScore);
+      } catch (err) {
+        console.warn('Partial credit analysis failed:', err.message);
+      }
+    }
+
+    const maxMarks = question.max_marks ?? 20;
+    const score = Math.round((rawScore / 100) * maxMarks);
+
     const submission = dbService.createCodeSubmission(
       examId, questionId, currentUser.userId, sourceCode, language || question.language,
-      passedCount, totalCount, 'completed'
+      passedCount, totalCount, 'completed', score, conceptPassed, conceptDetails
     );
     for (const r of results) {
       dbService.createSubmissionResult(
-        submission.submissionId, r.testCaseId, r.passed, r.actualOutput, r.executionTimeMs, r.error
+        submission.submissionId, r.testCaseId, r.passed, r.actualOutput, r.executionTimeMs, r.error, r.score
       );
     }
     return {
@@ -1873,11 +2066,17 @@ ipcMain.handle('programming:submit-code', async (event, examId, questionId, sour
       submissionId: submission.submissionId,
       passedCount,
       totalCount,
+      score,
+      maxMarks,
+      conceptPassed,
+      conceptMessage: conceptDetails?.message || null,
       results
     };
   } catch (error) {
     console.error('Submit code error:', error);
     return { success: false, error: error.message };
+  } finally {
+    releaseSubmissionSlot();
   }
 });
 

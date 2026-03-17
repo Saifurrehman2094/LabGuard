@@ -48,3 +48,35 @@
     transform: rotate(360deg);
   }
 }
+
+.init-error-container {
+  padding: 2rem;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.init-error-container h2 {
+  color: #ff6b6b;
+  margin-bottom: 1rem;
+}
+
+.init-error-message {
+  background: rgba(255, 107, 107, 0.2);
+  padding: 1rem;
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 0.9rem;
+  margin: 1rem 0;
+  word-break: break-word;
+}
+
+.init-error-hint {
+  margin-top: 1.5rem;
+  opacity: 0.9;
+}
+
+.init-error-container ul {
+  text-align: left;
+  margin: 1rem 0 0 1.5rem;
+  line-height: 1.8;
+}

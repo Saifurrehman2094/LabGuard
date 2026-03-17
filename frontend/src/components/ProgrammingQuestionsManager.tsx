@@ -22,6 +22,9 @@ interface ProgrammingQuestion {
   language: string;
   time_limit_seconds: number;
   sort_order: number;
+  required_concepts?: string;
+  concept_threshold?: number;
+  is_pattern_question?: number;
 }
 
 interface TestCase {
@@ -68,6 +71,14 @@ async function extractTextFromFile(file: File): Promise<string> {
   throw new Error('Unsupported format. Use PDF or Word (.docx, .doc).');
 }
 
+/** Truncate a raw value to maxLen chars for compact display */
+function tcTruncate(raw: string | undefined, maxLen: number): string {
+  // Use trimEnd() not trim() — leading spaces must be preserved for indented
+  // patterns like diamonds where the first row starts with spaces.
+  const s = (raw ?? '').trimEnd() || '(empty)';
+  return s.length > maxLen ? s.slice(0, maxLen) + '…' : s;
+}
+
 const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = ({ exam, onClose }) => {
   const [questions, setQuestions] = useState<ProgrammingQuestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,6 +108,14 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
   const [threeSolutionsByQuestion, setThreeSolutionsByQuestion] = useState<Record<string, Array<{ label: string; code: string }>>>({});
   const [loadingThreeSolutionsFor, setLoadingThreeSolutionsFor] = useState<string | null>(null);
   const [selectedSolutionTab, setSelectedSolutionTab] = useState<Record<string, number>>({});
+  const [problemTypeByQuestion, setProblemTypeByQuestion] = useState<Record<string, string>>({});
+  const [requiredConceptsByQuestion, setRequiredConceptsByQuestion] = useState<Record<string, string[]>>({});
+  const [conceptThresholdByQuestion, setConceptThresholdByQuestion] = useState<Record<string, number>>({});
+  const [isPatternQuestionByQuestion, setIsPatternQuestionByQuestion] = useState<Record<string, boolean>>({});
+  const [requirementsModeByQuestion, setRequirementsModeByQuestion] = useState<Record<string, 'auto' | 'manual'>>({});
+  const [analyzingRequirementsFor, setAnalyzingRequirementsFor] = useState<string | null>(null);
+  const [treatAsSingleQuestion, setTreatAsSingleQuestion] = useState(false);
+  const [replaceExistingOnExtract, setReplaceExistingOnExtract] = useState(true);
 
   const SUPPORTED_LANGUAGES = [
     { value: 'python', label: 'Python' },
@@ -104,6 +123,33 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
     { value: 'c', label: 'C' },
     { value: 'java', label: 'Java' },
     { value: 'javascript', label: 'JavaScript' }
+  ];
+
+  const PROBLEM_TYPES = [
+    { value: 'basic_programming', label: 'Basic Programming' },
+    { value: 'loops',             label: 'Loops (for / while / do-while)' },
+    { value: 'conditionals',      label: 'Conditionals (if/else / switch)' },
+    { value: 'recursion',         label: 'Recursion' },
+    { value: 'arrays_1d',         label: '1D Arrays' },
+    { value: 'arrays_2d',         label: '2D Arrays / Matrix' },
+    { value: 'arrays_3d',         label: '3D Arrays' },
+    { value: 'pointers',          label: 'Pointers (C/C++)' },
+    { value: 'patterns',          label: 'Pattern Printing' },
+    { value: 'algorithm',         label: 'Algorithm (sorting/searching)' },
+    { value: 'data_structure',    label: 'Data Structure (BST/Graph/etc.)' },
+  ];
+
+  const FUNDAMENTAL_CONCEPTS = [
+    { value: 'loops',        label: 'Loops (for/while)' },
+    { value: 'do_while',     label: 'Do-While Loop' },
+    { value: 'switch',       label: 'Switch/Case' },
+    { value: 'nested_loops', label: 'Nested Loops' },
+    { value: 'conditionals', label: 'Conditionals (if/else)' },
+    { value: 'recursion',    label: 'Recursion' },
+    { value: 'arrays',       label: '1D Arrays' },
+    { value: 'arrays_2d',    label: '2D Arrays / Matrix' },
+    { value: 'arrays_3d',    label: '3D Arrays' },
+    { value: 'pointers',     label: 'Pointers (C/C++)' },
   ];
 
   const api = (window as any).electronAPI;
@@ -142,9 +188,25 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
       const r = await api.getProgrammingQuestions(exam.examId);
       if (r.success && Array.isArray(r.questions)) {
         setQuestions(r.questions);
+        const conceptsMap: Record<string, string[]> = {};
+        const thresholdMap: Record<string, number> = {};
+        const patternMap: Record<string, boolean> = {};
+        const refSolMap: Record<string, string> = {};
         for (const q of r.questions) {
           loadTestCases(q.question_id);
+          try {
+            conceptsMap[q.question_id] = q.required_concepts
+              ? (typeof q.required_concepts === 'string' ? JSON.parse(q.required_concepts) : q.required_concepts)
+              : [];
+          } catch { conceptsMap[q.question_id] = []; }
+          thresholdMap[q.question_id] = q.concept_threshold ?? 99;
+          patternMap[q.question_id] = !!(q.is_pattern_question);
+          if (q.reference_solution?.trim()) refSolMap[q.question_id] = q.reference_solution;
         }
+        setRequiredConceptsByQuestion(conceptsMap);
+        setConceptThresholdByQuestion(thresholdMap);
+        setIsPatternQuestionByQuestion(patternMap);
+        setReferenceSolutionByQuestion(prev => ({ ...prev, ...refSolMap }));
       } else {
         setQuestions([]);
       }
@@ -178,11 +240,62 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
     }
   };
 
+  /** Auto-analyze problem requirements (concepts, pattern, problem type) and save to question */
+  const runAutoAnalyzeAndSave = async (questionId: string, problemText: string): Promise<{ ok: boolean; problemType?: string; requiredConcepts?: string[] }> => {
+    if (!api?.aiAnalyzeRequirements || !aiConfigured) return { ok: false };
+    try {
+      setAnalyzingRequirementsFor(questionId);
+      const r = await api.aiAnalyzeRequirements(problemText);
+      if (!r.success) return { ok: false };
+      const concepts = r.requiredConcepts || [];
+      const isPattern = !!r.isPatternQuestion;
+      const pType = r.problemType || 'basic_programming';
+      setRequiredConceptsByQuestion(prev => ({ ...prev, [questionId]: concepts }));
+      setIsPatternQuestionByQuestion(prev => ({ ...prev, [questionId]: isPattern }));
+      setProblemTypeByQuestion(prev => ({ ...prev, [questionId]: pType }));
+      await api.updateProgrammingQuestion(questionId, {
+        requiredConcepts: concepts,
+        conceptThreshold: 99,
+        isPatternQuestion: isPattern
+      });
+      return { ok: true, problemType: pType, requiredConcepts: concepts };
+    } catch {
+      return { ok: false };
+    } finally {
+      setAnalyzingRequirementsFor(null);
+    }
+  };
+
+  /** Auto-generate 3 best solutions for a question silently (no error shown to user on failure) */
+  const autoGenerateThreeSolutions = async (question: ProgrammingQuestion) => {
+    if (!api?.aiGenerateThreeSolutions || !aiConfigured) return;
+    try {
+      const lang = referenceLanguageByQuestion[question.question_id] ?? question.language ?? 'python';
+      const r = await api.aiGenerateThreeSolutions(question.problem_text, lang);
+      if (r.success && Array.isArray(r.solutions) && r.solutions.length > 0) {
+        setThreeSolutionsByQuestion(prev => ({ ...prev, [question.question_id]: r.solutions }));
+        setSelectedSolutionTab(prev => ({ ...prev, [question.question_id]: 0 }));
+      }
+    } catch (_) {
+      // Silent fail — teacher can manually regenerate via the "Generate solutions" button
+    }
+  };
+
   /** Auto-generate test cases for a question and save to DB (execution-verified via reference solution) */
   const autoGenerateTestCases = async (question: ProgrammingQuestion): Promise<{ added: TestCase[]; referenceSolution: string }> => {
     if (!api?.aiGenerateTestCases || !aiConfigured) return { added: [], referenceSolution: '' };
-    const lang = referenceLanguageByQuestion[question.question_id] ?? question.language ?? 'python';
-    const r = await api.aiGenerateTestCases(question.problem_text, lang);
+    const qId = question.question_id;
+    const lang = referenceLanguageByQuestion[qId] ?? question.language ?? 'python';
+    let problemType = problemTypeByQuestion[qId] ?? 'basic_programming';
+    let concepts = requiredConceptsByQuestion[qId] || [];
+    const mode = requirementsModeByQuestion[qId] ?? 'auto';
+    // Auto-analyze first when in auto mode (ensures requirements + problemType for test case generation)
+    if (mode === 'auto' && api.aiAnalyzeRequirements) {
+      const { ok, problemType: pType, requiredConcepts: analyzedConcepts } = await runAutoAnalyzeAndSave(qId, question.problem_text);
+      if (ok && pType) problemType = pType;
+      if (ok && analyzedConcepts) concepts = analyzedConcepts;
+    }
+    const r = await api.aiGenerateTestCases(question.problem_text, lang, problemType, concepts);
     if (!r.success) {
       setError(r.error || 'Test case generation failed');
       return { added: [], referenceSolution: r.referenceSolution || '' };
@@ -293,62 +406,167 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
       setError('Please provide exam text (upload document or paste) first.');
       return;
     }
-    if (!api?.aiExtractQuestions || !aiConfigured) {
-      setError('AI not configured. Add GROQ_API_KEY to .env and restart.');
+    if (!api?.createProgrammingQuestion) return;
+    if (!treatAsSingleQuestion && (!api?.aiExtractQuestionAtIndex && !api?.aiExtractQuestions) || !aiConfigured) {
+      setError('AI not configured. Add GROQ_API_KEY or GEMINI_API_KEY to .env and restart.');
       return;
     }
     try {
       setProcessing(true);
-      setProcessingStatus('Extracting questions...');
       setError(null);
-      const r = await api.aiExtractQuestions(content);
-      if (!r.success || !Array.isArray(r.questions) || r.questions.length === 0) {
-        setError(r.error || 'No questions extracted. Try clearer exam text.');
-        setProcessing(false);
+
+      if (replaceExistingOnExtract && questions.length > 0 && api?.deleteProgrammingQuestion) {
+        setProcessingStatus('Replacing existing questions...');
+        for (const q of questions) {
+          if (q.question_id) await api.deleteProgrammingQuestion(q.question_id);
+        }
+        setQuestions([]);
+        setTestCasesByQuestion({});
+        setReferenceSolutionByQuestion({});
+        setThreeSolutionsByQuestion(prev => { const next = { ...prev }; questions.forEach(q => { if (q.question_id) delete next[q.question_id]; }); return next; });
+        setLastAddedQuestionId(null);
+      }
+
+      if (treatAsSingleQuestion) {
+        setProcessingStatus('Adding as single question...');
+        const createR = await api.createProgrammingQuestion(exam.examId, {
+          title: `Question ${questions.length + 1}`,
+          problemText: content,
+          language: 'python',
+          timeLimitSeconds: 2
+        });
+        if (!createR.success || !createR.question) {
+          setError('Failed to add question');
+          return;
+        }
+        const qId = createR.question.questionId || createR.question.question_id;
+        const newQ: ProgrammingQuestion = {
+          question_id: qId,
+          exam_id: exam.examId,
+          title: createR.question.title || `Question ${questions.length + 1}`,
+          problem_text: content,
+          language: 'python',
+          time_limit_seconds: 2,
+          sort_order: questions.length
+        };
+        setQuestions(prev => [...prev, newQ]);
+        setProcessingStatus('Generating test cases...');
+        const { added: tcs, referenceSolution } = aiConfigured ? await autoGenerateTestCases(newQ) : { added: [], referenceSolution: '' };
+        setTestCasesByQuestion(prev => ({ ...prev, [qId]: tcs }));
+        if (referenceSolution) {
+          setReferenceSolutionByQuestion(prev => ({ ...prev, [qId]: referenceSolution }));
+          api?.updateProgrammingQuestion?.(qId, { referenceSolution });
+        }
+        setProcessingStatus('Generating 3 best solutions...');
+        await autoGenerateThreeSolutions(newQ);
+        setLastAddedQuestionId(qId);
+        setQuestionFilter('latest');
+        setShowTestCasesView(true);
+        setExpandedQuestion(qId);
+        setRawText('');
         setProcessingStatus('');
         return;
       }
 
-      const extracted = r.questions as ExtractedQuestion[];
-      let lastQId: string | null = null;
-      for (let i = 0; i < extracted.length; i++) {
-        const eq = extracted[i];
-        const qText = typeof eq === 'object' && 'text' in eq ? eq.text : String(eq);
-        if (!qText.trim()) continue;
+      const baseOrder = replaceExistingOnExtract ? 0 : questions.length;
 
-        setProcessingStatus(`Adding question ${i + 1}/${extracted.length}...`);
-        const createR = await api.createProgrammingQuestion(exam.examId, {
-          title: `Question ${eq.id || questions.length + i + 1}`,
-          problemText: qText,
-          language: 'python',
-          timeLimitSeconds: 2
-        });
-        if (!createR.success || !createR.question) continue;
+      if (api?.aiExtractQuestionAtIndex) {
+        let i = 0;
+        while (i < 15) {
+          setProcessingStatus(i === 0 ? 'Extracting question 1...' : `Extracting question ${i + 1}...`);
+          const r = await api.aiExtractQuestionAtIndex(content, i);
+          const eq = r.question;
+          if (!r.success || !eq?.text?.trim()) break;
 
-        const qId = createR.question.questionId || createR.question.question_id;
-        lastQId = qId;
-        const newQ: ProgrammingQuestion = {
-          question_id: qId,
-          exam_id: exam.examId,
-          title: createR.question.title || `Question ${questions.length + i + 1}`,
-          problem_text: qText,
-          language: 'python',
-          time_limit_seconds: 2,
-          sort_order: questions.length + i
-        };
-        setQuestions(prev => [...prev, newQ]);
+          const qText = eq.text.trim();
+          setProcessingStatus(`Adding question ${i + 1}...`);
+          const createR = await api.createProgrammingQuestion(exam.examId, {
+            title: `Question ${eq.id || baseOrder + i + 1}`,
+            problemText: qText,
+            language: 'python',
+            timeLimitSeconds: 2
+          });
+          if (!createR.success || !createR.question) break;
 
-        setProcessingStatus(`Generating test cases for Q${i + 1}...`);
-        const { added: tcs, referenceSolution } = await autoGenerateTestCases(newQ);
-        setTestCasesByQuestion(prev => ({ ...prev, [qId]: tcs }));
-        if (referenceSolution) setReferenceSolutionByQuestion(prev => ({ ...prev, [qId]: referenceSolution }));
-      }
+          const qId = createR.question.questionId || createR.question.question_id;
+          const newQ: ProgrammingQuestion = {
+            question_id: qId,
+            exam_id: exam.examId,
+            title: createR.question.title || `Question ${baseOrder + i + 1}`,
+            problem_text: qText,
+            language: 'python',
+            time_limit_seconds: 2,
+            sort_order: baseOrder + i
+          };
+          setQuestions(prev => [...prev, newQ]);
+          setShowTestCasesView(true);
+          setLastAddedQuestionId(qId);
+          setQuestionFilter('latest');
+          setExpandedQuestion(qId);
 
-      if (lastQId) {
-        setLastAddedQuestionId(lastQId);
-        setQuestionFilter('latest');
-        setShowTestCasesView(true);
-        setExpandedQuestion(lastQId);
+          setProcessingStatus(`Generating test cases for Q${i + 1}...`);
+          const { added: tcs, referenceSolution } = await autoGenerateTestCases(newQ);
+          setTestCasesByQuestion(prev => ({ ...prev, [qId]: tcs }));
+          if (referenceSolution) {
+            setReferenceSolutionByQuestion(prev => ({ ...prev, [qId]: referenceSolution }));
+            api?.updateProgrammingQuestion?.(qId, { referenceSolution });
+          }
+          setProcessingStatus(`Generating 3 solutions for Q${i + 1}...`);
+          await autoGenerateThreeSolutions(newQ);
+
+          i++;
+        }
+        if (i === 0) setError('No questions extracted. Try clearer exam text or check scenario-based if it\'s one question.');
+      } else {
+        setProcessingStatus('Extracting questions...');
+        const r = await api!.aiExtractQuestions!(content);
+        if (!r.success || !Array.isArray(r.questions) || r.questions.length === 0) {
+          setError(r.error || 'No questions extracted. Try clearer exam text.');
+          setProcessing(false);
+          setProcessingStatus('');
+          return;
+        }
+        const extracted = r.questions as ExtractedQuestion[];
+        for (let i = 0; i < Math.min(extracted.length, 15); i++) {
+          const eq = extracted[i];
+          const qText = typeof eq === 'object' && 'text' in eq ? eq.text : String(eq);
+          if (!qText.trim()) continue;
+
+          setProcessingStatus(`Adding question ${i + 1}/${extracted.length}...`);
+          const createR = await api!.createProgrammingQuestion!(exam.examId, {
+            title: `Question ${eq.id || baseOrder + i + 1}`,
+            problemText: qText,
+            language: 'python',
+            timeLimitSeconds: 2
+          });
+          if (!createR.success || !createR.question) continue;
+
+          const qId = createR.question.questionId || createR.question.question_id;
+          const newQ: ProgrammingQuestion = {
+            question_id: qId,
+            exam_id: exam.examId,
+            title: createR.question.title || `Question ${baseOrder + i + 1}`,
+            problem_text: qText,
+            language: 'python',
+            time_limit_seconds: 2,
+            sort_order: baseOrder + i
+          };
+          setQuestions(prev => [...prev, newQ]);
+          setShowTestCasesView(true);
+          setLastAddedQuestionId(qId);
+          setQuestionFilter('latest');
+          setExpandedQuestion(qId);
+
+          setProcessingStatus(`Generating test cases for Q${i + 1}/${extracted.length}...`);
+          const { added: tcs, referenceSolution } = await autoGenerateTestCases(newQ);
+          setTestCasesByQuestion(prev => ({ ...prev, [qId]: tcs }));
+          if (referenceSolution) {
+            setReferenceSolutionByQuestion(prev => ({ ...prev, [qId]: referenceSolution }));
+            api?.updateProgrammingQuestion?.(qId, { referenceSolution });
+          }
+          setProcessingStatus(`Generating 3 solutions for Q${i + 1}/${extracted.length}...`);
+          await autoGenerateThreeSolutions(newQ);
+        }
       }
       setRawText('');
       setProcessingStatus('');
@@ -399,7 +617,11 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
       if (aiConfigured) {
         const { added: tcs, referenceSolution } = await autoGenerateTestCases(newQ);
         setTestCasesByQuestion(prev => ({ ...prev, [qId]: tcs }));
-        if (referenceSolution) setReferenceSolutionByQuestion(prev => ({ ...prev, [qId]: referenceSolution }));
+        if (referenceSolution) {
+          setReferenceSolutionByQuestion(prev => ({ ...prev, [qId]: referenceSolution }));
+          api?.updateProgrammingQuestion?.(qId, { referenceSolution });
+        }
+        await autoGenerateThreeSolutions(newQ);
       } else {
         setTestCasesByQuestion(prev => ({ ...prev, [qId]: [] }));
       }
@@ -412,7 +634,7 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
 
   const handleGenerateTestCases = async (question: ProgrammingQuestion) => {
     if (!api?.aiGenerateTestCases || !aiConfigured) {
-      setError('AI not configured. Add GROQ_API_KEY in .env');
+      setError('AI not configured. Add GROQ_API_KEY or GEMINI_API_KEY in .env');
       return;
     }
     try {
@@ -423,7 +645,10 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
         ...prev,
         [question.question_id]: [...(prev[question.question_id] || []), ...tcs]
       }));
-      if (referenceSolution) setReferenceSolutionByQuestion(prev => ({ ...prev, [question.question_id]: referenceSolution }));
+      if (referenceSolution) {
+        setReferenceSolutionByQuestion(prev => ({ ...prev, [question.question_id]: referenceSolution }));
+        api?.updateProgrammingQuestion?.(question.question_id, { referenceSolution });
+      }
       setReferenceLanguageByQuestion(prev => ({ ...prev, [question.question_id]: referenceLanguageByQuestion[question.question_id] ?? question.language ?? 'python' }));
     } catch (err) {
       setError('Test case generation failed: ' + (err as Error).message);
@@ -434,7 +659,7 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
 
   const handleGenerateThreeSolutions = async (question: ProgrammingQuestion) => {
     if (!api?.aiGenerateThreeSolutions || !aiConfigured) {
-      setError('AI not configured. Add GROQ_API_KEY in .env');
+      setError('AI not configured. Add GROQ_API_KEY or GEMINI_API_KEY in .env');
       return;
     }
     try {
@@ -455,6 +680,36 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
     }
   };
 
+  const handleUpdateConceptSettings = async (questionId: string, concepts: string[], threshold: number, isPattern: boolean) => {
+    if (!api?.updateProgrammingQuestion) return;
+    try {
+      await api.updateProgrammingQuestion(questionId, {
+        requiredConcepts: concepts,
+        conceptThreshold: threshold,
+        isPatternQuestion: isPattern
+      });
+    } catch (err) {
+      setError('Failed to save concept settings');
+    }
+  };
+
+  const toggleConcept = (questionId: string, concept: string) => {
+    const current = requiredConceptsByQuestion[questionId] || [];
+    const next = current.includes(concept) ? current.filter(c => c !== concept) : [...current, concept];
+    setRequiredConceptsByQuestion(prev => ({ ...prev, [questionId]: next }));
+    handleUpdateConceptSettings(questionId, next, conceptThresholdByQuestion[questionId] ?? 99, isPatternQuestionByQuestion[questionId] ?? false);
+  };
+
+  const handlePatternQuestionChange = (questionId: string, checked: boolean) => {
+    setIsPatternQuestionByQuestion(prev => ({ ...prev, [questionId]: checked }));
+    handleUpdateConceptSettings(questionId, requiredConceptsByQuestion[questionId] || [], conceptThresholdByQuestion[questionId] ?? 99, checked);
+  };
+
+  const handleConceptThresholdChange = (questionId: string, value: number) => {
+    setConceptThresholdByQuestion(prev => ({ ...prev, [questionId]: value }));
+    handleUpdateConceptSettings(questionId, requiredConceptsByQuestion[questionId] || [], value, isPatternQuestionByQuestion[questionId] ?? false);
+  };
+
   const handleVerifyWithSolution = async (questionId: string, sourceCode: string, language: string) => {
     if (!api?.verifyTestCasesWithSolution || !sourceCode.trim()) return;
     try {
@@ -473,6 +728,10 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
             is_sample: tc.is_sample
           }))
         }));
+        setReferenceSolutionByQuestion(prev => ({ ...prev, [questionId]: sourceCode }));
+        if (api.updateProgrammingQuestion) {
+          await api.updateProgrammingQuestion(questionId, { referenceSolution: sourceCode });
+        }
       } else {
         setError(r.error || 'Verification failed');
       }
@@ -480,6 +739,25 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
       setError('Verification failed: ' + (err as Error).message);
     } finally {
       setVerifyingForQuestion(null);
+    }
+  };
+
+  const handleClearAllQuestions = async () => {
+    if (!window.confirm(`Clear all ${questions.length} questions for this exam? This cannot be undone.`)) return;
+    if (!api?.deleteProgrammingQuestion) return;
+    try {
+      for (const q of questions) {
+        if (q.question_id) await api.deleteProgrammingQuestion(q.question_id);
+      }
+      setQuestions([]);
+      setTestCasesByQuestion({});
+      setReferenceSolutionByQuestion({});
+      setThreeSolutionsByQuestion(prev => { const next = { ...prev }; questions.forEach(q => { if (q.question_id) delete next[q.question_id]; }); return next; });
+      setLastAddedQuestionId(null);
+      setQuestionFilter('all');
+      setExpandedQuestion(null);
+    } catch {
+      setError('Failed to clear questions');
     }
   };
 
@@ -517,24 +795,24 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
     }
   };
 
-  const handleAddTestCaseManually = async (questionId: string) => {
+  const handleAddTestCaseManually = async (questionId: string, inputOnly = false) => {
     const input = prompt('Input (stdin):');
     if (input === null) return;
-    const expected = prompt('Expected output:');
-    if (expected === null) return;
+    const expected = inputOnly ? '' : (prompt('Expected output:') ?? '');
+    if (!inputOnly && expected === null) return;
     if (!api?.addProgrammingTestCase) return;
     try {
       const r = await api.addProgrammingTestCase(questionId, {
         input: input || '',
-        expectedOutput: expected || '',
-        description: 'Manual'
+        expectedOutput: expected,
+        description: inputOnly ? 'Manual (fill expected later)' : 'Manual'
       });
       if (r.success && r.testCase) {
         const newTc: TestCase = {
           test_case_id: r.testCase.testCaseId || r.testCase.test_case_id,
           input_data: input || '',
-          expected_output: expected || '',
-          description: 'Manual'
+          expected_output: expected,
+          description: inputOnly ? 'Manual (fill expected later)' : 'Manual'
         };
         setTestCasesByQuestion(prev => ({
           ...prev,
@@ -600,7 +878,7 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
           <>
             {!aiConfigured && (
               <div className="prog-questions-warning">
-                Add <code>GROQ_API_KEY</code> to <code>.env</code> for automatic question extraction and test case generation.
+                Add <code>GROQ_API_KEY</code> or <code>GEMINI_API_KEY</code> to <code>.env</code> for automatic question extraction and test case generation.
               </div>
             )}
 
@@ -662,9 +940,15 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                   )}
                 </div>
                 {selectedFile && (
-                  <button onClick={handleProcessSelectedFile} disabled={processing || !aiConfigured} className="btn btn-primary">
-                    {processing ? processingStatus || 'Processing...' : 'Extract & Generate Test Cases'}
-                  </button>
+                  <>
+                    <label className="prog-checkbox-row">
+                      <input type="checkbox" checked={treatAsSingleQuestion} onChange={e => setTreatAsSingleQuestion(e.target.checked)} />
+                      <span>Check this box if the problem is a scenario-based question</span>
+                    </label>
+                    <button onClick={handleProcessSelectedFile} disabled={processing || (!treatAsSingleQuestion && !aiConfigured)} className="btn btn-primary">
+                      {processing ? processingStatus || 'Processing...' : 'Generate'}
+                    </button>
+                  </>
                 )}
               </div>
             )}
@@ -678,8 +962,12 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                   rows={5}
                 />
                 <div className="prog-paste-actions">
-                  <button onClick={() => handleExtractAndGenerate()} disabled={processing || !aiConfigured || rawText.trim().length < 20} className="btn btn-primary">
-                    {processing ? processingStatus || 'Processing...' : 'Extract & Generate Test Cases'}
+                  <label className="prog-checkbox-row">
+                    <input type="checkbox" checked={treatAsSingleQuestion} onChange={e => setTreatAsSingleQuestion(e.target.checked)} />
+                    <span>Check this box if the problem is a scenario-based question</span>
+                  </label>
+                  <button onClick={() => handleExtractAndGenerate()} disabled={processing || (!treatAsSingleQuestion && !aiConfigured) || rawText.trim().length < 20} className="btn btn-primary">
+                    {processing ? processingStatus || 'Processing...' : 'Generate'}
                   </button>
                   <span className="prog-paste-divider">or</span>
                   <div className="prog-single-question">
@@ -705,8 +993,12 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
 
             {activeOption === 'exam' && exam.pdfPath && (
               <div className="prog-option-expanded">
-                <button onClick={handleExtractFromExamPDF} disabled={processing} className="btn btn-primary">
-                  {processing ? processingStatus || 'Extracting...' : 'Extract from exam PDF & Generate Test Cases'}
+                <label className="prog-checkbox-row">
+                  <input type="checkbox" checked={treatAsSingleQuestion} onChange={e => setTreatAsSingleQuestion(e.target.checked)} />
+                  <span>Check this box if the problem is a scenario-based question</span>
+                </label>
+                <button onClick={handleExtractFromExamPDF} disabled={processing || (!treatAsSingleQuestion && !aiConfigured)} className="btn btn-primary">
+                  {processing ? processingStatus || 'Extracting...' : 'Generate'}
                 </button>
               </div>
             )}
@@ -738,9 +1030,9 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                           if (lastAddedQuestionId) setExpandedQuestion(lastAddedQuestionId);
                         }}
                         disabled={!lastAddedQuestionId || !questions.some(q => q.question_id === lastAddedQuestionId)}
-                        title="Show only the most recently added question"
+                        title="Show recently generated test cases"
                       >
-                        Latest only
+                        Recent
                       </button>
                       <button
                         type="button"
@@ -749,6 +1041,14 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                         title="Show all questions"
                       >
                         All questions
+                      </button>
+                      <button
+                        type="button"
+                        className="prog-filter-btn prog-clear-all"
+                        onClick={handleClearAllQuestions}
+                        title="Remove all questions for this exam (start fresh)"
+                      >
+                        Clear all
                       </button>
                     </div>
                   )}
@@ -786,6 +1086,77 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                     <div className="prog-question-body">
                       <pre className="prog-question-text">{q.problem_text}</pre>
                       <div className="prog-question-actions">
+                        <select
+                          className="prog-type-select"
+                          value={problemTypeByQuestion[q.question_id] ?? 'basic_programming'}
+                          onChange={e => setProblemTypeByQuestion(prev => ({ ...prev, [q.question_id]: e.target.value }))}
+                          title="Basic Programming (default). Use Algorithm/Data Structure/OOP for advanced problems."
+                        >
+                          {PROBLEM_TYPES.map(t => (
+                            <option key={t.value} value={t.value}>{t.label}</option>
+                          ))}
+                        </select>
+                        <div className="prog-concepts-section" title="Requirements auto-detected from problem; use dropdown to edit manually">
+                          <div className="prog-requirements-row">
+                            <span className="prog-concepts-label">Requirements:</span>
+                            <select
+                              className="prog-requirements-mode-select"
+                              value={requirementsModeByQuestion[q.question_id] ?? 'auto'}
+                              onChange={e => setRequirementsModeByQuestion(prev => ({ ...prev, [q.question_id]: (e.target.value as 'auto' | 'manual') }))}
+                              title="Auto: system analyzes problem. Edit: manual selection"
+                            >
+                              <option value="auto">Auto-detected</option>
+                              <option value="manual">Edit manually</option>
+                            </select>
+                            {(requirementsModeByQuestion[q.question_id] ?? 'auto') === 'auto' ? (
+                              <span className="prog-requirements-summary">
+                                {analyzingRequirementsFor === q.question_id ? 'Analyzing...' : (
+                                  (() => {
+                                    const concepts = requiredConceptsByQuestion[q.question_id] || [];
+                                    const isPattern = isPatternQuestionByQuestion[q.question_id];
+                                    const labels = concepts.map(v => FUNDAMENTAL_CONCEPTS.find(c => c.value === v)?.label || v);
+                                    if (isPattern) labels.push('Pattern');
+                                    return labels.length ? labels.join(', ') : 'Click Generate to auto-detect';
+                                  })()
+                                )}
+                              </span>
+                            ) : (
+                              <div className="prog-manual-concepts">
+                                {FUNDAMENTAL_CONCEPTS.map(c => (
+                                  <label key={c.value} className="prog-concept-check">
+                                    <input
+                                      type="checkbox"
+                                      checked={(requiredConceptsByQuestion[q.question_id] || []).includes(c.value)}
+                                      onChange={() => toggleConcept(q.question_id, c.value)}
+                                    />
+                                    {c.label}
+                                  </label>
+                                ))}
+                                <label className="prog-concept-check prog-pattern-check">
+                                  <input
+                                    type="checkbox"
+                                    checked={isPatternQuestionByQuestion[q.question_id] ?? false}
+                                    onChange={e => handlePatternQuestionChange(q.question_id, e.target.checked)}
+                                  />
+                                  Pattern
+                                </label>
+                                <label className="prog-threshold-label">
+                                  Threshold:
+                                  <select
+                                    value={conceptThresholdByQuestion[q.question_id] ?? 99}
+                                    onChange={e => handleConceptThresholdChange(q.question_id, parseInt(e.target.value, 10))}
+                                    title="% of required concepts that must be used"
+                                  >
+                                    <option value={99}>99%</option>
+                                    <option value={90}>90%</option>
+                                    <option value={75}>75%</option>
+                                    <option value={50}>50%</option>
+                                  </select>
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                         <button
                           onClick={() => handleGenerateTestCases(q)}
                           disabled={!aiConfigured || generatingForQuestion === q.question_id}
@@ -799,18 +1170,29 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                         >
                           Add Test Case
                         </button>
-                        {referenceSolutionByQuestion[q.question_id] &&
+                        <button
+                          onClick={() => handleAddTestCaseManually(q.question_id, true)}
+                          className="btn btn-secondary btn-sm"
+                          title="Add input only, then use Fill expected outputs with your solution"
+                        >
+                          Add input only
+                        </button>
+                        {((referenceSolutionByQuestion[q.question_id] || (threeSolutionsByQuestion[q.question_id] || []).length > 0)) &&
                           (testCasesByQuestion[q.question_id] || []).some(tc => !(tc.expected_output || '').trim()) &&
                           (testCasesByQuestion[q.question_id] || []).length > 0 && (
                           <button
-                            onClick={() => handleVerifyWithSolution(
-                              q.question_id,
-                              referenceSolutionByQuestion[q.question_id],
-                              referenceLanguageByQuestion[q.question_id] ?? q.language ?? 'python'
-                            )}
+                            onClick={() => {
+                              const threeSol = (threeSolutionsByQuestion[q.question_id] || [])[selectedSolutionTab[q.question_id] ?? 0];
+                              const codeToUse = threeSol?.code || referenceSolutionByQuestion[q.question_id] || '';
+                              if (codeToUse) handleVerifyWithSolution(
+                                q.question_id,
+                                codeToUse,
+                                referenceLanguageByQuestion[q.question_id] ?? q.language ?? 'python'
+                              );
+                            }}
                             disabled={verifyingForQuestion === q.question_id}
                             className="btn btn-secondary btn-sm"
-                            title="Run reference solution to fill empty expected outputs"
+                            title="Run selected solution to fill empty expected outputs"
                           >
                             {verifyingForQuestion === q.question_id ? 'Filling...' : 'Fill expected outputs'}
                           </button>
@@ -818,7 +1200,7 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                       </div>
                       <div className="prog-three-solutions">
                         <div className="prog-three-solutions-header">
-                          <label>3 best solutions</label>
+                          <label>Solutions</label>
                           <select
                             className="prog-lang-select"
                             value={referenceLanguageByQuestion[q.question_id] ?? q.language ?? 'python'}
@@ -833,7 +1215,7 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                             disabled={!aiConfigured || loadingThreeSolutionsFor === q.question_id}
                             className="btn btn-primary btn-sm"
                           >
-                            {loadingThreeSolutionsFor === q.question_id ? 'Generating...' : 'Generate 3 solutions'}
+                            {loadingThreeSolutionsFor === q.question_id ? 'Generating...' : 'Generate solution'}
                           </button>
                         </div>
                         {(threeSolutionsByQuestion[q.question_id] || []).length > 0 && (
@@ -851,12 +1233,16 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                           </div>
                         )}
                         {(threeSolutionsByQuestion[q.question_id] || []).length > 0 && (
-                          <pre className="prog-solution-code">
-                            {(threeSolutionsByQuestion[q.question_id] || [])[selectedSolutionTab[q.question_id] ?? 0]?.code || ''}
-                          </pre>
-                        )}
-                        {(threeSolutionsByQuestion[q.question_id] || []).length === 0 && !loadingThreeSolutionsFor && (
-                          <p className="prog-solutions-hint">Click &quot;Generate 3 solutions&quot; to get 3 different approaches (efficient, readable, alternative).</p>
+                          <>
+                            <pre className="prog-solution-code">
+                              {(threeSolutionsByQuestion[q.question_id] || [])[selectedSolutionTab[q.question_id] ?? 0]?.code || ''}
+                            </pre>
+                            {(testCasesByQuestion[q.question_id] || []).some(tc => !(tc.expected_output || '').trim()) && (
+                              <p className="prog-solutions-hint">
+                                <strong>Scenario-based questions:</strong> If expected outputs are empty, this solution will be used when you click &quot;Fill expected outputs&quot; above. Ensure the selected solution matches your test input format.
+                              </p>
+                            )}
+                          </>
                         )}
                       </div>
                       <div className="prog-test-cases-section">
@@ -897,8 +1283,8 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                                 {(testCasesByQuestion[q.question_id] || []).map((tc, i) => (
                                   <tr key={tc.test_case_id || i}>
                                     <td className="tc-num">{i + 1}</td>
-                                    <td><code className="tc-cell">{(tc.input_data || '(empty)').slice(0, 60)}{(tc.input_data || '').length > 60 ? '…' : ''}</code></td>
-                                    <td><code className="tc-cell">{(tc.expected_output || '(empty)').slice(0, 40)}{(tc.expected_output || '').length > 40 ? '…' : ''}</code></td>
+                                    <td><pre className="tc-cell-pre">{tcTruncate(tc.input_data, 120)}</pre></td>
+                                    <td><pre className="tc-cell-pre">{tcTruncate(tc.expected_output, 200)}</pre></td>
                                     <td className="tc-desc">{tc.description || '—'}</td>
                                     <td>
                                       {tc.test_case_id && (
@@ -935,11 +1321,11 @@ const ProgrammingQuestionsManager: React.FC<ProgrammingQuestionsManagerProps> = 
                                     <div className="prog-test-case-body">
                                       <div className="tc-row">
                                         <strong>Input:</strong>
-                                        <code>{tc.input_data || '(empty)'}</code>
+                                        <pre className="tc-pre">{(tc.input_data || '').trimEnd() || '(empty)'}</pre>
                                       </div>
                                       <div className="tc-row">
                                         <strong>Expected:</strong>
-                                        <code>{tc.expected_output || '(empty)'}</code>
+                                        <pre className="tc-pre">{(tc.expected_output || '').trimEnd() || '(empty)'}</pre>
                                       </div>
                                       {tc.description && (
                                         <div className="tc-row">
