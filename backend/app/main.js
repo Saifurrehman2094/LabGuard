@@ -1540,9 +1540,19 @@ ipcMain.handle('evaluation:get-by-exam', async (event, examId) => {
     const data = submissions.map((sub) => {
       const evals = dbService.getCodeEvaluationsBySubmissionId(sub.submission_id);
       const lastEval = evals.length ? evals[evals.length - 1] : null;
-      const totalAutoScore = evals.reduce((sum, e) => sum + (e.score || 0), 0);
-      const totalFinalScore = evals.reduce((sum, e) => sum + (e.final_score || 0), 0);
-      const totalMaxScore = evals.reduce((sum, e) => sum + (e.max_score || 0), 0);
+
+      // If teacher re-runs evaluation multiple times, we will have multiple evaluation rows.
+      // For the dashboard totals, only the latest evaluation per question should count.
+      // `getCodeEvaluationsBySubmissionId` orders by created_at ASC, so overwriting keeps the latest.
+      const latestByQuestion = new Map();
+      for (const e of evals) {
+        latestByQuestion.set(e.question_id, e);
+      }
+      const latestEvals = Array.from(latestByQuestion.values());
+
+      const totalAutoScore = latestEvals.reduce((sum, e) => sum + (e.score ?? 0), 0);
+      const totalFinalScore = latestEvals.reduce((sum, e) => sum + (e.final_score ?? 0), 0);
+      const totalMaxScore = latestEvals.reduce((sum, e) => sum + (e.max_score ?? 0), 0);
 
       return {
         submission_id: sub.submission_id,
