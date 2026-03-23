@@ -77,23 +77,38 @@ function normalizeTestCase(raw) {
  * Safe parse of JSON array of test cases; returns { ok: true, testCases } or { ok: false, error }.
  */
 function parseTestCasesJson(text) {
-  const raw = extractJsonFromResponse(text);
-  if (!raw) return { ok: false, error: 'No JSON found in LLM response' };
-  let arr;
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      arr = parsed;
-    } else if (parsed && Array.isArray(parsed.testCases)) {
-      arr = parsed.testCases;
-    } else if (parsed && Array.isArray(parsed.tests)) {
-      arr = parsed.tests;
-    } else {
-      return { ok: false, error: 'Response is not a JSON array of test cases' };
-    }
-  } catch (e) {
-    return { ok: false, error: `Invalid JSON: ${e.message}` };
+  if (!text || typeof text !== 'string') {
+    return { ok: false, error: 'No JSON found in LLM response' };
   }
+
+  const direct = text.trim();
+  let parsed;
+
+  // Fast path: when responseMimeType=application/json the model usually returns raw JSON.
+  try {
+    parsed = JSON.parse(direct);
+  } catch (e) {
+    // Fallback: some models still wrap JSON in markdown fences; strip and retry.
+    const raw = extractJsonFromResponse(text);
+    if (!raw) return { ok: false, error: 'No JSON found in LLM response' };
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e2) {
+      return { ok: false, error: `Invalid JSON: ${e2.message}` };
+    }
+  }
+
+  let arr;
+  if (Array.isArray(parsed)) {
+    arr = parsed;
+  } else if (parsed && Array.isArray(parsed.testCases)) {
+    arr = parsed.testCases;
+  } else if (parsed && Array.isArray(parsed.tests)) {
+    arr = parsed.tests;
+  } else {
+    return { ok: false, error: 'Response is not a JSON array of test cases' };
+  }
+
   const testCases = arr.map(normalizeTestCase).filter(Boolean);
   return { ok: true, testCases };
 }
@@ -171,21 +186,51 @@ class LLMTestCaseService {
   async _callGemini(questionText) {
     const url = `${GEMINI_URL}?key=${encodeURIComponent(this.config.geminiApiKey)}`;
     const combinedPrompt = `${SYSTEM_PROMPT}\n\n${buildUserPrompt(questionText)}`;
-    const body = {
+
+    const geminiResponseSchema = {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          description: { type: 'string' },
+          input: { type: 'string' },
+          expectedOutput: { type: 'string' },
+          isHidden: { type: 'boolean' },
+          isEdgeCase: { type: 'boolean' },
+          timeLimitMs: { type: 'number' },
+          notes: { type: 'string' }
+        },
+        required: ['name', 'description', 'input', 'expectedOutput', 'isHidden', 'isEdgeCase', 'timeLimitMs']
+      }
+    };
+
+    const makeBody = (includeSchema) => ({
       contents: [{ role: 'user', parts: [{ text: combinedPrompt }] }],
       generationConfig: {
         temperature: 0.2,
         maxOutputTokens: 8192,
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        ...(includeSchema ? { responseSchema: geminiResponseSchema } : {})
       }
-    };
+    });
 
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      const tryFetch = async (includeSchema) => {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeBody(includeSchema))
+        });
+        return res;
+      };
+
+      let res = await tryFetch(true);
+
+      // If responseSchema isn't supported by the current endpoint/model, fall back to responseMimeType only.
+      if (res.status === 400) {
+        res = await tryFetch(false);
+      }
 
       if (res.status === 401) {
         return { success: false, error: 'Invalid Gemini API key. Check your key at aistudio.google.com/app/apikey', code: '401' };
