@@ -21,6 +21,10 @@ backend/data/database.sqlite-journal
 backend/data/database.sqlite-shm
 backend/data/database.sqlite-wal
 
+# Code evaluation runtime artifacts (compiled executables + temp dirs)
+backend/data/code-eval/
+backend/data/code-eval/**/*
+
 # Uploaded files
 backend/data/uploads/*
 !backend/data/uploads/.gitkeep
