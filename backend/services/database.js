@@ -1959,7 +1959,13 @@ class DatabaseService {
       if (data[key] !== undefined) {
         const col = key.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
         let val = data[key];
-        if (key === 'metadata' && val != null) val = JSON.stringify(val);
+        if (key === 'metadata' && val != null) {
+          val = JSON.stringify(val);
+        }
+        if (key === 'is_hidden' || key === 'is_edge_case' || key === 'is_generated') {
+          // Normalize booleans to integers for SQLite
+          val = val ? 1 : 0;
+        }
         updates.push(`${col} = ?`);
         params.push(val);
       }
@@ -2162,8 +2168,12 @@ class DatabaseService {
     for (const key of allowed) {
       if (data[key] !== undefined) {
         const col = key.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+        let val = data[key];
+        if (key === 'passed') {
+          val = val ? 1 : 0;
+        }
         updates.push(`${col} = ?`);
-        params.push(data[key]);
+        params.push(val);
       }
     }
     if (updates.length === 0) return false;

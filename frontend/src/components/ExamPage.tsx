@@ -478,11 +478,27 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
         try {
             // Submit exam to backend (DON'T stop monitoring yet)
             if (isElectron()) {
-                const filesData = submittedFiles.map(f => ({
-                    name: f.name,
-                    size: f.size,
-                    type: f.type
-                }));
+                const filesData = await Promise.all(
+                    submittedFiles.map(async (f) => {
+                        const base: any = {
+                            name: f.name,
+                            size: f.size,
+                            type: f.type
+                        };
+
+                        // Code evaluation needs actual source content for `.cpp` files.
+                        const lower = typeof f.name === 'string' ? f.name.toLowerCase() : '';
+                        if (lower.endsWith('.cpp') || lower.endsWith('.ccp')) {
+                            try {
+                                base.content = await f.text();
+                            } catch (err) {
+                                console.error('Failed reading .cpp file as text:', err);
+                            }
+                        }
+
+                        return base;
+                    })
+                );
 
                 const result = await (window as any).electronAPI.submitExam(exam.exam_id, filesData);
 

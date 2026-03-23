@@ -38,7 +38,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     step: 'credentials'
   });
   const [showCameraTest, setShowCameraTest] = useState(false);
-  const SHOW_CAMERA_TEST_BUTTON = true; // Keep feature but hide on sign-in page
+  const SHOW_CAMERA_TEST_BUTTON = false; // Keep feature but hide on sign-in page
 
   // Check if running in Electron
   const isElectron = () => {

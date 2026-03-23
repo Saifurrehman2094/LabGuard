@@ -14,6 +14,7 @@ const MonitoringController = require('../services/monitoringController');
 const CameraMonitoringService = require('../services/cameraMonitoringService');
 const PDFTextExtractor = require('../services/pdfTextExtractor');
 const LLMTestCaseService = require('../services/llmTestCaseService');
+const CodeEvalService = require('../services/codeEvalService');
 
 // Initialize services
 let authService;
@@ -21,6 +22,7 @@ let dbService;
 let fileService;
 let pdfTextExtractor;
 let llmTestCaseService;
+let codeEvalService;
 let monitoringController;
 let cameraMonitoringService;
 
@@ -133,6 +135,7 @@ async function initializeServices() {
 
     pdfTextExtractor = new PDFTextExtractor();
     llmTestCaseService = new LLMTestCaseService();
+    codeEvalService = new CodeEvalService({ dbService });
 
     console.log('Initializing monitoring controller...');
     monitoringController = new MonitoringController(dbService);
@@ -1381,6 +1384,357 @@ ipcMain.handle('exam:generate-testcases', async (event, examId, questionId, llmP
       success: false,
       error: error.message || 'Unknown error',
       code: 'ERROR'
+    };
+  }
+});
+
+// Run code evaluation for a submission/question (Code Eval – teacher/system)
+ipcMain.handle('evaluation:run', async (event, examId, submissionId, questionId, reRun = false) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    if (!codeEvalService) {
+      return { success: false, error: 'Code evaluation service not initialized' };
+    }
+
+    const result = await codeEvalService.runEvaluation({ examId, submissionId, questionId, reRun });
+    return {
+      success: true,
+      evaluation: result.evaluation,
+      results: result.results
+    };
+  } catch (error) {
+    console.error('evaluation:run error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
+    };
+  }
+});
+
+// Run code evaluation for all questions with test cases for a single submission
+ipcMain.handle('evaluation:run-for-submission', async (event, examId, submissionId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    if (!codeEvalService) {
+      return { success: false, error: 'Code evaluation service not initialized' };
+    }
+
+    const questions = dbService.getExamQuestionsByExamId(examId);
+    const runs = [];
+    for (const q of questions) {
+      const tcs = dbService.getQuestionTestCasesByQuestionId(q.question_id);
+      if (!tcs.length) continue;
+      const result = await codeEvalService.runEvaluation({
+        examId,
+        submissionId,
+        questionId: q.question_id,
+        reRun: false
+      });
+      runs.push({
+        question_id: q.question_id,
+        evaluation: result.evaluation,
+        results_count: result.results.length
+      });
+    }
+
+    return { success: true, runs };
+  } catch (error) {
+    console.error('evaluation:run-for-submission error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
+    };
+  }
+});
+
+// Run code evaluation for all submissions of an exam
+ipcMain.handle('evaluation:run-for-exam', async (event, examId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const submissions = dbService.db
+      .prepare('SELECT submission_id FROM exam_submissions WHERE exam_id = ?')
+      .all(examId);
+
+    const questions = dbService.getExamQuestionsByExamId(examId);
+    let totalEvaluations = 0;
+
+    for (const sub of submissions) {
+      for (const q of questions) {
+        const tcs = dbService.getQuestionTestCasesByQuestionId(q.question_id);
+        if (!tcs.length) continue;
+
+        await codeEvalService.runEvaluation({
+          examId,
+          submissionId: sub.submission_id,
+          questionId: q.question_id,
+          reRun: false
+        });
+        totalEvaluations++;
+      }
+    }
+
+    return { success: true, totalSubmissions: submissions.length, totalEvaluations };
+  } catch (error) {
+    console.error('evaluation:run-for-exam error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
+    };
+  }
+});
+
+// Get evaluation detail (single evaluation with results)
+ipcMain.handle('evaluation:get-detail', async (event, evaluationId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const evaluation = dbService.getCodeEvaluationById(evaluationId);
+    if (!evaluation) {
+      return { success: false, error: 'Evaluation not found' };
+    }
+    const results = dbService.getTestCaseResultsByEvaluationId(evaluationId);
+    return { success: true, evaluation, results };
+  } catch (error) {
+    console.error('evaluation:get-detail error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
+    };
+  }
+});
+
+// Get evaluations by exam (for dashboard)
+ipcMain.handle('evaluation:get-by-exam', async (event, examId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Return submissions for this exam with student identity and evaluations
+    const submissions = dbService.db
+      .prepare(`
+        SELECT es.submission_id, es.student_id, es.submitted_at,
+               u.username, u.full_name
+        FROM exam_submissions es
+        JOIN users u ON es.student_id = u.user_id
+        WHERE es.exam_id = ?
+      `)
+      .all(examId);
+
+    const data = submissions.map((sub) => {
+      const evals = dbService.getCodeEvaluationsBySubmissionId(sub.submission_id);
+      const lastEval = evals.length ? evals[evals.length - 1] : null;
+      const totalAutoScore = evals.reduce((sum, e) => sum + (e.score || 0), 0);
+      const totalFinalScore = evals.reduce((sum, e) => sum + (e.final_score || 0), 0);
+      const totalMaxScore = evals.reduce((sum, e) => sum + (e.max_score || 0), 0);
+
+      return {
+        submission_id: sub.submission_id,
+        student_id: sub.student_id,
+        username: sub.username,
+        full_name: sub.full_name,
+        submitted_at: sub.submitted_at,
+        evaluations: evals,
+        aggregates: {
+          last_status: lastEval ? lastEval.status : null,
+          last_evaluated_at: lastEval ? lastEval.created_at : null,
+          total_auto_score: totalAutoScore,
+          total_final_score: totalFinalScore,
+          total_max_score: totalMaxScore
+        }
+      };
+    });
+
+    return { success: true, data };
+  } catch (error) {
+    console.error('evaluation:get-by-exam error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
+    };
+  }
+});
+
+// Update manual score for an evaluation
+ipcMain.handle('evaluation:update-manual-score', async (event, evaluationId, manualScore) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    dbService.updateCodeEvaluationManualScore(evaluationId, manualScore);
+    const evaluation = dbService.getCodeEvaluationById(evaluationId);
+    return { success: true, evaluation };
+  } catch (error) {
+    console.error('evaluation:update-manual-score error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
+    };
+  }
+});
+
+// Save exam questions (Code Eval – teacher)
+ipcMain.handle('exam:save-questions', async (event, examId, questions) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    if (!Array.isArray(questions)) {
+      return { success: false, error: 'Invalid questions payload' };
+    }
+
+    const exam = dbService.getExamById(examId);
+    if (!exam) {
+      return { success: false, error: 'Exam not found' };
+    }
+
+    const savedQuestions = [];
+    for (const q of questions) {
+      const data = {
+        exam_id: examId,
+        title: (q && q.title) || '',
+        description: q && q.description ? q.description : null,
+        source_page: q && (q.page ?? q.source_page) != null ? (q.page ?? q.source_page) : null,
+        max_score: q && (q.max_score ?? q.maxScore) != null ? (q.max_score ?? q.maxScore) : 100
+      };
+
+      if (q && q.question_id) {
+        dbService.updateExamQuestion(q.question_id, data);
+        const updated = dbService.getExamQuestionById(q.question_id);
+        if (updated) {
+          savedQuestions.push(updated);
+        }
+      } else {
+        const created = dbService.insertExamQuestion(data);
+        savedQuestions.push(created);
+      }
+    }
+
+    return { success: true, questions: savedQuestions };
+  } catch (error) {
+    console.error('exam:save-questions error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
+    };
+  }
+});
+
+// Upsert (create/update/delete) test cases for a question (Code Eval – teacher)
+ipcMain.handle('exam:upsert-testcases', async (event, questionId, testCases) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    if (!questionId) {
+      return { success: false, error: 'Missing questionId' };
+    }
+
+    const question = dbService.getExamQuestionById(questionId);
+    if (!question) {
+      return { success: false, error: 'Question not found' };
+    }
+
+    if (!Array.isArray(testCases)) {
+      return { success: false, error: 'Invalid testCases payload' };
+    }
+
+    for (const tc of testCases) {
+      if (!tc) continue;
+
+      const op =
+        tc.op ||
+        tc.mode ||
+        (tc.isDeleted ? 'delete' : (tc.test_case_id || tc.testCaseId) ? 'update' : 'create');
+
+      const testCaseId = tc.test_case_id || tc.testCaseId || null;
+
+      if (op === 'delete') {
+        if (testCaseId) {
+          dbService.deleteQuestionTestCase(testCaseId);
+        }
+        continue;
+      }
+
+      const data = {
+        question_id: questionId,
+        name: tc.name || '',
+        input: tc.input ?? null,
+        expected_output: tc.expected_output ?? tc.expectedOutput ?? null,
+        is_hidden: tc.is_hidden ?? tc.isHidden ?? false,
+        is_edge_case: tc.is_edge_case ?? tc.isEdgeCase ?? false,
+        is_generated: tc.is_generated ?? tc.isGenerated ?? false,
+        time_limit_ms: tc.time_limit_ms ?? tc.timeLimitMs ?? null,
+        memory_limit_kb: tc.memory_limit_kb ?? tc.memoryLimitKb ?? null,
+        weight: tc.weight != null ? tc.weight : 1.0,
+        metadata: tc.metadata ?? null
+      };
+
+      if (op === 'update' && testCaseId) {
+        dbService.updateQuestionTestCase(testCaseId, data);
+      } else {
+        dbService.insertQuestionTestCase(data);
+      }
+    }
+
+    const saved = dbService.getQuestionTestCasesByQuestionId(questionId);
+    return { success: true, testCases: saved };
+  } catch (error) {
+    console.error('exam:upsert-testcases error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
+    };
+  }
+});
+
+// Get exam questions with their test cases (Code Eval – teacher)
+ipcMain.handle('exam:get-questions-with-testcases', async (event, examId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const exam = dbService.getExamById(examId);
+    if (!exam) {
+      return { success: false, error: 'Exam not found' };
+    }
+
+    const questions = dbService.getExamQuestionsByExamId(examId);
+    const withTestCases = questions.map(q => ({
+      ...q,
+      testCases: dbService.getQuestionTestCasesByQuestionId(q.question_id)
+    }));
+
+    return { success: true, questions: withTestCases };
+  } catch (error) {
+    console.error('exam:get-questions-with-testcases error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
     };
   }
 });

@@ -83,7 +83,7 @@ cpp-testing-plan/
 .cursor/plans/
 
 # Iteration3Testing generated assets (scripts create these when run)
-Iteration3Testing/sample-questions.pdf
+Iteration3Testing/
 
 # LLM API keys (use llm-config.example.json as template; never commit real keys)
 backend/data/llm-config.json

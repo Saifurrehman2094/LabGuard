@@ -43,6 +43,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   extractQuestions: (examId) => ipcRenderer.invoke('exam:extract-questions', examId),
   generateTestCases: (examId, questionId, llmProvider) =>
     ipcRenderer.invoke('exam:generate-testcases', examId, questionId, llmProvider),
+  saveQuestions: (examId, questions) => ipcRenderer.invoke('exam:save-questions', examId, questions),
+  upsertTestCases: (questionId, testCases) =>
+    ipcRenderer.invoke('exam:upsert-testcases', questionId, testCases),
+  getQuestionsWithTestCases: (examId) =>
+    ipcRenderer.invoke('exam:get-questions-with-testcases', examId),
 
   // Monitoring methods
   startMonitoring: (examId, studentId, allowedApps) =>
@@ -128,6 +133,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Dev: Phase 1 Code Eval DB test (T2, T3)
   phase1CodeEvalDbTest: () => ipcRenderer.invoke('code-eval:phase1-db-test'),
+
+  // Code evaluation (Phase 6)
+  runEvaluation: (examId, submissionId, questionId, reRun) =>
+    ipcRenderer.invoke('evaluation:run', examId, submissionId, questionId, reRun),
+  runEvaluationForSubmission: (examId, submissionId) =>
+    ipcRenderer.invoke('evaluation:run-for-submission', examId, submissionId),
+  runEvaluationForExam: (examId) =>
+    ipcRenderer.invoke('evaluation:run-for-exam', examId),
+  getEvaluationDetail: (evaluationId) =>
+    ipcRenderer.invoke('evaluation:get-detail', evaluationId),
+  getEvaluationsByExam: (examId) =>
+    ipcRenderer.invoke('evaluation:get-by-exam', examId),
+  updateEvaluationManualScore: (evaluationId, manualScore) =>
+    ipcRenderer.invoke('evaluation:update-manual-score', evaluationId, manualScore),
 
   // Event listeners
   onMonitoringEvent: (callback) => {

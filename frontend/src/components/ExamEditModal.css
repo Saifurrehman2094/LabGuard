@@ -24,12 +24,13 @@
 
 .modal-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  padding: 1.5rem 2rem;
+  padding: 1.5rem 2rem 1rem 2rem;
   border-bottom: 1px solid #e0e0e0;
   background: #f8f9fa;
   border-radius: 12px 12px 0 0;
+  position: relative;
 }
 
 .modal-header h2 {
@@ -40,10 +41,10 @@
 }
 
 .close-btn {
-  background: none;
+  background: #ef4444;
   border: none;
-  font-size: 2rem;
-  color: #666;
+  font-size: 1.5rem;
+  color: #ffffff;
   cursor: pointer;
   padding: 0;
   width: 40px;
@@ -51,13 +52,48 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: 12px;
+  position: absolute;
+  right: 2rem;
   transition: all 0.3s ease;
 }
 
 .close-btn:hover {
-  background: #e0e0e0;
-  color: #333;
+  background: #b91c1c;
+  color: #ffffff;
+}
+
+/* Tabs below header */
+.modal-tabs {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0 2rem 1rem 2rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8f9fa;
+  justify-content: center;
+}
+
+.modal-tab {
+  padding: 0.5rem 1.25rem;
+  border-radius: 999px;
+  border: none;
+  background-color: transparent;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.modal-tab:hover {
+  background-color: #e5e7eb;
+  color: #111827;
+}
+
+.modal-tab.active {
+  background: linear-gradient(135deg, #4f46e5 0%, #1d4ed8 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.35);
 }
 
 .modal-form {
