@@ -1,5 +1,43 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './ProgrammingCodeEditor.css';
+
+/**
+ * Strip teacher-level metadata from a problem statement so students
+ * see only the essentials: description, I/O format, and one example.
+ */
+function simplifyProblemStatement(fullText: string): string {
+  if (!fullText || fullText.trim().length < 10) return fullText;
+  let text = fullText;
+
+  // 1. Remove whole "Important / Constraints / Required concepts / Hint / Scoring" sections.
+  //    These are multiline blocks that start with the keyword and run until the next blank line.
+  text = text.replace(
+    /^[ \t]*(important|constraints?|required\s+concepts?|concept\s+requirements?|notes?|hint|hints|scoring|grading|marking|penalty|penalties)[ \t]*:.*(\n(?![ \t]*\n).*)*\n?/gim,
+    ''
+  );
+
+  // 2. Remove bullet/numbered lines that look like constraints (e.g. "- Must use loops")
+  text = text.replace(/^[ \t]*[-•*]\s*(must use|do not|don't|avoid|required:|use only|no recursion|no hardcod).*/gim, '');
+
+  // 3. Collapse multiple blank lines into one
+  text = text.replace(/\n{3,}/g, '\n\n');
+
+  // 4. Keep only the FIRST example block if multiple exist.
+  //    Look for "Example 2", "Sample 2", "Example Input 2" etc. and remove from there on.
+  text = text.replace(/\n[ \t]*(example|sample)[ \t]*[2-9\s]/i, '\n');
+  // Remove everything after a second occurrence of "Example" / "Sample"
+  const exampleCount = (text.match(/\b(example|sample)\b/gi) || []).length;
+  if (exampleCount > 2) {
+    const secondIdx = text.search(/\b(example|sample)\b/i);
+    const afterFirst = text.slice(secondIdx + 10);
+    const thirdIdx = afterFirst.search(/\b(example|sample)\b/i);
+    if (thirdIdx > 0) {
+      text = text.slice(0, secondIdx + 10 + thirdIdx);
+    }
+  }
+
+  return text.trim();
+}
 
 interface ProgrammingQuestion {
   question_id: string;
@@ -9,6 +47,7 @@ interface ProgrammingQuestion {
   sample_output?: string;
   language: string;
   max_marks?: number;
+  problemType?: string;
 }
 
 interface TestCase {
@@ -47,11 +86,42 @@ const LANGUAGES = [
 
 const DEFAULT_STARTERS: Record<string, string> = {
   python: '# Write your solution here\n',
-  cpp: '#include <iostream>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    return 0;\n}',
+  cpp: '#include <iostream>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n\n    return 0;\n}',
   java: 'import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        // Write your solution here\n    }\n}',
   javascript: "const lines = [];\nprocess.stdin.on('data', d => lines.push(...d.toString().split('\\n')));\nprocess.stdin.on('end', () => {\n    // Write your solution here\n});",
   c: '#include <stdio.h>\n\nint main() {\n    // Write your solution here\n    return 0;\n}'
 };
+
+/** C++ starter templates keyed by problem type (from the question's problemType field). */
+const CPP_STARTERS: Record<string, string> = {
+  arrays_1d:
+    '#include <iostream>\nusing namespace std;\nint main() {\n    int n;\n    cin >> n;\n    int arr[100];\n    for (int i = 0; i < n; i++)\n        cin >> arr[i];\n    // your solution here\n    return 0;\n}',
+  arrays_2d:
+    '#include <iostream>\nusing namespace std;\nint main() {\n    int n, m;\n    cin >> n >> m;\n    int arr[10][10];\n    for (int i = 0; i < n; i++)\n        for (int j = 0; j < m; j++)\n            cin >> arr[i][j];\n    // your solution here\n    return 0;\n}',
+  arrays_3d:
+    '#include <iostream>\nusing namespace std;\nint main() {\n    int x, y, z;\n    cin >> x >> y >> z;\n    int arr[5][5][5];\n    for (int i = 0; i < x; i++)\n        for (int j = 0; j < y; j++)\n            for (int k = 0; k < z; k++)\n                cin >> arr[i][j][k];\n    // your solution here\n    return 0;\n}',
+  recursion:
+    '#include <iostream>\nusing namespace std;\n\n// declare recursive function here\nint solve(int n) {\n    if (n <= 0) return 0; // base case\n    return solve(n - 1);  // recursive call\n}\n\nint main() {\n    int n;\n    cin >> n;\n    cout << solve(n) << endl;\n    return 0;\n}',
+  pointers:
+    '#include <iostream>\nusing namespace std;\nint main() {\n    int n;\n    cin >> n;\n    int arr[100];\n    for (int i = 0; i < n; i++)\n        cin >> arr[i];\n    int *ptr = arr;\n    // use pointers here\n    return 0;\n}',
+  patterns:
+    '#include <iostream>\nusing namespace std;\nint main() {\n    int n;\n    cin >> n;\n    for (int i = 1; i <= n; i++) {\n        for (int j = 1; j <= i; j++) {\n            // print pattern\n        }\n        cout << endl;\n    }\n    return 0;\n}',
+  nested_loops:
+    '#include <iostream>\nusing namespace std;\nint main() {\n    int n;\n    cin >> n;\n    for (int i = 1; i <= n; i++) {\n        for (int j = 1; j <= n; j++) {\n            // nested logic here\n        }\n        cout << endl;\n    }\n    return 0;\n}',
+  loops:
+    '#include <iostream>\nusing namespace std;\nint main() {\n    int n;\n    cin >> n;\n    for (int i = 1; i <= n; i++) {\n        // your loop body here\n    }\n    return 0;\n}',
+  sorting:
+    '#include <iostream>\nusing namespace std;\nint main() {\n    int n;\n    cin >> n;\n    int arr[100];\n    for (int i = 0; i < n; i++)\n        cin >> arr[i];\n    // implement sort here (e.g. bubble sort)\n    for (int i = 0; i < n - 1; i++)\n        for (int j = 0; j < n - i - 1; j++)\n            if (arr[j] > arr[j+1]) {\n                int tmp = arr[j]; arr[j] = arr[j+1]; arr[j+1] = tmp;\n            }\n    for (int i = 0; i < n; i++)\n        cout << arr[i] << " ";\n    return 0;\n}',
+};
+
+/**
+ * Pick the best C++ starter code for a question.
+ * Returns the problem-type-specific template if known, otherwise the generic C++ starter.
+ */
+function getCppStarter(problemType?: string): string {
+  if (problemType && CPP_STARTERS[problemType]) return CPP_STARTERS[problemType];
+  return DEFAULT_STARTERS.cpp;
+}
 
 interface ProgrammingCodeEditorProps {
   examId: string;
@@ -85,15 +155,22 @@ const ProgrammingCodeEditor: React.FC<ProgrammingCodeEditorProps> = ({
   // Cooldown: seconds remaining after each submit (30s anti-spam)
   const [submitCooldown, setSubmitCooldown] = useState(0);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Submit progress bar (0–100). Animated estimate while waiting for IPC response.
+  const [submitProgress, setSubmitProgress] = useState(0);
+  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const api = (window as any).electronAPI;
   const selectedQuestion = questions[activeIdx] || null;
   const qId = selectedQuestion?.question_id || '';
   const isFirstMount = useRef(true);
 
-  // Current code / language for active question
-  const currentCode = codeByQuestion[qId] ?? DEFAULT_STARTERS[langByQuestion[qId] || selectedQuestion?.language || 'python'] ?? '';
-  const currentLang = langByQuestion[qId] || selectedQuestion?.language || 'python';
+  // Current code / language for active question (default language is C++)
+  const currentLang = langByQuestion[qId] || selectedQuestion?.language || 'cpp';
+  const currentCode = codeByQuestion[qId] ?? (
+    currentLang === 'cpp'
+      ? getCppStarter(selectedQuestion?.problemType)
+      : (DEFAULT_STARTERS[currentLang] ?? '')
+  );
 
   // Load test cases when switching to a question
   useEffect(() => {
@@ -122,8 +199,14 @@ const ProgrammingCodeEditor: React.FC<ProgrammingCodeEditorProps> = ({
   const setLang = (lang: string) => {
     setLangByQuestion(prev => ({ ...prev, [qId]: lang }));
     // Only reset code if student hasn't written anything yet
-    if (!codeByQuestion[qId] || codeByQuestion[qId] === (DEFAULT_STARTERS[currentLang] ?? '')) {
-      setCodeByQuestion(prev => ({ ...prev, [qId]: DEFAULT_STARTERS[lang] ?? '' }));
+    const defaultForCurrent = currentLang === 'cpp'
+      ? getCppStarter(selectedQuestion?.problemType)
+      : (DEFAULT_STARTERS[currentLang] ?? '');
+    if (!codeByQuestion[qId] || codeByQuestion[qId] === defaultForCurrent) {
+      const newDefault = lang === 'cpp'
+        ? getCppStarter(selectedQuestion?.problemType)
+        : (DEFAULT_STARTERS[lang] ?? '');
+      setCodeByQuestion(prev => ({ ...prev, [qId]: newDefault }));
     }
   };
 
@@ -176,14 +259,41 @@ const ProgrammingCodeEditor: React.FC<ProgrammingCodeEditorProps> = ({
     }, 1000);
   };
 
+  const startProgress = () => {
+    setSubmitProgress(0);
+    if (progressRef.current) clearInterval(progressRef.current);
+    // Estimate ~8s total: animate to 85% over 7s, final 100% set when done
+    const totalMs = 7000;
+    const intervalMs = 200;
+    const steps = totalMs / intervalMs;
+    const increment = 85 / steps;
+    let current = 0;
+    progressRef.current = setInterval(() => {
+      current = Math.min(85, current + increment);
+      setSubmitProgress(Math.round(current));
+      if (current >= 85) {
+        clearInterval(progressRef.current!);
+        progressRef.current = null;
+      }
+    }, intervalMs);
+  };
+
+  const stopProgress = (finalPct = 100) => {
+    if (progressRef.current) { clearInterval(progressRef.current); progressRef.current = null; }
+    setSubmitProgress(finalPct);
+    setTimeout(() => setSubmitProgress(0), 1200);
+  };
+
   const handleSubmit = async () => {
     if (!selectedQuestion || !api?.submitProgrammingCode) return;
     if (submitCooldown > 0) return;
     setSubmitting(true);
     setSubmitError(null);
+    startProgress();
     try {
       const r = await api.submitProgrammingCode(examId, qId, currentCode, currentLang);
       if (r.success) {
+        stopProgress(100);
         const maxMarks = r.maxMarks ?? selectedQuestion.max_marks ?? 20;
         setSubmissions(prev => ({
           ...prev,
@@ -199,9 +309,11 @@ const ProgrammingCodeEditor: React.FC<ProgrammingCodeEditorProps> = ({
         }));
         startCooldown();
       } else {
+        stopProgress(0);
         setSubmitError('Submit failed: ' + (r.error || 'Unknown error'));
       }
     } catch (err) {
+      stopProgress(0);
       setSubmitError('Submit failed: ' + (err as Error).message);
     } finally {
       setSubmitting(false);
@@ -288,10 +400,12 @@ const ProgrammingCodeEditor: React.FC<ProgrammingCodeEditorProps> = ({
 
       {selectedQuestion && (
         <div className="pce-body">
-          {/* Left: Problem statement */}
+          {/* Left: Problem statement (simplified for student) */}
           <div className="pce-problem">
             <div className="pce-problem-title">Q{activeIdx + 1}: {selectedQuestion.title}</div>
-            <pre className="pce-problem-text">{selectedQuestion.problem_text}</pre>
+            <pre className="pce-problem-text">
+              {simplifyProblemStatement(selectedQuestion.problem_text)}
+            </pre>
             {selectedQuestion.sample_input && (
               <div className="pce-sample">
                 <span className="pce-sample-label">Sample Input</span>
@@ -361,6 +475,20 @@ const ProgrammingCodeEditor: React.FC<ProgrammingCodeEditorProps> = ({
                 autoCapitalize="off"
               />
             </div>
+
+            {/* Submit progress bar */}
+            {submitting && submitProgress > 0 && (
+              <div className="pce-submit-progress">
+                <div className="pce-submit-progress-bar" style={{ width: `${submitProgress}%` }} />
+                <span className="pce-submit-progress-label">
+                  {submitProgress < 50
+                    ? 'Running test cases...'
+                    : submitProgress < 85
+                    ? 'Checking concepts & scoring...'
+                    : 'Finalising...'}
+                </span>
+              </div>
+            )}
 
             {/* Errors */}
             {runError && <div className="pce-alert error">{runError}</div>}

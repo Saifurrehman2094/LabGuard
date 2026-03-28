@@ -540,7 +540,11 @@ Generate test inputs that this solution will accept. Return JSON: [{"input":"...
  * @param {string} problemType
  * @returns {string}
  */
-function getConceptPrompt(problemType, questionText) {
+function getConceptPrompt(problemType, questionText, language) {
+  const isCpp = language === 'cpp' || language === 'c++';
+  const isC   = language === 'c';
+  const isClike = isCpp || isC;
+
   const prompts = {
     loops: `
 CONCEPT ENFORCEMENT — LOOPS:
@@ -552,7 +556,14 @@ CONCEPT ENFORCEMENT — LOOPS:
     normal:   n = 5, n = 10, n = 7
     boundary: n = 1 (single iteration), n = 0 (zero iterations if valid)
     large:    n = 20 or n = 100 (if feasible)
-- Expected output: the result of running the loop n times (sum, product, printed sequence, etc.).`,
+- Expected output: the result of running the loop n times (sum, product, printed sequence, etc.).
+${isClike ? `
+C++ SYNTAX REQUIREMENT:
+- Use for(int i = 0; i < n; i++) or while(condition) loop construct.
+- Read with cin. Print with cout.
+- Example:
+    int n; cin >> n;
+    for(int i = 1; i <= n; i++) cout << i << " ";` : ''}`,
 
     do_while: `
 CONCEPT ENFORCEMENT — DO-WHILE LOOP (C/C++/Java only):
@@ -599,7 +610,16 @@ CONCEPT ENFORCEMENT — RECURSION:
     normal:   n = 5, n = 8, n = 3
     base:     n = 0 and n = 1 (base-case inputs)
     moderate: n = 10, n = 15
-- Expected output: the single computed value (factorial, fib number, power, etc.).`,
+- Expected output: the single computed value (factorial, fib number, power, etc.).
+${isClike ? `
+C++ SYNTAX REQUIREMENT:
+- Declare the recursive function BEFORE main().
+- Example:
+    int solve(int n) {
+      if (n <= 0) return 0;   // base case
+      return n + solve(n - 1); // recursive call
+    }
+    int main() { int n; cin >> n; cout << solve(n) << endl; }` : ''}`,
 
     arrays_1d: `
 CONCEPT ENFORCEMENT — 1D ARRAYS:
@@ -613,7 +633,12 @@ CONCEPT ENFORCEMENT — 1D ARRAYS:
     single:   n = 1
     large:    n = 8 or n = 10
     all same: n = 4 with identical elements (e.g. "4\\n7 7 7 7")
-- Expected output: the computed result (max, min, sum, reversed array space-separated, etc.).`,
+- Expected output: the computed result (max, min, sum, reversed array space-separated, etc.).
+${isClike ? `
+C++ SYNTAX REQUIREMENT:
+- Use: int arr[100]; for(int i = 0; i < n; i++) cin >> arr[i];
+- Print: for(int i = 0; i < n; i++) cout << arr[i] << " ";
+- Use fixed-size array (int arr[100]) or vector<int> arr(n).` : ''}`,
 
     arrays_2d: `
 CONCEPT ENFORCEMENT — 2D ARRAYS / MATRIX:
@@ -626,7 +651,12 @@ CONCEPT ENFORCEMENT — 2D ARRAYS / MATRIX:
     rectangle:  2×3, 3×2
     single row: 1×4
     identity:   3×3 with 1s on diagonal
-- Expected output: scalar result (sum, trace, max) or matrix printed row-by-row space-separated.`,
+- Expected output: scalar result (sum, trace, max) or matrix printed row-by-row space-separated.
+${isClike ? `
+C++ SYNTAX REQUIREMENT:
+- Use: int arr[10][10];
+- Read: for(int i=0;i<n;i++) for(int j=0;j<m;j++) cin >> arr[i][j];
+- Print: for(int i=0;i<n;i++) { for(int j=0;j<m;j++) cout << arr[i][j] << " "; cout << endl; }` : ''}`,
 
     arrays_3d: `
 CONCEPT ENFORCEMENT — 3D ARRAYS:
@@ -653,7 +683,18 @@ CONCEPT ENFORCEMENT — POINTERS (C/C++ ONLY):
     zero:     one or both values are 0 (e.g. "0 5")
     negative: negative values if applicable (e.g. "-3 7")
     array:    n=4 with varied values if pointer-to-array is needed
-- Expected output: modified value(s) or result of pointer operation.`,
+- Expected output: modified value(s) or result of pointer operation.
+${isClike ? `
+C++ SYNTAX REQUIREMENT:
+- Declare at least one pointer with *. Use dereference * and address-of & operators.
+- Pointer arithmetic example:
+    int *left = arr;
+    int *right = arr + n - 1;
+    while(left < right) {
+        int temp = *left; *left = *right; *right = temp;
+        left++; right--;
+    }
+- Read with cin. Print with cout.` : ''}`,
 
     patterns: '__DYNAMIC__',   // resolved dynamically below
 
@@ -667,7 +708,11 @@ CONCEPT ENFORCEMENT — NESTED LOOPS:
     small:  n = 2 or rows=2 cols=3
     normal: n = 4 or rows=3 cols=4
     square: n = 3 (rows = cols)
-- Expected output: the 2D result printed row by row, space-separated per row.`
+- Expected output: the 2D result printed row by row, space-separated per row.
+${isClike ? `
+C++ SYNTAX REQUIREMENT:
+- Use nested for(int i=0;...) { for(int j=0;...) { ... } } loops.
+- Print each row with cout, then cout << endl; or cout << "\\n"; after each row.` : ''}`
   };
 
   const base = prompts[problemType];
@@ -676,9 +721,17 @@ CONCEPT ENFORCEMENT — NESTED LOOPS:
   if (base === '__DYNAMIC__') {
     const subtype = detectPatternSubtype(questionText || '');
     const subtypeBlock = PATTERN_SUBTYPE_PROMPTS[subtype] || PATTERN_SUBTYPE_PROMPTS.star_right_triangle;
+    const cppPatternNote = isClike ? `
+C++ SYNTAX REQUIREMENT FOR PATTERNS:
+- Use nested for(int i=1;i<=n;i++) { for(int j=...) { ... } cout << endl; } loops.
+- Print each character with cout << '*' or cout << i etc.
+- End each row with cout << endl; or cout << '\\n';
+- NEVER use cout << endl with end= tricks. NEVER suppress row newlines.
+- Read input with: int n; cin >> n;` : '';
     return `\nCONCEPT ENFORCEMENT — PATTERN PRINTING [subtype: ${subtype.toUpperCase()}]:
 ${PATTERN_UNIVERSAL_RULES}
 ${subtypeBlock}
+${cppPatternNote}
 `;
   }
 
@@ -1083,6 +1136,73 @@ function detectProblemType(questionText) {
 }
 
 /**
+ * Strip teacher-level metadata from a problem statement before passing it to the AI.
+ *
+ * Teachers often include constraints, required concepts, examples, penalty clauses,
+ * and detailed I/O format explanations that make the AI over-strict when generating
+ * reference solutions and test cases.  This function keeps only what the AI needs:
+ * the core problem description + a single Input/Output summary line.
+ *
+ * The FULL text is always preserved for the teacher UI and concept detection — it is
+ * NEVER replaced; only the copy sent to AI prompts is stripped.
+ *
+ * @param {string} fullText  Raw problem text (may be hundreds of lines)
+ * @returns {string}         Lean, AI-friendly version (≤ 1 200 chars)
+ */
+function extractMinimalProblemInfo(fullText) {
+  if (!fullText || fullText.trim().length < 10) return fullText;
+  let text = fullText;
+
+  // 1. Remove whole labelled sections that start with these keywords on their own line.
+  //    Matches the keyword label + everything until the next blank line.
+  text = text.replace(
+    /^[ \t]*(important|constraints?|required\s+concepts?|concept\s+requirements?|notes?|hint|hints|scoring|grading|marking|penalty|penalties|restriction|time\s+complexity|space\s+complexity)[ \t]*:.*(\n(?![ \t]*\n).*)*\n?/gim,
+    ''
+  );
+
+  // 2. Remove bullet / numbered lines that encode constraints
+  //    e.g. "- Must use loops", "• No recursion allowed", "3. Do not use built-ins"
+  text = text.replace(
+    /^[ \t]*(\d+\.|[-•*])\s*(must\s+use|do\s+not|don[''']?t|avoid|use\s+only|no\s+recursion|no\s+hardcod|required:|marks?\s+will|you\s+must|you\s+should|students?\s+must).*/gim,
+    ''
+  );
+
+  // 3. Extract the FIRST "Input:" and "Output:" summary lines before removing detail blocks.
+  const inputSummaryMatch  = text.match(/\b(?:input\s*(?:format)?)\s*:\s*([^\n]{5,80})/i);
+  const outputSummaryMatch = text.match(/\b(?:output\s*(?:format)?)\s*:\s*([^\n]{5,80})/i);
+
+  // 4. Remove all detailed Input Format / Output Format sections (multi-line).
+  text = text.replace(
+    /^[ \t]*(input|output)\s*(format)?\s*:.*(\n(?![ \t]*\n).*)*\n?/gim,
+    ''
+  );
+
+  // 5. Keep only the FIRST example/sample block — remove the rest.
+  //    Strategy: find the second occurrence of "Example" or "Sample" and truncate there.
+  const exRe = /\b(example|sample)\b/gi;
+  let exMatch;
+  let exCount = 0;
+  let secondExIdx = -1;
+  while ((exMatch = exRe.exec(text)) !== null) {
+    exCount++;
+    if (exCount === 2) { secondExIdx = exMatch.index; break; }
+  }
+  if (secondExIdx > 0) {
+    text = text.slice(0, secondExIdx);
+  }
+
+  // 6. Collapse multiple blank lines
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
+
+  // 7. Re-append compact I/O summary lines (one line each)
+  if (inputSummaryMatch)  text += `\nInput: ${inputSummaryMatch[1].trim()}`;
+  if (outputSummaryMatch) text += `\nOutput: ${outputSummaryMatch[1].trim()}`;
+
+  // 8. Hard cap to keep prompts lean
+  return text.slice(0, 1200);
+}
+
+/**
  * Generate reference solution + test inputs from AI (no expected outputs - we compute them)
  * @param {string} questionText - The programming question
  * @param {string} language - python, cpp, c, java, javascript
@@ -1095,7 +1215,12 @@ async function generateReferenceSolutionAndInputs(questionText, language = 'pyth
     return { referenceSolution: '', testInputs: [] };
   }
 
-  const langHint = LANGUAGE_HINTS[language] || LANGUAGE_HINTS.python;
+  // Reference solution is ALWAYS generated in Python for reliable, language-neutral
+  // output production.  Student submissions are graded in their own chosen language;
+  // their stdout is normalised before comparison — language-independent matching.
+  const REF_LANG = 'python';
+
+  const langHint = LANGUAGE_HINTS[REF_LANG];          // always Python hint
   const typeHint = PROBLEM_TYPE_HINTS[problemType] || PROBLEM_TYPE_HINTS.basic_programming;
   const conceptMap = { loops: 'loops', do_while: 'do-while loop', switch: 'switch/case', nested_loops: 'nested loops', arrays: '1D arrays', arrays_2d: '2D arrays', arrays_3d: '3D arrays', pointers: 'pointers', conditionals: 'conditionals', recursion: 'recursion' };
   const conceptLabels = (requiredConcepts || []).map(c => conceptMap[c] || c).filter(Boolean);
@@ -1103,16 +1228,16 @@ async function generateReferenceSolutionAndInputs(questionText, language = 'pyth
     ? `\nREQUIRED CONCEPTS (must use in solution): ${conceptLabels.join(', ')}. Do NOT hardcode output; use these concepts.`
     : '';
 
-  // Append concept-specific enforcement prompt when problemType is known
-  const conceptPrompt = getConceptPrompt(problemType, questionText);
+  // Concept prompt always uses Python rules (reference solution is Python)
+  const conceptPrompt = getConceptPrompt(problemType, questionText, REF_LANG);
 
-  const systemPrompt = `You are a programming assistant. Generate a correct ${language} solution and test inputs.
+  const systemPrompt = `You are a programming assistant. Generate a correct Python solution and test inputs.
 
 PROBLEM TYPE: ${problemType.toUpperCase().replace(/_/g, ' ')}
 ${typeHint}${conceptHint}${conceptPrompt}
 
 STRICT OUTPUT FORMAT (follow exactly):
-1. First, a code block with triple backticks. Put ONLY the ${language} code inside. Code must read from stdin and print to stdout.
+1. First, a code block with triple backticks. Put ONLY the Python code inside. Code must read from stdin and print to stdout.
 2. After the code block, on a new line, write exactly: TEST_INPUTS:
 3. On the next line, a JSON array. Format: [{"input": "value", "expectedOutput": "output", "description": "label"}, ...]
    - "input" is the stdin (use \\n for newline between lines). Use simple values: numbers, short strings.
@@ -1158,10 +1283,15 @@ ${langHint}`;
     ? `6. VALIDATION PROBLEM: Your solution must print ONLY the result (e.g. "VALID" or "INVALID: reason"). NEVER print "Input: X, Expected Output: Y" or echo back the input. The output must be exactly what the problem's Output Format says - nothing else.`
     : '';
 
-  const userPrompt = `Generate a ${language} solution and 5-6 test inputs for this problem. Output format: code block first, then TEST_INPUTS: then JSON array.
+  // Build a lean version of the problem text for the AI prompt.
+  // Strips constraints / required-concepts / detailed I/O sections so the AI
+  // focuses on correctness rather than over-strict rule enforcement.
+  const minimalProblemText = extractMinimalProblemInfo(questionText);
+
+  const userPrompt = `Generate a Python solution and 5-6 test inputs for this problem. Output format: code block first, then TEST_INPUTS: then JSON array.
 
 CRITICAL RULES:
-1. Use the EXACT problem specification below. Do not invent requirements. Follow all rules, constraints, and I/O format described.
+1. Solve the core problem described below. Keep the solution straightforward and correct.
 2. For scenario-based problems with sub-parts (a)(b)(c), generate test cases that cover the full scenario.
 3. For each test case you MUST include "expectedOutput" - the exact output your solution produces. Run through your solution mentally for each input. Use \\n for newlines in multi-line output. This is required for grading.
 4. Implement billing tables, peak hours, daily caps, and rounding exactly as specified. Do not skip any business logic.
@@ -1169,7 +1299,7 @@ CRITICAL RULES:
 ${bankingRule}${validationRule}
 
 PROBLEM:
-${questionText.slice(0, 8000)}`;
+${minimalProblemText}`;
 
   const raw = await callAI(systemPrompt, userPrompt, { temperature: 0.08, maxTokens: 8192 }) || '';
   const { solution, inputs } = parseSolutionAndInputs(raw, questionText);
@@ -1422,6 +1552,11 @@ async function generateTestCases(questionText, language = 'python', problemType 
     throw new Error('No AI configured. Add GROQ_API_KEY or GEMINI_API_KEY to .env');
   }
 
+  // Reference solution is ALWAYS generated and executed in Python for reliable,
+  // language-neutral output production.  Student submissions are graded in their
+  // own chosen language; outputs are compared after normalization — language-independent.
+  const REF_LANG = 'python';
+
   try {
     let referenceSolution = '';
     let testInputs = [];
@@ -1429,10 +1564,10 @@ async function generateTestCases(questionText, language = 'python', problemType 
     // OOP: Two-phase generation - solution first, then inputs that match the solution's format
     if (problemType === 'oop') {
       try {
-        const solResult = await generateSolutionOnly(questionText, language, problemType, requiredConcepts);
+        const solResult = await generateSolutionOnly(questionText, REF_LANG, problemType, requiredConcepts);
         referenceSolution = solResult.referenceSolution;
         if (referenceSolution) {
-          testInputs = await generateInputsForSolution(questionText, referenceSolution, language, problemType);
+          testInputs = await generateInputsForSolution(questionText, referenceSolution, REF_LANG, problemType);
           if (testInputs.length > 0) {
             console.log('OOP two-phase: generated', testInputs.length, 'inputs matching solution format');
           }
@@ -1445,7 +1580,7 @@ async function generateTestCases(questionText, language = 'python', problemType 
     // Fallback: single-shot generation (or when two-phase produced nothing)
     if (!referenceSolution || testInputs.length === 0) {
       try {
-        const result = await generateReferenceSolutionAndInputs(questionText, language, problemType, requiredConcepts);
+        const result = await generateReferenceSolutionAndInputs(questionText, REF_LANG, problemType, requiredConcepts);
         referenceSolution = referenceSolution || result.referenceSolution;
         if (testInputs.length === 0) testInputs = result.testInputs;
       } catch (parseErr) {
@@ -1453,7 +1588,7 @@ async function generateTestCases(questionText, language = 'python', problemType 
       }
     }
 
-    // Retry up to 2 times with different prompts
+    // Retry up to 2 times with different prompts — always Python
     for (let attempt = 0; attempt < 2 && (!referenceSolution || testInputs.length === 0); attempt++) {
       console.warn(`AI retry ${attempt + 1}/2...`);
       try {
@@ -1466,8 +1601,8 @@ async function generateTestCases(questionText, language = 'python', problemType 
         const isValidationRetry = /valid|invalid|check|verif|format|rule|must (start|contain|have|be)|length (must|should)|character/i.test(questionText);
         const validationStr = isValidationRetry ? ' VALIDATION: print ONLY the result (e.g. "VALID" or "INVALID: reason"). Never echo input.' : '';
         const prompts = [
-          { sys: `Format: 1) Code in \`\`\` block. 2) TEST_INPUTS: [{"input":"x","expectedOutput":"y","description":"z"}]. Include expectedOutput for each. ${typeHint}${conceptStr}${validationStr}`, usr: `Problem (${problemType}):\n${questionText.slice(0, 2000)}\n\n${language} solution + 4-5 test inputs with expectedOutput. Code block first, then TEST_INPUTS: [{"input":"...","expectedOutput":"...","description":"..."}]` },
-          { sys: `Output: 1) Code in triple backticks. 2) Line "TEST_INPUTS:" then valid JSON with input, expectedOutput, description. ${typeHint}${validationStr}`, usr: `Write ${language} code for:\n${questionText.slice(0, 1500)}\n\nThen: TEST_INPUTS: [{"input":"...","expectedOutput":"...","description":"..."}]` }
+          { sys: `Format: 1) Code in \`\`\` block. 2) TEST_INPUTS: [{"input":"x","expectedOutput":"y","description":"z"}]. Include expectedOutput for each. ${typeHint}${conceptStr}${validationStr}`, usr: `Problem (${problemType}):\n${questionText.slice(0, 2000)}\n\nPython solution + 4-5 test inputs with expectedOutput. Code block first, then TEST_INPUTS: [{"input":"...","expectedOutput":"...","description":"..."}]` },
+          { sys: `Output: 1) Code in triple backticks. 2) Line "TEST_INPUTS:" then valid JSON with input, expectedOutput, description. ${typeHint}${validationStr}`, usr: `Write Python code for:\n${questionText.slice(0, 1500)}\n\nThen: TEST_INPUTS: [{"input":"...","expectedOutput":"...","description":"..."}]` }
         ];
         const p = prompts[Math.min(attempt, prompts.length - 1)];
         const retryRaw = await callAI(p.sys, p.usr, { temperature: 0.02 });
@@ -1483,22 +1618,35 @@ async function generateTestCases(questionText, language = 'python', problemType 
       return { testCases: [], referenceSolution: '' };
     }
 
-    const TIME_LIMIT = 3; // 3 seconds per run (reduced from 5 for faster generation)
+    const TIME_LIMIT = 3; // 3 seconds per run
 
-    // Normalize stdout: replace \r\n with \n, then trim only leading/trailing whitespace.
-    // Internal newlines are preserved exactly as-is so multi-line pattern output stays multi-line.
-    const normalizeStdout = (raw) => (raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    // Normalize reference solution stdout before storing as expected output.
+    // trimEnd per line removes trailing spaces from Python print() while
+    // preserving internal newlines for multi-line outputs (patterns, etc.).
+    const normalizeStdout = (raw) => {
+      if (!raw) return '';
+      return String(raw)
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .split('\n')
+        .map(line => line.trimEnd())
+        .filter((line, i, arr) => i < arr.length - 1 || line.length > 0) // drop trailing blank lines
+        .join('\n')
+        .trim();
+    };
 
-    // Run all test cases in PARALLEL (was sequential - major speedup)
+    // Run the Python reference solution against each test input via Judge0.
+    // Using Python (REF_LANG) every time — student can submit in any language;
+    // their output is normalized before comparison, so language differences vanish.
     const runOne = async (tc) => {
       let inputToUse = tc.input;
       try {
-        let runResult = await codeExecutionService.runCode(referenceSolution, inputToUse, language, TIME_LIMIT);
+        let runResult = await codeExecutionService.runCode(referenceSolution, inputToUse, REF_LANG, TIME_LIMIT);
         const execOutput = runResult.error ? '' : normalizeStdout(runResult.stdout);
         if (execOutput) return { input: inputToUse, expectedOutput: execOutput, description: tc.description ?? '' };
         const normalized = normalizeInputForStdin(tc.input);
         if (normalized !== tc.input) {
-          runResult = await codeExecutionService.runCode(referenceSolution, normalized, language, TIME_LIMIT);
+          runResult = await codeExecutionService.runCode(referenceSolution, normalized, REF_LANG, TIME_LIMIT);
           if (!runResult.error && runResult.stdout) return { input: normalized, expectedOutput: normalizeStdout(runResult.stdout), description: tc.description ?? '' };
         }
       } catch (err) {
@@ -1514,7 +1662,7 @@ async function generateTestCases(questionText, language = 'python', problemType 
     if (failed.length > 0 && questionText) {
       try {
         const batchOutputs = await predictExpectedOutputsBatch(
-          questionText, failed.map(f => f.input), referenceSolution, language, problemType
+          questionText, failed.map(f => f.input), referenceSolution, REF_LANG, problemType
         );
         failed.forEach((f, i) => {
           const predicted = batchOutputs[i];
@@ -1527,7 +1675,7 @@ async function generateTestCases(questionText, language = 'python', problemType 
       } catch (_) {
         for (let i = 0; i < Math.min(2, failed.length); i++) {
           try {
-            const out = await predictExpectedOutputViaAI(questionText, failed[i].input, referenceSolution, language);
+            const out = await predictExpectedOutputViaAI(questionText, failed[i].input, referenceSolution, REF_LANG);
             if (out) failed[i].expectedOutput = out;
           } catch (_) {}
         }
@@ -1899,5 +2047,6 @@ module.exports = {
   detectProblemType,
   detectPatternSubtype,
   fixPatternTestCases,
+  extractMinimalProblemInfo,
   isConfigured
 };

@@ -3,6 +3,7 @@ import ExamCreationForm from './ExamCreationForm';
 import ExamList from './ExamList';
 import ViolationReport from './ViolationReport';
 import CourseManagement from './CourseManagement';
+import StudentScoresPanel from './StudentScoresPanel';
 import ThemeToggle from './ThemeToggle';
 import WebStorageService from '../services/webStorage';
 import './TeacherDashboard.css';
@@ -34,7 +35,7 @@ interface TeacherDashboardProps {
 }
 
 const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'manage' | 'courses' | 'monitoring'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'manage' | 'courses' | 'monitoring' | 'scores'>('overview');
   const [exams, setExams] = useState<Exam[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -163,6 +164,12 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
         >
           Monitoring Reports
         </button>
+        <button
+          className={`nav-tab ${activeTab === 'scores' ? 'active' : ''}`}
+          onClick={() => setActiveTab('scores')}
+        >
+          Student Scores
+        </button>
       </div>
 
       {/* Content Area */}
@@ -265,6 +272,13 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
         {activeTab === 'courses' && (
           <div className="courses-tab">
             <CourseManagement user={user} />
+          </div>
+        )}
+
+        {activeTab === 'scores' && (
+          <div className="scores-tab">
+            <h2>Student Scores</h2>
+            <StudentScoresPanel exams={exams} />
           </div>
         )}
 

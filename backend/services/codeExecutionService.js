@@ -83,11 +83,26 @@ async function runCode(sourceCode, stdin, language = 'python', timeLimit = 2) {
 }
 
 /**
- * Normalize output for comparison (trim, normalize newlines)
+ * Normalize output for comparison.
+ * Handles C++ output quirks:
+ *   - Windows \r\n and bare \r line endings (common in Judge0 C++ output)
+ *   - Trailing spaces on each line (cout << x << ' ' pattern)
+ *   - Trailing blank lines (cout << endl after last line)
+ * Both actual and expected are normalized before comparison.
  */
 function normalizeOutput(str) {
   if (str == null) return '';
-  return String(str).replace(/\r\n/g, '\n').trim();
+  return String(str)
+    .replace(/\r\n/g, '\n')   // Windows CRLF → LF
+    .replace(/\r/g, '\n')     // bare CR → LF
+    .split('\n')
+    .map(line => line.trimEnd())   // remove trailing spaces/tabs per line
+    .filter((line, i, arr) =>
+      // drop trailing empty lines but keep internal blank lines
+      i < arr.length - 1 || line.length > 0
+    )
+    .join('\n')
+    .trim();
 }
 
 /**
@@ -194,6 +209,85 @@ async function runAgainstTestCases(sourceCode, testCases, language = 'python', t
 }
 
 /**
+ * Run code against all test cases in parallel batches.
+ * Up to `batchSize` Judge0 submissions run concurrently; each batch
+ * is awaited before the next starts, keeping Judge0 load manageable.
+ *
+ * Drop-in replacement for runAgainstTestCases — same parameters & return shape.
+ *
+ * @param {string} sourceCode
+ * @param {Array<{testCaseId,input,expectedOutput}>} testCases
+ * @param {string} language
+ * @param {number} timeLimit
+ * @param {object} opts  - { problemText, analyzeLogic }
+ * @param {number} batchSize - concurrent submissions per batch (default 3)
+ */
+async function runTestCasesParallel(sourceCode, testCases, language = 'python', timeLimit = 2, opts = {}, batchSize = 3) {
+  if (!testCases || testCases.length === 0) return [];
+  const { problemText, analyzeLogic } = opts;
+  const results = [];
+
+  for (let i = 0; i < testCases.length; i += batchSize) {
+    const batch = testCases.slice(i, i + batchSize);
+
+    const batchResults = await Promise.all(
+      batch.map(async tc => {
+        try {
+          const runResult = await runCode(sourceCode, tc.input, language, timeLimit);
+
+          const isCompileError = runResult.statusId === 6 ||
+            (runResult.error && /compil|syntax/i.test(runResult.error));
+
+          if (isCompileError && problemText && typeof analyzeLogic === 'function') {
+            const logicScore = await analyzeLogic(problemText, sourceCode, runResult.error);
+            // Mark entire remaining batch with compile-error score
+            return { tc, compileError: true, logicScore, error: runResult.error };
+          }
+
+          const score = computeOutputScore(runResult.stdout, tc.expectedOutput, runResult.error);
+          return {
+            testCaseId: tc.testCaseId,
+            passed: score >= 100,
+            score,
+            actualOutput: runResult.stdout,
+            executionTimeMs: runResult.executionTime,
+            error: runResult.error
+          };
+        } catch (err) {
+          return {
+            testCaseId: tc.testCaseId,
+            passed: false,
+            score: 0,
+            actualOutput: null,
+            executionTimeMs: null,
+            error: err.message || 'Execution failed'
+          };
+        }
+      })
+    );
+
+    // If any result in the batch was a compile error, backfill all remaining test cases
+    const compileErr = batchResults.find(r => r && r.compileError);
+    if (compileErr) {
+      const { logicScore, error } = compileErr;
+      const filled = testCases.map(tc => ({
+        testCaseId: tc.testCaseId,
+        passed: false,
+        score: logicScore,
+        actualOutput: null,
+        executionTimeMs: null,
+        error
+      }));
+      return filled;
+    }
+
+    results.push(...batchResults);
+  }
+
+  return results;
+}
+
+/**
  * Compute overall submission score (0-100) from test case results
  */
 function computeSubmissionScore(results) {
@@ -205,6 +299,7 @@ function computeSubmissionScore(results) {
 module.exports = {
   runCode,
   runAgainstTestCases,
+  runTestCasesParallel,
   computeOutputScore,
   computeSubmissionScore,
   getLanguageId,

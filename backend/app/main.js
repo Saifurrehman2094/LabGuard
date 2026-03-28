@@ -1012,13 +1012,15 @@ ipcMain.handle('exam:update', async (event, updateData) => {
       }
     }
 
-    // Update exam in database
+    // Update exam in database — always stamp updatedAt so student timers detect the change
+    const nowIso = new Date().toISOString();
     const updateFields = {
       title: updateData.title,
       startTime: updateData.startTime,
       endTime: updateData.endTime,
       allowedApps: updateData.allowedApps,
-      pdfPath: pdfPath
+      pdfPath: pdfPath,
+      updatedAt: nowIso
     };
 
     const success = dbService.updateExam(updateData.examId, updateFields);
@@ -1028,6 +1030,11 @@ ipcMain.handle('exam:update', async (event, updateData) => {
         success: false,
         error: 'Failed to update exam'
       };
+    }
+
+    // Broadcast to all renderer windows so students see the update immediately
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('exam-updated', { examId: updateData.examId });
     }
 
     // Return updated exam
@@ -1042,6 +1049,73 @@ ipcMain.handle('exam:update', async (event, updateData) => {
       success: false,
       error: error.message
     };
+  }
+});
+
+ipcMain.handle('exam:get-student-session', async (event, examId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'student') {
+      return { success: false, error: 'Only students can access exam sessions' };
+    }
+
+    const exam = dbService.getExamById(examId);
+    if (!exam) return { success: false, error: 'Exam not found' };
+
+    const now = new Date().toISOString();
+    const durationSeconds = (exam.duration || 120) * 60;
+
+    let session = dbService.getStudentExamSession(examId, currentUser.userId);
+
+    if (!session) {
+      // First time this student opens the exam — create session
+      dbService.createStudentExamSession({
+        examId,
+        studentId: currentUser.userId,
+        startedAt: now,
+        examUpdatedAt: exam.updatedAt || now
+      });
+      return {
+        success: true,
+        remainingSeconds: durationSeconds,
+        isReset: false,
+        fresh: true
+      };
+    }
+
+    // Check if teacher updated exam AFTER this student started
+    const examUpdatedAt = exam.updatedAt;
+    const sessionExamUpdatedAt = session.exam_updated_at;
+    const wasUpdated = examUpdatedAt && sessionExamUpdatedAt && examUpdatedAt > sessionExamUpdatedAt;
+
+    if (wasUpdated) {
+      // Reset session — give student a fresh full duration
+      dbService.updateStudentExamSession(examId, currentUser.userId, {
+        startedAt: now,
+        examUpdatedAt: examUpdatedAt
+      });
+      return {
+        success: true,
+        remainingSeconds: durationSeconds,
+        isReset: true,
+        fresh: true
+      };
+    }
+
+    // Student already has a valid session — calculate remaining time
+    const elapsedMs = new Date(now) - new Date(session.started_at);
+    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+    const remainingSeconds = Math.max(0, durationSeconds - elapsedSeconds);
+
+    return {
+      success: true,
+      remainingSeconds,
+      isReset: false,
+      fresh: false
+    };
+  } catch (error) {
+    console.error('Error getting student exam session:', error);
+    return { success: false, error: error.message };
   }
 });
 
@@ -1634,6 +1708,16 @@ ipcMain.handle('system:get-init-error', async () => {
 const aiService = require('../services/aiService');
 const codeExecutionService = require('../services/codeExecutionService');
 const conceptDetectionService = require('../services/conceptDetectionService');
+const codeAnalysisService = require('../services/codeAnalysisService');
+
+// Concept detection cache: Map<cacheKey, { result, expiresAt }>
+// Keyed by questionId + first 400 chars of code; TTL 5 minutes.
+const conceptCache = new Map();
+const CONCEPT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function getConceptCacheKey(questionId, sourceCode) {
+  return `${questionId}::${sourceCode.slice(0, 400)}`;
+}
 
 // Concurrency limit for code submissions (multiple students can submit at once)
 const SUBMISSION_CONCURRENCY = 10;
@@ -2002,14 +2086,17 @@ ipcMain.handle('programming:submit-code', async (event, examId, questionId, sour
       problemText: question.problem_text,
       analyzeLogic: aiService.analyzeCodeLogicForPartialCredit.bind(aiService)
     };
-    const results = await codeExecutionService.runAgainstTestCases(
-      sourceCode, runTestCases, language || question.language, question.time_limit_seconds || 2, opts
+
+    // Step 1: Run test cases in parallel batches of 3 (faster than sequential)
+    const results = await codeExecutionService.runTestCasesParallel(
+      sourceCode, runTestCases, language || question.language,
+      question.time_limit_seconds || 2, opts, 3
     );
     const passedCount = results.filter(r => r.passed).length;
     const totalCount = results.length;
     let rawScore = codeExecutionService.computeSubmissionScore(results);
 
-    // Programming fundamentals: concept compliance
+    // Step 2: Concept compliance check — use cache to avoid re-analysing same code
     let conceptPassed = true;
     let conceptDetails = null;
     let requiredConcepts = [];
@@ -2023,8 +2110,16 @@ ipcMain.handle('programming:submit-code', async (event, examId, questionId, sour
 
     if (requiredConcepts.length > 0 || isPatternQuestion) {
       const expectedOutputs = testCases.map(tc => tc.expected_output).filter(Boolean);
-      const detected = conceptDetectionService.analyzeConcepts(sourceCode, language || question.language, expectedOutputs, isPatternQuestion);
-      const compliance = conceptDetectionService.checkConceptCompliance(detected, requiredConcepts, conceptThreshold);
+      const cacheKey = getConceptCacheKey(questionId, sourceCode);
+      const now = Date.now();
+      let cachedConcept = conceptCache.get(cacheKey);
+      if (!cachedConcept || cachedConcept.expiresAt < now) {
+        const detected = conceptDetectionService.analyzeConcepts(sourceCode, language || question.language, expectedOutputs, isPatternQuestion);
+        const compliance = conceptDetectionService.checkConceptCompliance(detected, requiredConcepts, conceptThreshold);
+        cachedConcept = { compliance, detected, expiresAt: now + CONCEPT_CACHE_TTL_MS };
+        conceptCache.set(cacheKey, cachedConcept);
+      }
+      const { compliance } = cachedConcept;
       conceptPassed = compliance.passed;
       conceptDetails = { ...compliance.details, message: compliance.message, complianceScore: compliance.score };
       if (!conceptPassed) {
@@ -2032,9 +2127,30 @@ ipcMain.handle('programming:submit-code', async (event, examId, questionId, sour
       }
     }
 
-    // When not all test cases pass: use reference solution + AI for partial credit (concepts used, logic correctness)
+    // Step 3: Hardcoding detection (uses codeAnalysisService)
+    let hardcoded = false;
+    let hardcodedReason = null;
+    let hardcodedConfidence = null;
+    try {
+      const hardcodeResult = codeAnalysisService.detectHardcoding(
+        sourceCode,
+        testCases.map(tc => ({ expectedOutput: tc.expected_output })),
+        question.problem_type || (isPatternQuestion ? 'patterns' : '')
+      );
+      if (hardcodeResult && hardcodeResult.hardcoded) {
+        hardcoded = true;
+        hardcodedReason = hardcodeResult.reason || 'Hardcoded output detected';
+        hardcodedConfidence = hardcodeResult.confidence || 'high';
+        rawScore = 0;
+        console.log(`Hardcoding detected for question ${questionId}: ${hardcodedReason} (${hardcodedConfidence})`);
+      }
+    } catch (err) {
+      console.warn('Hardcoding detection error:', err.message);
+    }
+
+    // Step 4: Partial credit via AI if not full score
     const referenceSolution = question.reference_solution || '';
-    if (rawScore < 100 && referenceSolution && referenceSolution.trim().length >= 20) {
+    if (!hardcoded && rawScore < 100 && referenceSolution && referenceSolution.trim().length >= 20) {
       try {
         const partialScore = await aiService.analyzeSolutionForPartialCredit(
           question.problem_text,
@@ -2050,11 +2166,12 @@ ipcMain.handle('programming:submit-code', async (event, examId, questionId, sour
     }
 
     const maxMarks = question.max_marks ?? 20;
-    const score = Math.round((rawScore / 100) * maxMarks);
+    const score = hardcoded ? 0 : Math.round((rawScore / 100) * maxMarks);
 
     const submission = dbService.createCodeSubmission(
       examId, questionId, currentUser.userId, sourceCode, language || question.language,
-      passedCount, totalCount, 'completed', score, conceptPassed, conceptDetails
+      passedCount, totalCount, 'completed', score, conceptPassed, conceptDetails,
+      hardcoded, hardcodedReason
     );
     for (const r of results) {
       dbService.createSubmissionResult(
@@ -2068,6 +2185,9 @@ ipcMain.handle('programming:submit-code', async (event, examId, questionId, sour
       totalCount,
       score,
       maxMarks,
+      hardcoded,
+      hardcodedReason: hardcoded ? hardcodedReason : null,
+      hardcodedConfidence: hardcoded ? hardcodedConfidence : null,
       conceptPassed,
       conceptMessage: conceptDetails?.message || null,
       results
@@ -2100,6 +2220,21 @@ ipcMain.handle('programming:get-submission-results', async (event, submissionId)
     if (!currentUser) return { success: false, error: 'Not authenticated' };
     const results = dbService.getCodeSubmissionResults(submissionId);
     return { success: true, results };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Teacher: get all student scores for an exam
+ipcMain.handle('programming:get-exam-scores', async (event, examId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) return { success: false, error: 'Not authenticated' };
+    if (currentUser.role !== 'teacher' && currentUser.role !== 'admin') {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const data = dbService.getExamStudentScores(examId);
+    return { success: true, ...data };
   } catch (error) {
     return { success: false, error: error.message };
   }

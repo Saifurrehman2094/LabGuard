@@ -252,7 +252,37 @@ class DatabaseService {
           this.db.exec('ALTER TABLE code_submissions ADD COLUMN concept_details TEXT');
           console.log('Added concept_details to code_submissions');
         }
+        if (!csCols2.includes('hardcoded')) {
+          this.db.exec('ALTER TABLE code_submissions ADD COLUMN hardcoded INTEGER DEFAULT 0');
+          console.log('Added hardcoded to code_submissions');
+        }
+        if (!csCols2.includes('hardcoded_reason')) {
+          this.db.exec('ALTER TABLE code_submissions ADD COLUMN hardcoded_reason TEXT');
+          console.log('Added hardcoded_reason to code_submissions');
+        }
       }
+
+      // Add updated_at column to exams table (for timer-reset tracking)
+      const examCols = this.db.prepare("PRAGMA table_info(exams)").all().map(c => c.name);
+      if (!examCols.includes('updated_at')) {
+        this.db.exec('ALTER TABLE exams ADD COLUMN updated_at DATETIME');
+        console.log('Added updated_at to exams');
+      }
+
+      // Student exam sessions table — tracks per-student start time for duration-based timer
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS student_exam_sessions (
+          id TEXT PRIMARY KEY,
+          exam_id TEXT NOT NULL,
+          student_id TEXT NOT NULL,
+          started_at DATETIME NOT NULL,
+          exam_updated_at DATETIME,
+          UNIQUE(exam_id, student_id),
+          FOREIGN KEY (exam_id) REFERENCES exams(exam_id),
+          FOREIGN KEY (student_id) REFERENCES users(user_id)
+        )
+      `);
+      console.log('student_exam_sessions table ready');
 
       if (!appViolationsExists) {
         this.db.exec(`
@@ -835,15 +865,17 @@ class DatabaseService {
   getExamById(examId) {
     try {
       const stmt = this.db.prepare(`
-        SELECT exam_id, teacher_id, title, pdf_path, start_time, end_time, allowed_apps, created_at
-        FROM exams 
+        SELECT exam_id, teacher_id, title, pdf_path, start_time, end_time, allowed_apps, created_at, updated_at
+        FROM exams
         WHERE exam_id = ?
       `);
 
       const exam = stmt.get(examId);
 
       if (exam) {
-        // Convert to camelCase for consistency
+        const durationMinutes = exam.start_time && exam.end_time
+          ? Math.round((new Date(exam.end_time) - new Date(exam.start_time)) / 60000)
+          : 120;
         return {
           examId: exam.exam_id,
           teacherId: exam.teacher_id,
@@ -852,7 +884,9 @@ class DatabaseService {
           startTime: exam.start_time,
           endTime: exam.end_time,
           allowedApps: JSON.parse(exam.allowed_apps),
-          createdAt: exam.created_at
+          createdAt: exam.created_at,
+          updatedAt: exam.updated_at || null,
+          duration: durationMinutes
         };
       }
 
@@ -868,7 +902,7 @@ class DatabaseService {
    */
   updateExam(examId, updateData) {
     try {
-      const { title, pdfPath, startTime, endTime, allowedApps } = updateData;
+      const { title, pdfPath, startTime, endTime, allowedApps, updatedAt } = updateData;
       let query = 'UPDATE exams SET ';
       const params = [];
       const updates = [];
@@ -897,6 +931,10 @@ class DatabaseService {
         updates.push('allowed_apps = ?');
         params.push(JSON.stringify(allowedApps));
       }
+
+      // Always stamp updated_at so student sessions can detect changes
+      updates.push('updated_at = ?');
+      params.push(updatedAt || new Date().toISOString());
 
       if (updates.length === 0) {
         throw new Error('No valid update fields provided');
@@ -944,6 +982,47 @@ class DatabaseService {
       return transaction();
     } catch (error) {
       console.error('Error deleting exam:', error);
+      throw error;
+    }
+  }
+
+  // ─── STUDENT EXAM SESSIONS ────────────────────────────────────────────────
+
+  getStudentExamSession(examId, studentId) {
+    try {
+      return this.db.prepare(
+        'SELECT * FROM student_exam_sessions WHERE exam_id = ? AND student_id = ?'
+      ).get(examId, studentId) || null;
+    } catch (error) {
+      console.error('Error getting student exam session:', error);
+      return null;
+    }
+  }
+
+  createStudentExamSession({ examId, studentId, startedAt, examUpdatedAt }) {
+    try {
+      const { v4: uuidv4 } = require('uuid');
+      const id = uuidv4();
+      this.db.prepare(`
+        INSERT INTO student_exam_sessions (id, exam_id, student_id, started_at, exam_updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(id, examId, studentId, startedAt, examUpdatedAt || null);
+      return { id, examId, studentId, startedAt, examUpdatedAt };
+    } catch (error) {
+      console.error('Error creating student exam session:', error);
+      throw error;
+    }
+  }
+
+  updateStudentExamSession(examId, studentId, { startedAt, examUpdatedAt }) {
+    try {
+      this.db.prepare(`
+        UPDATE student_exam_sessions
+        SET started_at = ?, exam_updated_at = ?
+        WHERE exam_id = ? AND student_id = ?
+      `).run(startedAt, examUpdatedAt || null, examId, studentId);
+    } catch (error) {
+      console.error('Error updating student exam session:', error);
       throw error;
     }
   }
@@ -1971,28 +2050,49 @@ class DatabaseService {
     return true;
   }
 
-  createCodeSubmission(examId, questionId, studentId, sourceCode, language, passedCount, totalCount, status = 'completed', score = 0, conceptPassed = 1, conceptDetails = null) {
+  createCodeSubmission(examId, questionId, studentId, sourceCode, language, passedCount, totalCount, status = 'completed', score = 0, conceptPassed = 1, conceptDetails = null, hardcoded = false, hardcodedReason = null) {
     const { v4: uuidv4 } = require('uuid');
     const submissionId = uuidv4();
     const cols = this.db.prepare("PRAGMA table_info(code_submissions)").all().map(c => c.name);
     const hasScore = cols.includes('score');
     const hasConcept = cols.includes('concept_passed');
+    const hasHardcoded = cols.includes('hardcoded');
     const detailsStr = conceptDetails ? JSON.stringify(conceptDetails) : null;
-    if (hasScore && hasConcept) {
+
+    if (hasScore && hasConcept && hasHardcoded) {
       this.db.prepare(`
-        INSERT INTO code_submissions (submission_id, exam_id, question_id, student_id, source_code, language, passed_count, total_count, score, status, concept_passed, concept_details)
+        INSERT INTO code_submissions
+          (submission_id, exam_id, question_id, student_id, source_code, language,
+           passed_count, total_count, score, status, concept_passed, concept_details,
+           hardcoded, hardcoded_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(submissionId, examId, questionId, studentId, sourceCode, language,
+             passedCount, totalCount, score, status, conceptPassed ? 1 : 0, detailsStr,
+             hardcoded ? 1 : 0, hardcodedReason || null);
+    } else if (hasScore && hasConcept) {
+      this.db.prepare(`
+        INSERT INTO code_submissions
+          (submission_id, exam_id, question_id, student_id, source_code, language,
+           passed_count, total_count, score, status, concept_passed, concept_details)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(submissionId, examId, questionId, studentId, sourceCode, language, passedCount, totalCount, score, status, conceptPassed ? 1 : 0, detailsStr);
+      `).run(submissionId, examId, questionId, studentId, sourceCode, language,
+             passedCount, totalCount, score, status, conceptPassed ? 1 : 0, detailsStr);
     } else if (hasScore) {
       this.db.prepare(`
-        INSERT INTO code_submissions (submission_id, exam_id, question_id, student_id, source_code, language, passed_count, total_count, score, status)
+        INSERT INTO code_submissions
+          (submission_id, exam_id, question_id, student_id, source_code, language,
+           passed_count, total_count, score, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(submissionId, examId, questionId, studentId, sourceCode, language, passedCount, totalCount, score, status);
+      `).run(submissionId, examId, questionId, studentId, sourceCode, language,
+             passedCount, totalCount, score, status);
     } else {
       this.db.prepare(`
-        INSERT INTO code_submissions (submission_id, exam_id, question_id, student_id, source_code, language, passed_count, total_count, status)
+        INSERT INTO code_submissions
+          (submission_id, exam_id, question_id, student_id, source_code, language,
+           passed_count, total_count, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(submissionId, examId, questionId, studentId, sourceCode, language, passedCount, totalCount, status);
+      `).run(submissionId, examId, questionId, studentId, sourceCode, language,
+             passedCount, totalCount, status);
     }
     return { submissionId };
   }
@@ -2021,6 +2121,101 @@ class DatabaseService {
     return this.db.prepare(`
       SELECT * FROM code_submissions WHERE exam_id = ? AND student_id = ? ORDER BY submitted_at DESC
     `).all(examId, studentId);
+  }
+
+  /**
+   * Get per-student, per-question best scores for an exam.
+   * Returns one row per (student, question) pair showing their best submission.
+   */
+  getExamStudentScores(examId) {
+    // Questions for this exam (ordered)
+    const questions = this.db.prepare(`
+      SELECT question_id, title, marks, question_order
+      FROM programming_questions
+      WHERE exam_id = ?
+      ORDER BY question_order ASC
+    `).all(examId);
+
+    // Distinct students who submitted anything for this exam
+    const students = this.db.prepare(`
+      SELECT DISTINCT cs.student_id, u.full_name AS student_name, u.username
+      FROM code_submissions cs
+      JOIN users u ON cs.student_id = u.user_id
+      WHERE cs.exam_id = ?
+      ORDER BY u.full_name
+    `).all(examId);
+
+    if (students.length === 0 || questions.length === 0) {
+      return { questions, students: [] };
+    }
+
+    // Best submission per (student, question)
+    const bestRows = this.db.prepare(`
+      SELECT
+        student_id,
+        question_id,
+        MAX(score)          AS best_score,
+        MAX(passed_count)   AS best_passed,
+        MAX(total_count)    AS total_count,
+        COUNT(*)            AS attempts,
+        MAX(hardcoded)      AS hardcoded,
+        MAX(concept_passed) AS concept_passed,
+        MAX(submitted_at)   AS last_submitted
+      FROM code_submissions
+      WHERE exam_id = ?
+      GROUP BY student_id, question_id
+    `).all(examId);
+
+    // Index best rows by "studentId|questionId" for fast lookup
+    const bestMap = {};
+    for (const row of bestRows) {
+      bestMap[`${row.student_id}|${row.question_id}`] = row;
+    }
+
+    // Build output: each student gets a scores array aligned with questions
+    const result = students.map(student => {
+      let totalEarned = 0;
+      let totalMax    = 0;
+
+      const scores = questions.map(q => {
+        const key  = `${student.student_id}|${q.question_id}`;
+        const best = bestMap[key] || null;
+
+        const maxMarks   = q.marks || 0;
+        const earnedPct  = best ? (best.best_score || 0) : null;   // 0-100
+        const earned     = earnedPct !== null
+          ? Math.round((earnedPct / 100) * maxMarks)
+          : null;
+
+        totalMax    += maxMarks;
+        totalEarned += (earned !== null ? earned : 0);
+
+        return {
+          questionId:    q.question_id,
+          earnedPct,           // 0-100 or null (not attempted)
+          earned,              // actual marks or null
+          maxMarks,
+          attempts:      best ? best.attempts    : 0,
+          hardcoded:     best ? !!best.hardcoded : false,
+          conceptFailed: best ? !best.concept_passed : false,
+          lastSubmitted: best ? best.last_submitted  : null
+        };
+      });
+
+      const totalPct = totalMax > 0 ? Math.round((totalEarned / totalMax) * 100) : 0;
+
+      return {
+        studentId:   student.student_id,
+        studentName: student.student_name,
+        username:    student.username,
+        scores,
+        totalEarned,
+        totalMax,
+        totalPct
+      };
+    });
+
+    return { questions, students: result };
   }
 
   getCodeSubmissionResults(submissionId) {

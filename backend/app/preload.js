@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   submitExam: (examId, filesData) => ipcRenderer.invoke('exam:submit', examId, filesData),
   getExamSubmission: (examId) => ipcRenderer.invoke('exam:get-submission', examId),
   unsubmitExam: (examId) => ipcRenderer.invoke('exam:unsubmit', examId),
+  getStudentExamSession: (examId) => ipcRenderer.invoke('exam:get-student-session', examId),
 
   // Monitoring methods
   startMonitoring: (examId, studentId, allowedApps) =>
@@ -105,6 +106,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('programming:submit-code', examId, questionId, sourceCode, language),
   getCodeSubmissions: (examId, studentId) => ipcRenderer.invoke('programming:get-submissions', examId, studentId),
   getSubmissionResults: (submissionId) => ipcRenderer.invoke('programming:get-submission-results', submissionId),
+  getExamStudentScores: (examId) => ipcRenderer.invoke('programming:get-exam-scores', examId),
 
   // Event listeners
   onMonitoringEvent: (callback) => {
@@ -122,6 +124,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('monitoring:violation-ended', violationEndHandler);
       ipcRenderer.removeListener('monitoring:application-changed', violationUpdateHandler);
     };
+  },
+
+  // Exam update event — fired by teacher saving edits; resets student timers
+  onExamUpdated: (callback) => {
+    const handler = (event, data) => callback(data.examId);
+    ipcRenderer.on('exam-updated', handler);
+    return () => ipcRenderer.removeListener('exam-updated', handler);
   },
 
   // Monitoring status event listeners

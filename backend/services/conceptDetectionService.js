@@ -30,11 +30,12 @@ function hasLoops(code) {
   if (!code) return false;
   const c = stripComments(code);
   return (
-    /\bfor\s*\(/.test(c) ||
-    /\bfor\s+\w+\s+in\b/.test(c) ||
-    /\bwhile\s*\(/.test(c) ||
-    /\bwhile\s+/.test(c) ||       // Python while
-    /\bdo\s*\{/.test(c) ||
+    /\bfor\s*\(/.test(c) ||            // C/C++/Java: for(int i ...
+    /\bfor\s+\w+\s+in\b/.test(c) ||   // Python: for x in ...
+    /\bfor\s*\(\s*int\s+/.test(c) ||  // explicit C++ for(int i
+    /\bwhile\s*\(/.test(c) ||          // C/C++/Java while(
+    /\bwhile\s+/.test(c) ||            // Python while
+    /\bdo\s*\{/.test(c) ||             // do { ... } while
     /\bdo\s*$/.test(c)
   );
 }
@@ -58,13 +59,15 @@ function hasSwitchStatement(code) {
 function hasNestedLoops(code) {
   if (!code) return false;
   const c = stripComments(code);
-  // Count distinct loop starts
-  const forMatches  = (c.match(/\bfor\s*[\(\w]/g) || []).length;
+  // Count distinct loop starts (for / while)
+  const forMatches   = (c.match(/\bfor\s*[\(\w]/g) || []).length;
   const whileMatches = (c.match(/\bwhile\s*[\(\w]/g) || []).length;
   const total = forMatches + whileMatches;
   if (total >= 2) return true;
   // Python: two for-in on same indentation chain
   if (/\bfor\s+\w+\s+in\b[\s\S]+\bfor\s+\w+\s+in\b/.test(c)) return true;
+  // C++: explicit for(int i...){ for(int j... pattern
+  if (/\bfor\s*\(\s*int\s+\w+[\s\S]+\bfor\s*\(\s*int\s+\w+/.test(c)) return true;
   return false;
 }
 
@@ -84,13 +87,21 @@ function hasArrays(code, language) {
   }
   if (lang === 'cpp' || lang === 'c++') {
     return (
-      /\bvector\s*</.test(c) || /\bstd::vector\b/.test(c) ||
-      /\bint\s+\w+\s*\[/.test(c) || /\bchar\s+\w+\s*\[/.test(c) ||
+      /\bvector\s*</.test(c) ||
+      /\bstd::vector\b/.test(c) ||
+      /\bint\s+\w+\s*\[/.test(c) ||      // int arr[100]
+      /\bchar\s+\w+\s*\[/.test(c) ||     // char arr[100]
+      /\bfloat\s+\w+\s*\[/.test(c) ||    // float arr[100]
+      /\bdouble\s+\w+\s*\[/.test(c) ||   // double arr[100]
+      /\blong\s+\w+\s*\[/.test(c) ||     // long arr[100]
       /\barray\s*</.test(c)
     );
   }
   if (lang === 'c') {
-    return /\bint\s+\w+\s*\[/.test(c) || /\bchar\s+\w+\s*\[/.test(c) || /\bfloat\s+\w+\s*\[/.test(c);
+    return (
+      /\bint\s+\w+\s*\[/.test(c) || /\bchar\s+\w+\s*\[/.test(c) ||
+      /\bfloat\s+\w+\s*\[/.test(c) || /\bdouble\s+\w+\s*\[/.test(c)
+    );
   }
   if (lang === 'java') {
     return /\bint\s*\[\s*\]/.test(c) || /\barraylist\b/.test(c) || /\bnew\s+int\s*\[/.test(c);
@@ -150,10 +161,22 @@ function hasPointers(code, language) {
   if (lang !== 'c' && lang !== 'cpp' && lang !== 'c++') return false;
   const c = stripComments(code);
   return (
-    /\bint\s*\*/.test(c) || /\bchar\s*\*/.test(c) ||
-    /\bvoid\s*\*/.test(c) || /\bfloat\s*\*/.test(c) ||
+    // Pointer type declarations: int*, char*, void*, float*, double*
+    /\bint\s*\*/.test(c)    ||
+    /\bchar\s*\*/.test(c)   ||
+    /\bvoid\s*\*/.test(c)   ||
+    /\bfloat\s*\*/.test(c)  ||
+    /\bdouble\s*\*/.test(c) ||
+    /\blong\s*\*/.test(c)   ||
+    // Arrow operator for struct/class member access
     /\w+\s*->\s*\w+/.test(c) ||
-    (/\*\s*\w+/.test(c) && /&\s*\w+/.test(c))
+    // Pointer arithmetic: ptr++ or ptr--
+    /\w+\s*\+\+/.test(c) && /\*\s*\w+/.test(c) ||  // ptr++ with dereference elsewhere
+    /\w+\s*--/.test(c)   && /\*\s*\w+/.test(c) ||
+    // Dereference + address-of both present (strong signal)
+    (/\*\s*\w+/.test(c) && /&\s*\w+/.test(c)) ||
+    // Explicit pointer arithmetic: ptr + n or ptr - n
+    /\w+\s*\+\s*\w+/.test(c) && /\*\s*\w+/.test(c)
   );
 }
 
@@ -187,12 +210,21 @@ function hasRecursion(code, language) {
   }
 
   // C/C++/Java: return-type name(...) { ... name(...) }
-  const cFns = [...c.matchAll(/\b(?:int|long|void|bool|double|float|string|char)\s+(\w+)\s*\(/g)];
+  const cFns = [...c.matchAll(/\b(?:int|long|void|bool|double|float|string|char|auto)\s+(\w+)\s*\(/g)];
   for (const m of cFns) {
     const name = m[1];
     if (name === 'main') continue;
     const braceStart = c.indexOf('{', m.index);
     if (braceStart >= 0 && new RegExp(`\\b${name}\\s*\\(`).test(c.slice(braceStart + 1))) return true;
+  }
+
+  // C++ specific: return funcname( inside function body (return-based recursive call)
+  const returnRecursive = [...c.matchAll(/\breturn\s+(\w+)\s*\(/g)];
+  for (const m of returnRecursive) {
+    const name = m[1];
+    if (name === 'main') continue;
+    // Check function is declared somewhere above this return
+    if (new RegExp(`\\b(?:int|long|void|bool|double|float)\\s+${name}\\s*\\(`).test(c)) return true;
   }
 
   return false;
