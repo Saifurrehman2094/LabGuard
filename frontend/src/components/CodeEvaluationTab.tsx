@@ -22,6 +22,12 @@ interface Evaluation {
   error_summary?: string | null;
   manual_score?: number | null;
   final_score?: number;
+  analysis_breakdown_json?: any;
+  requirement_checks_json?: any;
+  hardcoding_flags_json?: any;
+  ai_summary_text?: string | null;
+  ai_summary_confidence?: string | null;
+  ai_summary_updated_at?: string | null;
 }
 
 interface TestCaseResult {
@@ -55,6 +61,12 @@ interface CodeEvaluationTabProps {
   exams: Exam[];
 }
 
+interface AnalysisCapabilities {
+  recursion_ast_available: boolean;
+  clang_binary?: string | null;
+  clang_error?: string | null;
+}
+
 const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
   const [selectedExamId, setSelectedExamId] = useState<string>('');
   const [submissions, setSubmissions] = useState<SubmissionRow[]>([]);
@@ -66,6 +78,8 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [manualScoreInput, setManualScoreInput] = useState<string>('');
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [analysisCapabilities, setAnalysisCapabilities] = useState<AnalysisCapabilities | null>(null);
 
   const [runningAll, setRunningAll] = useState(false);
   const [runningSubmissionId, setRunningSubmissionId] = useState<string | null>(null);
@@ -154,6 +168,12 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
       }
       setDetailEvaluation(res.evaluation);
       setDetailResults(res.results || []);
+      const capRes = await (window as any).electronAPI.getEvaluationAnalysisCapabilities();
+      if (capRes && capRes.success) {
+        setAnalysisCapabilities(capRes.capabilities || null);
+      } else {
+        setAnalysisCapabilities(null);
+      }
       setManualScoreInput(
         res.evaluation.manual_score != null
           ? String(res.evaluation.manual_score)
@@ -173,6 +193,8 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
     setDetailEvaluation(null);
     setDetailResults([]);
     setDetailError(null);
+    setGeneratingSummary(false);
+    setAnalysisCapabilities(null);
   };
 
   const formatDateTime = (value?: string | null) => {
@@ -185,6 +207,20 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
   const formatScore = (value?: number | null) => {
     if (value == null) return '-';
     return value.toFixed(2);
+  };
+
+  const getConfidenceBadgeClass = (confidence?: string | null) => {
+    const val = (confidence || '').toLowerCase();
+    if (val === 'high') return 'ce-pill ce-pill-good';
+    if (val === 'medium') return 'ce-pill ce-pill-warn';
+    return 'ce-pill ce-pill-muted';
+  };
+
+  const getSuspicionBadgeClass = (level?: string | null) => {
+    const val = (level || '').toLowerCase();
+    if (val === 'high') return 'ce-pill ce-pill-bad';
+    if (val === 'medium') return 'ce-pill ce-pill-warn';
+    return 'ce-pill ce-pill-good';
   };
 
   const handleSaveManualScore = async () => {
@@ -216,6 +252,34 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
       setDetailError('Failed to update manual score.');
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const handleGenerateSummary = async () => {
+    if (!isElectron() || !detailEvaluation) return;
+    try {
+      setGeneratingSummary(true);
+      setDetailError(null);
+      const res = await (window as any).electronAPI.generateEvaluationSummary(
+        detailEvaluation.evaluation_id,
+        { mode: 'balanced' }
+      );
+      if (!res.success) {
+        setDetailError(res.error || 'Failed to generate AI summary.');
+        return;
+      }
+      const refresh = await (window as any).electronAPI.getEvaluationDetail(
+        detailEvaluation.evaluation_id
+      );
+      if (refresh.success) {
+        setDetailEvaluation(refresh.evaluation);
+        setDetailResults(refresh.results || []);
+      }
+    } catch (err: any) {
+      console.error('Error generating summary:', err);
+      setDetailError('Failed to generate AI summary.');
+    } finally {
+      setGeneratingSummary(false);
     }
   };
 
@@ -408,6 +472,183 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
                   >
                     Save manual score
                   </button>
+                </div>
+
+                <div className="ce-section">
+                  <h4>Analysis Signals</h4>
+                  <div className="ce-analysis-card ce-margin-bottom-12">
+                    <h5>Analyzer runtime mode</h5>
+                    <div className="ce-category-row">
+                      <span className="ce-category-name">AST recursion mode</span>
+                      <span
+                        className={`ce-pill ${
+                          analysisCapabilities?.recursion_ast_available
+                            ? 'ce-pill-good'
+                            : 'ce-pill-warn'
+                        }`}
+                      >
+                        {analysisCapabilities?.recursion_ast_available ? 'Available' : 'Fallback only'}
+                      </span>
+                    </div>
+                    <div className="ce-muted">
+                      {analysisCapabilities?.recursion_ast_available
+                        ? `Using clang binary: ${analysisCapabilities?.clang_binary || 'detected'}`
+                        : 'Clang AST not available on this machine, recursion detection uses heuristic fallback.'}
+                    </div>
+                  </div>
+                  <div className="ce-analysis-grid">
+                    <div className="ce-analysis-card">
+                      <h5>Category stats</h5>
+                      <div className="ce-category-list">
+                        {Object.entries(detailEvaluation.analysis_breakdown_json?.category_stats || {}).map(
+                          ([category, stat]: [string, any]) => (
+                            <div key={category} className="ce-category-row">
+                              <span className="ce-category-name">{category}</span>
+                              <span className="ce-pill ce-pill-muted">
+                                {stat?.passed ?? 0}/{stat?.total ?? 0}
+                              </span>
+                            </div>
+                          )
+                        )}
+                        {Object.keys(detailEvaluation.analysis_breakdown_json?.category_stats || {}).length ===
+                          0 && <span className="ce-muted">No category data</span>}
+                      </div>
+                    </div>
+                    <div className="ce-analysis-card">
+                      <h5>Requirement checks</h5>
+                      <div className="ce-category-list">
+                        <div className="ce-category-row">
+                          <span className="ce-category-name">Loop detected</span>
+                          <span
+                            className={`ce-pill ${
+                              detailEvaluation.requirement_checks_json?.checks?.loop_detected
+                                ? 'ce-pill-good'
+                                : 'ce-pill-bad'
+                            }`}
+                          >
+                            {detailEvaluation.requirement_checks_json?.checks?.loop_detected ? 'Yes' : 'No'}
+                          </span>
+                        </div>
+                        <div className="ce-category-row">
+                          <span className="ce-category-name">Recursion detected</span>
+                          <span
+                            className={`ce-pill ${
+                              detailEvaluation.requirement_checks_json?.checks?.recursion_detected
+                                ? 'ce-pill-good'
+                                : 'ce-pill-bad'
+                            }`}
+                          >
+                            {detailEvaluation.requirement_checks_json?.checks?.recursion_detected
+                              ? 'Yes'
+                              : 'No'}
+                          </span>
+                        </div>
+                        <div className="ce-category-row">
+                          <span className="ce-category-name">Detection source</span>
+                          <span className="ce-pill ce-pill-muted">
+                            {detailEvaluation.requirement_checks_json?.checks?.recursion_detection_source ||
+                              '-'}
+                          </span>
+                        </div>
+                        <div className="ce-category-row">
+                          <span className="ce-category-name">Expected complexity</span>
+                          <span className="ce-pill ce-pill-muted">
+                            {detailEvaluation.requirement_checks_json?.complexity?.expected || 'unspecified'}
+                          </span>
+                        </div>
+                        <div className="ce-category-row">
+                          <span className="ce-category-name">Estimated complexity</span>
+                          <span className="ce-pill ce-pill-muted">
+                            {detailEvaluation.requirement_checks_json?.complexity?.estimated || '-'}
+                          </span>
+                        </div>
+                        <div className="ce-category-row">
+                          <span className="ce-category-name">Complexity met</span>
+                          <span
+                            className={`ce-pill ${
+                              detailEvaluation.requirement_checks_json?.complexity?.met === true
+                                ? 'ce-pill-good'
+                                : detailEvaluation.requirement_checks_json?.complexity?.met === false
+                                ? 'ce-pill-bad'
+                                : 'ce-pill-muted'
+                            }`}
+                          >
+                            {detailEvaluation.requirement_checks_json?.complexity?.met === true
+                              ? 'Yes'
+                              : detailEvaluation.requirement_checks_json?.complexity?.met === false
+                              ? 'No'
+                              : 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="ce-analysis-card ce-margin-top-12">
+                    <h5>Hardcoding suspicion</h5>
+                    <div className="ce-category-row">
+                      <span className="ce-category-name">Level</span>
+                      <span
+                        className={getSuspicionBadgeClass(
+                          detailEvaluation.hardcoding_flags_json?.suspicion_level
+                        )}
+                      >
+                        {detailEvaluation.hardcoding_flags_json?.suspicion_level || 'low'}
+                      </span>
+                    </div>
+                    <div className="ce-tags-wrap">
+                      {(detailEvaluation.hardcoding_flags_json?.reasons || []).map((reason: string) => (
+                        <span key={reason} className="ce-pill ce-pill-warn">
+                          {reason}
+                        </span>
+                      ))}
+                      {(!detailEvaluation.hardcoding_flags_json?.reasons ||
+                        detailEvaluation.hardcoding_flags_json?.reasons.length === 0) && (
+                        <span className="ce-muted">No suspicious patterns flagged</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="ce-analysis-card ce-margin-top-12">
+                    <h5>Near-correct indicator</h5>
+                    <span
+                      className={`ce-pill ${
+                        detailEvaluation.analysis_breakdown_json?.near_correct
+                          ? 'ce-pill-good'
+                          : 'ce-pill-muted'
+                      }`}
+                    >
+                      {detailEvaluation.analysis_breakdown_json?.near_correct
+                        ? 'Likely near-correct'
+                        : 'Not near-correct'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="ce-section">
+                  <h4>AI-Assisted Summary</h4>
+                  <p className="ce-subtitle">
+                    Teacher assist only. Final marks remain teacher-decided.
+                  </p>
+                  <button
+                    className="ce-primary-btn"
+                    onClick={handleGenerateSummary}
+                    disabled={generatingSummary}
+                  >
+                    {generatingSummary ? 'Generating summary…' : 'Generate summary'}
+                  </button>
+                  <div style={{ marginTop: 12 }}>
+                    <h5>Summary</h5>
+                    <pre className="ce-pre-small">
+                      {detailEvaluation.ai_summary_text || 'No summary generated yet.'}
+                    </pre>
+                    <div className="ce-muted">
+                      Confidence:{' '}
+                      <span className={getConfidenceBadgeClass(detailEvaluation.ai_summary_confidence)}>
+                        {detailEvaluation.ai_summary_confidence || 'low'}
+                      </span>{' '}
+                      | Updated:{' '}
+                      {formatDateTime(detailEvaluation.ai_summary_updated_at || null)}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="ce-section">

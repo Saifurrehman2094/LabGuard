@@ -147,6 +147,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('evaluation:get-by-exam', examId),
   updateEvaluationManualScore: (evaluationId, manualScore) =>
     ipcRenderer.invoke('evaluation:update-manual-score', evaluationId, manualScore),
+  generateEvaluationSummary: (evaluationId, options) =>
+    ipcRenderer.invoke('evaluation:generate-summary', evaluationId, options),
+  getEvaluationAnalysisCapabilities: () =>
+    ipcRenderer.invoke('evaluation:get-analysis-capabilities'),
 
   // Event listeners
   onMonitoringEvent: (callback) => {

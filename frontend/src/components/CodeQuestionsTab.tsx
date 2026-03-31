@@ -14,6 +14,7 @@ interface Question {
   description?: string;
   source_page?: number | null;
   max_score?: number;
+  constraints_json?: any;
   created_at?: string;
   // UI-only
   _tempId?: string;
@@ -151,7 +152,8 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         title: q.title,
         description: q.description,
         page: q.source_page,
-        maxScore: q.max_score
+        maxScore: q.max_score,
+        constraints_json: q.constraints_json ?? null
       }));
       const res = await (window as any).electronAPI.saveQuestions(exam.examId, payload);
       if (!res.success) {
@@ -185,7 +187,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
     return currentQuestion;
   };
 
-  const handleGenerateTestCases = async (provider: 'gemini' | 'hf' = 'gemini') => {
+  const handleGenerateTestCases = async (provider: 'auto' | 'groq' | 'gemini' = 'auto') => {
     if (!isElectron()) return;
     const q = ensureQuestionSelected();
     if (!q || !q.question_id) {
@@ -464,6 +466,91 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                 />
               </div>
 
+              <div className="cq-question-detail" style={{ marginTop: 14 }}>
+                <h4>Teacher Constraints (for evaluation)</h4>
+                <p className="cq-subtitle">
+                  These are checked during evaluation (signals for teacher). They are not used as automatic grading.
+                </p>
+                {(() => {
+                  const c = (currentQuestion.constraints_json || {}) as any;
+                  const requiredLoop = !!c.required_loop;
+                  const requiredRecursion = !!c.required_recursion;
+                  const maxLoopNesting =
+                    typeof c.max_loop_nesting === 'number' ? c.max_loop_nesting : 0;
+                  const expectedComplexity =
+                    typeof c.expected_complexity === 'string' ? c.expected_complexity : 'unspecified';
+                  return (
+                    <div className="cq-constraints-grid">
+                      <label className="cq-constraint-item">
+                        <input
+                          type="checkbox"
+                          checked={requiredLoop}
+                          onChange={(e) =>
+                            handleQuestionChange(currentQuestionIndex, {
+                              constraints_json: { ...c, required_loop: e.target.checked }
+                            })
+                          }
+                        />
+                        Require loop usage
+                      </label>
+
+                      <label className="cq-constraint-item">
+                        <input
+                          type="checkbox"
+                          checked={requiredRecursion}
+                          onChange={(e) =>
+                            handleQuestionChange(currentQuestionIndex, {
+                              constraints_json: { ...c, required_recursion: e.target.checked }
+                            })
+                          }
+                        />
+                        Require recursion usage
+                      </label>
+
+                      <label className="cq-constraint-item">
+                        Max loop nesting:
+                        <input
+                          style={{ width: 80, marginLeft: 8 }}
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={maxLoopNesting}
+                          onChange={(e) =>
+                            handleQuestionChange(currentQuestionIndex, {
+                              constraints_json: {
+                                ...c,
+                                max_loop_nesting: Number(e.target.value) || 0
+                              }
+                            })
+                          }
+                        />
+                      </label>
+
+                      <label className="cq-constraint-item">
+                        Expected complexity:
+                        <select
+                          style={{ marginLeft: 8 }}
+                          value={expectedComplexity}
+                          onChange={(e) =>
+                            handleQuestionChange(currentQuestionIndex, {
+                              constraints_json: { ...c, expected_complexity: e.target.value }
+                            })
+                          }
+                        >
+                          <option value="unspecified">Unspecified</option>
+                          <option value="O(1)">O(1)</option>
+                          <option value="O(log n)">O(log n)</option>
+                          <option value="O(n)">O(n)</option>
+                          <option value="O(n log n)">O(n log n)</option>
+                          <option value="O(n^2)">O(n^2)</option>
+                          <option value="O(n^3+)">O(n^3+)</option>
+                        </select>
+                      </label>
+                    </div>
+                  );
+                })()}
+              </div>
+
               <div className="cq-testcases-header">
                 <div>
                   <h4>Test Cases</h4>
@@ -474,7 +561,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                 <div className="cq-header-actions">
                   <button
                     className="btn-secondary"
-                    onClick={() => handleGenerateTestCases('gemini')}
+                    onClick={() => handleGenerateTestCases('auto')}
                     disabled={generating || saving}
                   >
                     {generating ? 'Generating…' : 'Generate test cases (AI)'}

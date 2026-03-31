@@ -1349,7 +1349,7 @@ ipcMain.handle('exam:extract-questions', async (event, examId) => {
 });
 
 // Generate test cases for a question via LLM (Code Eval – teacher)
-ipcMain.handle('exam:generate-testcases', async (event, examId, questionId, llmProvider = 'gemini') => {
+ipcMain.handle('exam:generate-testcases', async (event, examId, questionId, llmProvider = 'auto') => {
   try {
     const currentUser = authService.getCurrentUser();
     if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
@@ -1364,7 +1364,13 @@ ipcMain.handle('exam:generate-testcases', async (event, examId, questionId, llmP
       return { success: false, error: 'Question does not belong to this exam', code: 'MISMATCH' };
     }
 
-    const questionText = [question.title, question.description].filter(Boolean).join('\n\n');
+    const constraints = question.constraints_json && typeof question.constraints_json === 'object'
+      ? question.constraints_json
+      : null;
+    const constraintsHint = constraints
+      ? `\n\nTeacher constraints (use these when designing test cases, if relevant):\n${JSON.stringify(constraints, null, 2)}`
+      : '';
+    const questionText = [question.title, question.description].filter(Boolean).join('\n\n') + constraintsHint;
     if (!questionText.trim()) {
       return { success: false, error: 'Question has no text to send to the LLM', code: 'EMPTY_QUESTION' };
     }
@@ -1601,6 +1607,101 @@ ipcMain.handle('evaluation:update-manual-score', async (event, evaluationId, man
   }
 });
 
+ipcMain.handle('evaluation:get-analysis-capabilities', async () => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    if (!codeEvalService) {
+      return { success: false, error: 'Code evaluation service not initialized' };
+    }
+    return {
+      success: true,
+      capabilities: codeEvalService.getAnalysisCapabilities()
+    };
+  } catch (error) {
+    console.error('evaluation:get-analysis-capabilities error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
+    };
+  }
+});
+
+// Generate AI-assisted summary for one evaluation
+ipcMain.handle('evaluation:generate-summary', async (event, evaluationId, options = {}) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const evaluation = dbService.getCodeEvaluationById(evaluationId);
+    if (!evaluation) {
+      return { success: false, error: 'Evaluation not found' };
+    }
+
+    const evidence = {
+      evaluation_id: evaluation.evaluation_id,
+      status: evaluation.status,
+      score: evaluation.score,
+      max_score: evaluation.max_score,
+      analysis_breakdown: evaluation.analysis_breakdown_json,
+      requirement_checks: evaluation.requirement_checks_json,
+      hardcoding_flags: evaluation.hardcoding_flags_json
+    };
+
+    const aiRes = await llmTestCaseService.generateSubmissionSummary(evidence, options);
+    let summaryText;
+    let summaryConfidence;
+    if (aiRes.success) {
+      summaryText = aiRes.summary;
+      summaryConfidence = aiRes.confidence || 'medium';
+    } else {
+      summaryText = buildFallbackSummary(evidence, aiRes.error);
+      summaryConfidence = 'low';
+    }
+
+    dbService.updateCodeEvaluation(evaluationId, {
+      ai_summary_text: summaryText,
+      ai_summary_confidence: summaryConfidence,
+      ai_summary_updated_at: new Date().toISOString()
+    });
+
+    return {
+      success: true,
+      summary: summaryText,
+      confidence: summaryConfidence,
+      provider: aiRes.success ? 'ai' : 'fallback'
+    };
+  } catch (error) {
+    console.error('evaluation:generate-summary error:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error'
+    };
+  }
+});
+
+function buildFallbackSummary(evidence, reason) {
+  const breakdown = evidence.analysis_breakdown || {};
+  const hardcoding = evidence.hardcoding_flags || {};
+  const unmet = (evidence.requirement_checks && evidence.requirement_checks.unmet_requirements) || [];
+  const lines = [];
+  lines.push(
+    `AI-assisted summary (fallback): score ${evidence.score ?? 0}/${evidence.max_score ?? 0}, status ${evidence.status || 'unknown'}.`
+  );
+  lines.push(`Pass rate signal: ${(breakdown.pass_rate != null ? Math.round(breakdown.pass_rate * 100) : 0)}%.`);
+  lines.push(`Near-correct indicator: ${breakdown.near_correct ? 'yes' : 'no'}.`);
+  lines.push(`Requirement checks: ${unmet.length ? unmet.join(', ') : 'all required checks appear satisfied'}.`);
+  lines.push(
+    `Hardcoding suspicion: ${hardcoding.suspicion_level || 'low'}${hardcoding.reasons?.length ? ` (${hardcoding.reasons.join(', ')})` : ''}.`
+  );
+  lines.push(`Suggestion: review first failing case and retry after targeted fix. (${reason || 'AI unavailable'})`);
+  return lines.join('\n');
+}
+
 // Save exam questions (Code Eval – teacher)
 ipcMain.handle('exam:save-questions', async (event, examId, questions) => {
   try {
@@ -1625,7 +1726,8 @@ ipcMain.handle('exam:save-questions', async (event, examId, questions) => {
         title: (q && q.title) || '',
         description: q && q.description ? q.description : null,
         source_page: q && (q.page ?? q.source_page) != null ? (q.page ?? q.source_page) : null,
-        max_score: q && (q.max_score ?? q.maxScore) != null ? (q.max_score ?? q.maxScore) : 100
+        max_score: q && (q.max_score ?? q.maxScore) != null ? (q.max_score ?? q.maxScore) : 100,
+        constraints_json: q && (q.constraints_json ?? q.constraints) != null ? (q.constraints_json ?? q.constraints) : null
       };
 
       if (q && q.question_id) {

@@ -1,152 +1,238 @@
-# Iteration 3 Testing
+# Iteration 3 Testing (Code Evaluation Module)
 
-This folder holds test materials and instructions for verifying the **LabGuard Code Evaluation Module** (Phases 1–9). Use it to confirm each phase works before moving on.
+This folder documents and verifies the **current implemented behavior** of the LabGuard code evaluation module.
 
----
-
-## Phase 2: PDF text extraction
-
-Phase 2 adds **extracting text from exam PDFs** and **splitting into candidate questions** (e.g. "Q1:", "Question 2"). You can verify it in two ways: an **automated script** and a **manual run in the app**.
-
-### Option A – Automated verification (recommended first)
-
-This runs the extractor on a small sample PDF and prints what was extracted.
-
-1. **From the project root**, run:
-   ```bash
-   npx electron Iteration3Testing/phase2-verify.js
-   ```
-2. **What to expect:**
-   - A file `Iteration3Testing/sample-questions.pdf` is created (with 2 sample questions).
-   - Console output shows:
-     - **Full text** extracted from the PDF.
-     - **Number of pages** (should be 1).
-     - **Candidate questions** after the heuristic split (title + description for each).
-   - Script exits with code 0 and the message: `Phase 2 verification done.`
-
-3. **If something is wrong:**
-   - “PDF file not found” → run from the **project root** (where `package.json` is).
-   - “Invalid PDF” / “Cannot read” → ensure `pdf-parse` is installed (`npm install --legacy-peer-deps` if needed).
-
-### Option B – Manual test in the app
-
-This checks the full path: **upload PDF → Extract questions** via the UI (when the teacher flow is wired in) or via DevTools.
-
-1. Start the app:
-   ```bash
-   npm run start:dev
-   ```
-2. Log in as **admin** or **teacher**.
-3. Create an exam (or pick an existing one) and **upload a PDF** for it (exam edit → upload PDF).
-4. When the **Code Questions** UI is available (Phase 5), use **“Extract from PDF”** and you should see candidate questions listed.
-5. **Without a PDF:** for an exam with no PDF, the app should show a clear message like *“No PDF uploaded for this exam. You can add questions manually.”* and still allow adding questions by hand.
-
-**What to expect:**
-- With PDF: list of questions with **tempId**, **title**, **description**, and optional **page**.
-- Without PDF: **success: false** and an error message that mentions adding questions manually.
-
-**Quick check via DevTools (if the UI is not ready yet):**
-- Open DevTools (Ctrl+Shift+I) and run:
-  ```javascript
-  window.electronAPI.extractQuestions('YOUR_EXAM_ID').then(console.log)
-  ```
-- For an exam **with** a PDF: you should see `{ success: true, questions: [...] }`.
-- For an exam **without** a PDF: you should see `{ success: false, error: "No PDF uploaded..." }`.
+This README is intentionally practical: it explains the exact workflow, criteria, and how to manually verify the full pipeline from exam creation to AI summary.
 
 ---
 
-## Phase 3: LLM test-case generation
+## 1) Final Module Workflow (as implemented)
 
-Phase 3 uses an **LLM** to suggest **test cases** for C++ questions (stdin/stdout). The app does **not** assume any LLM is set up: you must configure an API key before using this feature.
+### Step A: Teacher creates exam, uploads PDF, extracts questions
+- Teacher uploads exam PDF.
+- System extracts text and candidate questions.
+- Teacher reviews/edits extracted questions.
 
-### Which LLM we use
+### Step B: Teacher defines constraints per question
+In **Code Questions** tab, each question supports `constraints_json` with:
+- `required_loop` (boolean)
+- `required_recursion` (boolean)
+- `max_loop_nesting` (number; 0 means no limit)
+- `expected_complexity` (string, e.g. `O(n)`, `O(n^2)`)
 
-| Provider | Role   | Model / API | Free tier |
-|----------|--------|-------------|-----------|
-| **Google Gemini** | Primary | Gemini 1.5 Flash via Google AI Studio | Yes – no credit card; daily/minute limits apply. |
-| **Hugging Face**  | Fallback | Serverless Inference API (e.g. Llama-3.2-3B-Instruct) | Yes – free tier with rate limits. |
+These are saved on the `exam_questions` table and are used during evaluation.
 
-We use **Gemini** by default because it is strong at structured JSON and code-related tasks. **Hugging Face** is available as a fallback (e.g. if you don’t want to use Google or hit Gemini limits).
+### Step C: Teacher generates/edits test cases
+- LLM generation uses Groq (primary) with Gemini as automatic fallback.
+- Includes fault-tolerant JSON parsing and automatic input normalization (bracket arrays → stdin format).
+- If expected outputs are missing from LLM response, a batch AI prediction fills them and marks for teacher review.
+- While generating test cases, teacher constraints are appended as a hint to the LLM prompt.
+- Teacher can manually edit/save test cases (`basic`, `hidden`, `edge`, etc. via flags/metadata).
 
-### How to set up the LLM (required before Phase 3 works)
+### Step D: Student submits C++ solution
+- Student submits `.cpp` in exam submission.
+- Evaluator compiles (`g++ -std=c++17`) and runs in sandbox process with timeout.
 
-You must provide at least one of the following. The app reads keys in this order: **environment variables** first, then **config file**.
+### Step E: Evaluation computes correctness + analysis signals
+- Per-test pass/fail is saved.
+- Category stats are built (basic/hidden/edge/metadata category).
+- Requirement checks and heuristics run on source.
+- Hardcoding suspicion and near-correct indicators are computed.
+- Results are persisted in:
+  - `analysis_breakdown_json`
+  - `requirement_checks_json`
+  - `hardcoding_flags_json`
 
-#### Option 1 – Environment variables (recommended)
-
-- **Gemini (primary)**  
-  - Name: `GEMINI_API_KEY` (or `GOOGLE_API_KEY`).  
-  - Where to get it: **[Google AI Studio](https://aistudio.google.com/app/apikey)** → sign in with Google → “Create API key” (or “Get API key”) → copy the key (starts with `AIza...`).  
-  - No credit card needed for the free tier.  
-  - Example (PowerShell): `$env:GEMINI_API_KEY = "AIza..."`
-- **Hugging Face (fallback)**  
-  - Name: `HUGGINGFACE_TOKEN` (or `HF_TOKEN`).  
-  - Where to get it: **[Hugging Face → Settings → Access Tokens](https://huggingface.co/settings/tokens)** → “New token” → create a token with “Read” (or inference) permission → copy.  
-  - Free tier has limited requests.  
-  - Example (PowerShell): `$env:HUGGINGFACE_TOKEN = "hf_..."`
-
-#### Option 2 – Config file (alternative)
-
-1. Copy the example file:
-   ```bash
-   copy backend\data\llm-config.example.json backend\data\llm-config.json
-   ```
-2. Edit `backend/data/llm-config.json` and replace placeholders with your real values:
-   ```json
-   {
-     "geminiApiKey": "AIza...",
-     "huggingfaceToken": "hf_..."
-   }
-   ```
-3. **Important:** `llm-config.json` is in `.gitignore`. Never commit real API keys.
-
-If **no** key is set for the chosen provider, the app will return a clear error telling you to set `GEMINI_API_KEY` (or the HF token) and will point you to this README.
-
-### Option A – Automated verification (T6: mock + parse)
-
-This checks **prompt + JSON parsing** with a **saved sample response** (no real API call).
-
-1. From the **project root**, run:
-   ```bash
-   npx electron Iteration3Testing/phase3-verify.js
-   ```
-2. **What to expect:**
-   - Script runs the **mock test** first: it feeds a sample LLM-like JSON string into the parser and checks that test case shape (name, input, expectedOutput, isHidden, etc.) is correct.
-   - Console shows “T6 (mock): parsed test case shape OK” and “Phase 3 verification (mock) done.”
-   - If you have **no** API key, the script may then report that the real-API test was skipped (expected).
-
-### Option B – Real API test (T7)
-
-This calls the **real** Gemini (or HF) API once and checks that you get back an array of test cases (or a clear error).
-
-1. Set an API key (env or `backend/data/llm-config.json`) as above.
-2. From the **project root**, run:
-   ```bash
-   npx electron Iteration3Testing/phase3-verify.js --live
-   ```
-   Or run the same script and use the prompt it prints to call the app’s IPC (see below).
-3. **What to expect:**
-   - **With valid key:** `success: true` and `testCases` as an array of objects (each with `name`, `description`, `input`, `expectedOutput`, `isHidden`, `isEdgeCase`, `timeLimitMs`, `notes`). Console shows count and a short preview.
-   - **With invalid/missing key:** `success: false` and an error like “Invalid Gemini API key” or “Gemini API key not configured” (and you can continue with manual test case entry).
-   - **Rate limit (429):** “Rate limit reached” message; you can wait and retry or add test cases manually.
-
-### Quick check via DevTools (T7 from the app)
-
-1. Start the app and log in as **admin** or **teacher**.
-2. Ensure you have at least one **exam** and one **code question** (Phase 1/2/4). Note the `examId` and `questionId` (e.g. from DB or from the UI when it exists).
-3. Open DevTools (Ctrl+Shift+I) and run:
-   ```javascript
-   window.electronAPI.generateTestCases('EXAM_ID', 'QUESTION_ID', 'gemini').then(console.log)
-   ```
-4. **With key:** you should see `{ success: true, testCases: [...] }`.
-5. **Without key or bad key:** you should see `{ success: false, error: "...", code: "NO_API_KEY" }` or similar – the UI should still allow adding test cases manually.
+### Step F: Teacher reviews results and optional AI summary
+- Teacher sees all evidence in **Code Evaluation** detail panel.
+- Teacher can click **Generate summary** to get AI-assisted 5–6 line feedback.
+- If LLM fails/rate-limits, fallback summary is generated.
+- Teacher remains final authority via manual score override.
 
 ---
 
-## Future phases
+## 2) Criteria and Signals (exactly what code uses)
 
-This folder will be extended with:
+## Correctness
+- Each test case has weight.
+- Submission score = sum of passed test weights.
+- `max_score` = sum of all test weights.
 
-- **Phase 4+:** Test data and scripts for persistence, Code Eval service, teacher UI, etc.
+## Output comparison (tolerance rules)
+Comparison passes if **any** of the following match:
+1. Exact match after newline normalization + trimEnd.
+2. Line-trimmed whitespace-only difference.
+3. Case-insensitive match (if enabled by metadata/options).
+4. Float epsilon token comparison (if epsilon is configured).
 
-Keep all phase-related test assets and instructions here so the main project stays clean.
+If none match, result is `output_mismatch`.
+
+## Requirement checks
+From source analysis:
+- `loop_detected` (for/while/do presence)
+- `recursion_detected` (AST-based if clang available, otherwise heuristic self-call detection)
+- `loop_nesting_max`
+- `loop_count`
+
+Constraint violations currently flagged as unmet requirements:
+- `loop_required_but_missing`
+- `recursion_required_but_missing`
+- `loop_nesting_exceeds_limit`
+
+## Time complexity signal (heuristic)
+Current estimator is loop-nesting-based:
+- nesting <= 0 -> `O(1)`
+- nesting = 1 -> `O(n)`
+- nesting = 2 -> `O(n^2)`
+- nesting >= 3 -> `O(n^3+)`
+
+Then it compares estimated complexity against teacher’s `expected_complexity` and sets:
+- `complexity.met = true/false/null`
+
+Important:
+- This is explicitly a **heuristic teacher signal**, not a formal Big-O proof.
+
+## Hardcoding suspicion
+Current reasons are produced from:
+1. Static suspicious patterns:
+   - `large_if_else_chain` (if count >= 10)
+   - `many_numeric_literals` (numeric literals >= 40)
+   - `literal_mapping_pattern` (regex for mapping-like literal structures)
+2. Behavioral mismatch:
+   - `fails_hidden_after_basic_pass`
+   - `fails_all_edge_cases`
+
+Suspicion level:
+- `high` if reasons >= 3
+- `medium` if reasons >= 1
+- `low` otherwise
+
+## Near-correct indicator
+`near_correct = (pass_rate >= 0.8) AND (failed_examples.length <= 2)`
+
+Where:
+- `pass_rate = score / max_score`
+- `failed_examples` stores up to first 5 mismatch samples for explainability.
+
+---
+
+## 3) UI Evidence (what teacher sees)
+
+Evaluation detail panel shows:
+- Category stats (`passed/total` per category)
+- Requirement checks (loop/recursion, detection source)
+- Complexity section:
+  - expected complexity
+  - estimated complexity
+  - complexity met (Yes/No/N/A)
+- Hardcoding suspicion level + reasons
+- Near-correct indicator
+- AI-assisted summary + confidence + timestamp
+
+Also shown:
+- Analyzer runtime mode:
+  - AST recursion mode available (if clang found), else heuristic fallback.
+
+---
+
+## 4) LLM Setup (free-tier only)
+
+### Groq key (primary – recommended)
+- Env var: `GROQ_API_KEY`
+- Or local file: `backend/data/llm-config.json` (gitignored), key `groqApiKey`
+- Model: `llama-3.3-70b-versatile` (free tier with generous rate limits)
+- Includes automatic retry with backoff on 429 rate-limit responses (up to 3 attempts)
+
+### Gemini key (fallback)
+- Env var: `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+- Or local file: `backend/data/llm-config.json`, key `geminiApiKey`
+- Used automatically when Groq is unavailable or fails
+
+### Routing
+- Default provider is `auto`: tries Groq first, falls back to Gemini.
+- Teachers can also force `groq` or `gemini` individually if needed.
+- HuggingFace support has been removed.
+
+No paid APIs are required.
+
+---
+
+## 5) Automated Verification Scripts
+
+### PDF extraction
+```bash
+npx electron Iteration3Testing/phase2-verify.js
+```
+Expected:
+- sample PDF created
+- extracted full text
+- candidate split questions
+
+### LLM test-case generation parsing (+optional live)
+```bash
+npx electron Iteration3Testing/phase3-verify.js
+npx electron Iteration3Testing/phase3-verify.js --live
+```
+Expected:
+- mock parsing passes
+- live call passes if key exists; graceful message otherwise
+
+### Strengthened analysis checks
+```bash
+npx electron Iteration3Testing/phase4-verify.js
+```
+Expected:
+- static checks pass
+- tolerant comparator checks pass
+
+---
+
+## 6) End-to-End Manual Test (recommended demo script)
+
+1. Start app:
+```bash
+npm run start:dev
+```
+
+2. Login as teacher/admin.
+
+3. Create exam and upload PDF.
+
+4. In Code Questions:
+- Extract questions from PDF.
+- Save questions.
+- For one question, set constraints:
+  - Require loop = true
+  - Require recursion = as needed
+  - Max loop nesting = e.g. 1
+  - Expected complexity = e.g. `O(n)`
+- Save questions again.
+
+5. Generate test cases (AI) and save them.
+
+6. Submit student `.cpp` solution(s).
+
+7. Run evaluation (single submission or all).
+
+8. Open evaluation details and verify:
+- category stats populated,
+- loop/recursion checks populated,
+- expected/estimated complexity and met status shown,
+- hardcoding suspicion level shown,
+- near-correct indicator shown.
+
+9. Click **Generate summary**:
+- if Gemini key is configured -> AI summary appears.
+- if API unavailable -> fallback summary appears.
+
+10. (Optional) set manual score override to show teacher final control.
+
+---
+
+## 7) Known limitations (current implementation)
+
+- Complexity check is heuristic, not theorem-level static analysis.
+- Hardcoding detection is signal-based (patterns + behavior), not plagiarism/semantic proof.
+- Recursion AST check requires local `clang` binary; otherwise heuristic fallback is used.
+
+These limitations are acceptable for a teacher-assist university project and are clearly surfaced in UI.
