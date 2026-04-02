@@ -1,0 +1,332 @@
+/* Camera Log Window - Statistics Summary Design */
+
+.camera-log-window {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.camera-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-light);
+  background-color: var(--color-bg-tertiary);
+}
+
+.log-header-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.log-icon {
+  font-size: 20px;
+}
+
+.log-header-title h3 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+}
+
+.log-header-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.toggle-logs-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.toggle-logs-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.toggle-logs-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-tertiary);
+}
+
+.clear-log-button {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-medium);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  font-weight: var(--font-medium);
+}
+
+.clear-log-button:hover:not(:disabled) {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-dark);
+}
+
+.clear-log-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.log-error-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-error-light);
+  color: #991B1B;
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-sm);
+  border-bottom: 1px solid #FCA5A5;
+}
+
+.error-icon {
+  font-size: 16px;
+}
+
+.error-text {
+  flex: 1;
+}
+
+/* Statistics Summary */
+.camera-stats-summary {
+  padding: var(--space-4);
+  background-color: white;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.stat-card {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  transition: all var(--transition-base);
+  border: 2px solid transparent;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.stat-card.stat-error {
+  border-color: #F44336;
+  background: linear-gradient(135deg, #FFEBEE 0%, #FFCDD2 100%);
+}
+
+.stat-card.stat-warning {
+  border-color: #FFC107;
+  background: linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%);
+}
+
+.stat-icon {
+  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.stat-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: var(--font-bold);
+  color: var(--color-text-primary);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-weight: var(--font-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  line-height: 1.2;
+}
+
+.stat-card.stat-error .stat-value {
+  color: #C62828;
+}
+
+.stat-card.stat-warning .stat-value {
+  color: #F57C00;
+}
+
+/* Detailed Logs */
+.camera-log-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+  background-color: var(--color-bg-tertiary);
+  min-height: 150px;
+  max-height: 300px;
+  border-top: 1px solid var(--color-border-light);
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 300px;
+  }
+}
+
+.no-violations {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  text-align: center;
+  padding: var(--space-8) var(--space-4);
+  font-style: italic;
+}
+
+.log-item {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  align-items: flex-start;
+  background-color: white;
+  border-left: 3px solid transparent;
+}
+
+.log-item.warning {
+  background: #FFF8E1;
+  border-left-color: #FFC107;
+}
+
+.log-item.error {
+  background: #FFEBEE;
+  border-left-color: #F44336;
+}
+
+.log-item.info {
+  background: #E3F2FD;
+  border-left-color: #2196F3;
+}
+
+.log-time {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.log-type {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  font-size: 9px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.log-message {
+  color: var(--color-text-primary);
+  flex: 1;
+  word-break: break-word;
+  font-size: var(--text-xs);
+}
+
+/* Scrollbar Styling */
+.camera-log-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.camera-log-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.camera-log-list::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.camera-log-list::-webkit-scrollbar-thumb:hover {
+  background: #bbb;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stat-card {
+    padding: var(--space-2);
+  }
+
+  .stat-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 20px;
+  }
+
+  .stat-value {
+    font-size: 20px;
+  }
+
+  .stat-label {
+    font-size: 10px;
+  }
+
+  .log-header-actions {
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .toggle-logs-btn,
+  .clear-log-button {
+    width: 100%;
+    font-size: 11px;
+    padding: var(--space-1) var(--space-2);
+  }
+}

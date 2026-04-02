@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import FaceAuth from './FaceAuth';
 import ThemeToggle from './ThemeToggle';
+import CameraTestModule from './CameraTestModule';
 import WebStorageService from '../services/webStorage';
 import './Login.css';
 
@@ -35,6 +36,9 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [authState, setAuthState] = useState<AuthState>({
     step: 'credentials'
   });
+  const [showCameraTest, setShowCameraTest] = useState(false);
+
+  const SHOW_CAMERA_TEST_BUTTON = false; // Keep feature but hide on sign-in page
 
   // Check if running in Electron
   const isElectron = () => {
@@ -257,6 +261,11 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     return errors.filter(err => !err.field);
   };
 
+  // Render camera test module if requested
+  if (showCameraTest) {
+    return <CameraTestModule onClose={() => setShowCameraTest(false)} />;
+  }
+
   // Render face authentication if needed
   if (authState.step === 'face-auth' && authState.sessionId && authState.user) {
     return (
@@ -360,6 +369,23 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               'Login'
             )}
           </button>
+
+          {/* Camera Test Button - Hidden via flag; keep feature available for future use */}
+          {SHOW_CAMERA_TEST_BUTTON && process.env.NODE_ENV === 'development' && (
+          <button
+            type="button"
+            className="camera-test-button"
+            onClick={() => setShowCameraTest(true)}
+            disabled={isLoading}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="2"/>
+              <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
+            </svg>
+            Test Camera Module
+          </button>
+          )}
+
         </form>
 
 

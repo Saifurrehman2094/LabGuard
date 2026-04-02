@@ -1,0 +1,51 @@
+{
+  "face_detected": true,
+  "head_pose": {
+    "yaw": 7.860970179895436,
+    "pitch": 8.421439398318947,
+    "roll": 1.7570417496954929
+  },
+  "gaze": {
+    "horizontal_angle": 0.36119267354062023,
+    "vertical_angle": 4.608794963058955,
+    "direction": "center",
+    "gaze_detected": true,
+    "iris_center_left": [
+      319.7449035644531,
+      187.50198364257812
+    ],
+    "iris_center_right": [
+      387.2106018066406,
+      189.84835815429688
+    ],
+    "quality_score": 0.8229983001947403,
+    "avg_quality": 0.7994905799627304,
+    "raw_offset_h": -0.012051865458488464,
+    "raw_offset_v": 0.029748044908046722
+  },
+  "blink": {
+    "is_blinking": false,
+    "left_eye_closed": false,
+    "right_eye_closed": false,
+    "both_eyes_closed": false,
+    "left_ear": 0.3517033757758105,
+    "right_ear": 0.32237715542450845,
+    "avg_ear": 0.3370402656001595
+  },
+  "facing_screen": true,
+  "config": {
+    "gaze_left_threshold": -20.0,
+    "gaze_right_threshold": 20.0,
+    "gaze_center_threshold": 12.0,
+    "gaze_scaling_factor": 100.0,
+    "head_yaw_range": [
+      -30.0,
+      30.0
+    ],
+    "head_pitch_range": [
+      -35.0,
+      20.0
+    ],
+    "blink_ear_threshold": 0.25
+  }
+}

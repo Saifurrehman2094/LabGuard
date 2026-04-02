@@ -1,0 +1,28 @@
+# Python Dependencies for Camera Monitoring Module
+# LabGuard - Camera-Based Monitoring
+#
+# IMPORTANT: Python 3.9-3.11 is recommended for full compatibility
+# Python 3.12+ may have compatibility issues with MediaPipe
+# If using Python 3.12+, you may need to use newer package versions
+
+# Computer Vision
+opencv-python>=4.8.0,<5.0.0
+
+# Face Detection and Landmarks
+# Note: MediaPipe 0.10.9 requires Python 3.8-3.11
+# For Python 3.12+, try: mediapipe>=0.10.9 (may need to build from source)
+mediapipe>=0.10.9
+
+# Object Detection (YOLOv8n)
+ultralytics>=8.0.0
+
+# Numerical Computing
+numpy>=1.24.0,<2.0.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# Installation Instructions:
+# 1. For Python 3.9-3.11: python -m pip install -r python_requirements.txt
+# 2. For Python 3.12+: May need to install packages individually and use compatible versions
+# 3. If MediaPipe fails, try: python -m pip install mediapipe --no-build-isolation

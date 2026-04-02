@@ -1,0 +1,4 @@
+# This folder stores violation snapshots captured by the camera monitoring system
+# Snapshots are named: studentname_violationtype_timestamp.jpg
+# Configure which violations trigger snapshots in Admin Panel > Camera tab
+

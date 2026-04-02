@@ -152,7 +152,7 @@
 }
 
 .difficulty-pill:hover:not(:disabled) {
-  border-color #94a3b8;
+  border-color: #94a3b8;
   background: #f1f5f9;
 }
 
@@ -188,7 +188,7 @@
 
 .tag-pill:hover:not(:disabled),
 .concept-pill:hover:not(:disabled) {
-  border-color #667eea;
+  border-color: #667eea;
   background: #f0f4ff;
 }
 

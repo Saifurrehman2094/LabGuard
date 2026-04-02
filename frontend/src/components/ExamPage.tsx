@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import JSZip from 'jszip';
 import ProgrammingCodeEditor from './ProgrammingCodeEditor';
+import CameraLogWindow from './CameraLogWindow';
 import './ExamPage.css';
 
 // Configure PDF.js worker
@@ -51,6 +52,7 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
     const [examStarted, setExamStarted] = useState(false);
     const [timeRemaining, setTimeRemaining] = useState<number>(-1);
     const [monitoringActive, setMonitoringActive] = useState(false);
+    const [cameraMonitoringActive, setCameraMonitoringActive] = useState(false);
     const [showSubmitDialog, setShowSubmitDialog] = useState(false);
     const [submittedFiles, setSubmittedFiles] = useState<File[]>([]);
     const [submissionStatus, setSubmissionStatus] = useState<{
@@ -187,6 +189,18 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                         console.error('Error stopping monitoring:', err);
                     });
                 }
+                // Stop camera monitoring
+                if (isElectron() && cameraMonitoringActive) {
+                    try {
+                        const cameraApi = (window as any).electronAPI.camera;
+                        cameraApi.stopTest().catch((err: any) => {
+                            console.error('Error stopping camera monitoring:', err);
+                        });
+                        setCameraMonitoringActive(false);
+                    } catch (err) {
+                        console.error('Error stopping camera monitoring:', err);
+                    }
+                }
                 onBack();
             }
         }
@@ -218,6 +232,23 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
             if (!silent) setQuestionsRefreshing(false);
         }
     }, [exam.exam_id]);
+
+    // Cleanup: Stop camera monitoring when component unmounts or exam ends
+    useEffect(() => {
+        return () => {
+            // Cleanup on unmount
+            if (isElectron() && cameraMonitoringActive) {
+                try {
+                    const cameraApi = (window as any).electronAPI.camera;
+                    cameraApi.stopTest().catch((err: any) => {
+                        console.error('Error stopping camera monitoring on unmount:', err);
+                    });
+                } catch (err) {
+                    console.error('Error stopping camera monitoring on unmount:', err);
+                }
+            }
+        };
+    }, [cameraMonitoringActive]);
 
     // Initial load when exam starts
     useEffect(() => {

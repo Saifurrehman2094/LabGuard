@@ -68,6 +68,16 @@ interface ElectronAPI {
   getCodeSubmissions?: (examId: string, studentId: string) => Promise<any>;
   getSubmissionResults?: (submissionId: string) => Promise<any>;
 
+  // Camera monitoring methods
+  camera: {
+    startTest: (options?: any) => Promise<any>;
+    stopTest: () => Promise<any>;
+    getStatus: () => Promise<any>;
+    onStatusUpdate: (callback: (data: any) => void) => () => void;
+    onError: (callback: (error: any) => void) => () => void;
+    onProcessExit: (callback: (data: any) => void) => () => void;
+  };
+
   // Event listeners
   onMonitoringEvent: (callback: (...args: any[]) => void) => () => void;
 }
