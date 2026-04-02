@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import SubmissionDetailModal from './SubmissionDetailModal';
 import './StudentScoresPanel.css';
 
 interface Exam {
@@ -62,6 +63,19 @@ const StudentScoresPanel: React.FC<StudentScoresPanelProps> = ({ exams }) => {
   const [sortCol,   setSortCol]         = useState<'name' | 'total' | number>('name');
   const [sortAsc,   setSortAsc]         = useState(true);
   const [search,    setSearch]          = useState('');
+  // Modal state
+  const [modalStudent, setModalStudent] = useState<{ studentId: string; studentName: string } | null>(null);
+
+  // Live feed — recent submissions broadcast by main process
+  const [liveFeed, setLiveFeed]     = useState<Array<{
+    studentName: string; studentId: string; score: number; maxMarks: number;
+    passedCount: number; totalCount: number; hardcoded: boolean;
+    conceptPassed: boolean; submittedAt: string;
+  }>>([]);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [liveFlash,   setLiveFlash]   = useState(false);   // brief highlight on new event
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedExamIdRef = useRef(selectedExamId);
 
   const loadScores = useCallback(async (examId: string) => {
     if (!examId || !api) return;
@@ -82,9 +96,38 @@ const StudentScoresPanel: React.FC<StudentScoresPanelProps> = ({ exams }) => {
     }
   }, [api]);
 
+  // keep ref in sync so the listener always sees the current exam
+  useEffect(() => { selectedExamIdRef.current = selectedExamId; }, [selectedExamId]);
+
   useEffect(() => {
-    if (selectedExamId) loadScores(selectedExamId);
+    if (selectedExamId) { loadScores(selectedExamId); setLastRefresh(new Date()); }
   }, [selectedExamId, loadScores]);
+
+  // Listen for real-time student submission events from main process
+  useEffect(() => {
+    if (!api?.onStudentSubmitted) return;
+    const handler = (data: any) => {
+      // Only react if it's for the exam we're currently viewing
+      if (data.examId && data.examId !== selectedExamIdRef.current) return;
+
+      // Add to live feed (keep last 50)
+      setLiveFeed(prev => [data, ...prev].slice(0, 50));
+
+      // Flash indicator
+      setLiveFlash(true);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setLiveFlash(false), 2000);
+
+      // Auto-refresh the score table
+      if (selectedExamIdRef.current) {
+        loadScores(selectedExamIdRef.current);
+        setLastRefresh(new Date());
+      }
+    };
+    api.onStudentSubmitted(handler);
+    // Note: Electron's ipcRenderer.on does not return an unsubscribe fn via contextBridge;
+    // the listener is cleaned up when the component unmounts naturally.
+  }, [api, loadScores]);
 
   // Sort + filter
   const displayed = [...students]
@@ -178,6 +221,38 @@ const StudentScoresPanel: React.FC<StudentScoresPanelProps> = ({ exams }) => {
         )}
       </div>
 
+      {/* ── Live activity feed ── */}
+      {selectedExamId && (
+        <div className={`ssp-live-bar ${liveFlash ? 'ssp-live-flash' : ''}`}>
+          <span className="ssp-live-dot" />
+          <span className="ssp-live-label">Live</span>
+          {lastRefresh && (
+            <span className="ssp-last-refresh">Last updated {lastRefresh.toLocaleTimeString()}</span>
+          )}
+          {liveFeed.length > 0 && (
+            <div className="ssp-feed-scroll">
+              {liveFeed.map((ev, i) => {
+                const pct = ev.maxMarks > 0 ? Math.round((ev.score / ev.maxMarks) * 100) : 0;
+                return (
+                  <span
+                    key={i}
+                    className={`ssp-feed-chip ${ev.hardcoded ? 'feed-hc' : pct >= 80 ? 'feed-green' : pct >= 50 ? 'feed-yellow' : 'feed-red'}`}
+                    title={`${ev.studentName} — ${new Date(ev.submittedAt).toLocaleTimeString()}`}
+                  >
+                    {ev.studentName.split(' ')[0]}
+                    {ev.hardcoded ? ' ⚠ HC' : ` ${pct}%`}
+                    &nbsp;({ev.passedCount}/{ev.totalCount})
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {liveFeed.length === 0 && (
+            <span className="ssp-feed-empty">Waiting for submissions…</span>
+          )}
+        </div>
+      )}
+
       {loading && <div className="ssp-loading">Loading scores...</div>}
       {error   && <div className="ssp-error">{error}</div>}
 
@@ -240,9 +315,20 @@ const StudentScoresPanel: React.FC<StudentScoresPanelProps> = ({ exams }) => {
                     <td className="ssp-td-name">
                       <div className="ssp-student-name">{student.studentName}</div>
                       <div className="ssp-username">@{student.username}</div>
+                      <button
+                        className="ssp-detail-btn"
+                        onClick={() => setModalStudent({ studentId: student.studentId, studentName: student.studentName })}
+                      >
+                        View Report
+                      </button>
                     </td>
                     {student.scores.map((sc, i) => (
-                      <td key={i} className={`ssp-td-score ${pctClass(sc.earnedPct)}`}>
+                      <td
+                        key={i}
+                        className={`ssp-td-score ${pctClass(sc.earnedPct)} ssp-td-clickable`}
+                        onClick={() => setModalStudent({ studentId: student.studentId, studentName: student.studentName })}
+                        title="Click to view submission detail"
+                      >
                         {sc.earned === null ? (
                           <span className="ssp-not-attempted">—</span>
                         ) : (
@@ -302,6 +388,17 @@ const StudentScoresPanel: React.FC<StudentScoresPanelProps> = ({ exams }) => {
           <div className="ssp-placeholder-icon">📊</div>
           <p>Select an exam above to view student scores.</p>
         </div>
+      )}
+
+      {/* Submission detail modal */}
+      {modalStudent && selectedExamId && (
+        <SubmissionDetailModal
+          examId={selectedExamId}
+          examTitle={exams.find(e => e.examId === selectedExamId)?.title || 'Exam'}
+          studentId={modalStudent.studentId}
+          studentName={modalStudent.studentName}
+          onClose={() => setModalStudent(null)}
+        />
       )}
     </div>
   );

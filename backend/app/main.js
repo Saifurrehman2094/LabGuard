@@ -880,6 +880,16 @@ ipcMain.handle('exam:create', async (event, examData) => {
       }
     }
 
+    // Emit real-time event for dashboard update when exam is created
+    if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+      global.mainWindow.webContents.send('dashboard:updated', {
+        type: 'examCreated',
+        examId: exam.examId,
+        examTitle: exam.title,
+        teacherId: currentUser.userId
+      });
+    }
+
     return {
       success: true,
       exam
@@ -983,6 +993,9 @@ ipcMain.handle('exam:update', async (event, updateData) => {
     if (updateData.removePdf && existingExam.pdfPath) {
       fileService.deletePDF(updateData.examId);
       pdfPath = null;
+      // Also remove associated programming questions when PDF is removed
+      dbService.deleteProgrammingQuestionsByExam(updateData.examId);
+      console.log(`[Exam Update] Cleared questions for exam ${updateData.examId} due to PDF removal`);
     }
 
     // Handle new PDF upload
@@ -1003,6 +1016,11 @@ ipcMain.handle('exam:update', async (event, updateData) => {
           updateData.pdfFileName
         );
         pdfPath = uploadResult.filePath;
+
+        // Delete all existing programming questions for this exam when new PDF is uploaded
+        // This ensures each PDF upload creates a fresh set of questions
+        dbService.deleteProgrammingQuestionsByExam(updateData.examId);
+        console.log(`[Exam Update] Cleared old questions for exam ${updateData.examId} due to new PDF upload`);
       } catch (fileError) {
         console.error('PDF upload error:', fileError);
         return {
@@ -1914,6 +1932,16 @@ ipcMain.handle('programming:create-question', async (event, examId, data) => {
       return { success: false, error: 'Unauthorized' };
     }
     const result = dbService.createProgrammingQuestion(examId, data);
+
+    // Emit real-time event for dashboard update
+    if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+      global.mainWindow.webContents.send('dashboard:updated', {
+        type: 'questionAdded',
+        examId: examId,
+        questionId: result.questionId
+      });
+    }
+
     return { success: true, question: result };
   } catch (error) {
     return { success: false, error: error.message };
@@ -1964,6 +1992,18 @@ ipcMain.handle('programming:add-test-case', async (event, questionId, data) => {
       return { success: false, error: 'Unauthorized' };
     }
     const result = dbService.createTestCase(questionId, data);
+
+    // Get the question to find the exam for the event
+    const question = dbService.getProgrammingQuestionById(questionId);
+    if (question && global.mainWindow && !global.mainWindow.isDestroyed()) {
+      global.mainWindow.webContents.send('dashboard:updated', {
+        type: 'testCaseAdded',
+        questionId: questionId,
+        examId: question.exam_id,
+        testCaseId: result.testCaseId
+      });
+    }
+
     return { success: true, testCase: result };
   } catch (error) {
     return { success: false, error: error.message };
@@ -2178,6 +2218,38 @@ ipcMain.handle('programming:submit-code', async (event, examId, questionId, sour
         submission.submissionId, r.testCaseId, r.passed, r.actualOutput, r.executionTimeMs, r.error, r.score
       );
     }
+    // Broadcast to ALL windows so teacher's score panel auto-refreshes
+    const submissionEvent = {
+      examId,
+      questionId,
+      studentId: currentUser.userId,
+      studentName: currentUser.fullName || currentUser.username || currentUser.userId,
+      score,
+      maxMarks,
+      passedCount,
+      totalCount,
+      hardcoded,
+      conceptPassed,
+      submittedAt: new Date().toISOString()
+    };
+    const { BrowserWindow } = require('electron');
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('student-code-submitted', submissionEvent);
+      }
+    });
+
+    // Also emit dashboard update event for real-time analytics
+    if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+      global.mainWindow.webContents.send('dashboard:updated', {
+        type: 'submissionAdded',
+        examId: examId,
+        questionId: questionId,
+        studentId: currentUser.userId,
+        submissionId: submission.submissionId
+      });
+    }
+
     return {
       success: true,
       submissionId: submission.submissionId,
@@ -2225,6 +2297,21 @@ ipcMain.handle('programming:get-submission-results', async (event, submissionId)
   }
 });
 
+// Teacher: full submission detail for one student in one exam
+ipcMain.handle('programming:teacher-get-student-detail', async (event, examId, studentId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) return { success: false, error: 'Not authenticated' };
+    if (currentUser.role !== 'teacher' && currentUser.role !== 'admin') {
+      return { success: false, error: 'Unauthorized' };
+    }
+    const data = dbService.getTeacherStudentDetail(examId, studentId);
+    return { success: true, ...data };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 // Teacher: get all student scores for an exam
 ipcMain.handle('programming:get-exam-scores', async (event, examId) => {
   try {
@@ -2236,6 +2323,530 @@ ipcMain.handle('programming:get-exam-scores', async (event, examId) => {
     const data = dbService.getExamStudentScores(examId);
     return { success: true, ...data };
   } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ===== PLATFORM IMPORT HANDLERS =====
+
+ipcMain.handle('platform:getTags', async (event, { platform }) => {
+  try {
+    const tagMap = {
+      codeforces: [
+        { value: 'implementation', label: 'Implementation' },
+        { value: 'arrays',         label: 'Arrays' },
+        { value: 'strings',        label: 'Strings' },
+        { value: 'math',           label: 'Math' },
+        { value: 'brute force',    label: 'Brute Force' },
+        { value: 'sortings',       label: 'Sorting' }
+      ],
+      atcoder: [
+        { value: 'abc_a', label: 'ABC Task A (simplest)' },
+        { value: 'abc_b', label: 'ABC Task B (simple)' }
+      ],
+      hackerrank: [
+        { value: 'arrays',         label: 'Arrays' },
+        { value: 'strings',        label: 'Strings' },
+        { value: 'sorting',        label: 'Sorting' },
+        { value: 'implementation', label: 'Implementation' }
+      ]
+    };
+    return { success: true, tags: tagMap[platform] || [] };
+  } catch (error) {
+    console.error('[PlatformImport:IPC] getTags error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('platform:fetchProblems', async (event, payload) => {
+  const { platform, difficulty, tags, count, requiredConcepts } = payload;
+
+  console.log('[PlatformImport:IPC] fetchProblems:', { platform, difficulty, count });
+
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Import services
+    const platformService = require('../services/platformImportService');
+    const aiService = require('../services/aiService');
+
+    // Hard cap: never more than 10
+    const safeCount = Math.min(parseInt(count) || 3, 10);
+
+    // Map UI difficulty to safe rating ranges
+    const ratingMap = {
+      easy:   { min: 800, max: 800 },
+      medium: { min: 900, max: 1000 }
+    };
+
+    let rawProblems = [];
+
+    try {
+      if (platform === 'codeforces') {
+        rawProblems = await platformService.fetchCodeforcesProblems({
+          minRating: ratingMap[difficulty]?.min || 800,
+          maxRating: ratingMap[difficulty]?.max || 900,
+          count: safeCount,
+          tags: tags || []
+        });
+      } else if (platform === 'atcoder') {
+        rawProblems = await platformService.fetchAtCoderProblems({
+          maxDifficulty: difficulty === 'easy' ? 200 : 400,
+          count: safeCount
+        });
+      } else if (platform === 'hackerrank') {
+        rawProblems = await platformService.fetchHackerRankProblems({
+          subdomain: tags?.[0] || 'arrays',
+          count: safeCount
+        });
+      } else {
+        return { success: false, error: 'Unknown platform: ' + platform };
+      }
+    } catch (fetchErr) {
+      console.error('[PlatformImport:IPC] Fetch failed:', fetchErr.message);
+      return { success: false, error: 'Failed to fetch problems: ' + (fetchErr.message || 'Unknown error') };
+    }
+
+    if (rawProblems.length === 0) {
+      return { success: false, error: 'No suitable problems found. Try a different difficulty or platform.' };
+    }
+
+    const results = [];
+    const totalSteps = rawProblems.length * 3; // Each problem: fetch (1), rewrite (1), generate tests (1)
+
+    for (let i = 0; i < rawProblems.length; i++) {
+      const raw = rawProblems[i];
+
+      // Progress: processing
+      if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+        event.sender.send('platform:progress', {
+          current: i + 1,
+          total: rawProblems.length,
+          stage: 'rewriting',
+          problemTitle: raw.originalTitle,
+          percentComplete: Math.round(((i * 3) / totalSteps) * 100)
+        });
+      }
+
+      try {
+        // Rewrite with AI
+        const rewritten = await aiService.rewriteProblemForLabGuard(raw, {
+          requiredConcepts,
+          problemType: 'general'
+        });
+
+        // Progress: rewritten
+        if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+          event.sender.send('platform:progress', {
+            current: i + 1,
+            total: rawProblems.length,
+            stage: 'generating',
+            problemTitle: rewritten.title,
+            percentComplete: Math.round(((i * 3 + 1) / totalSteps) * 100)
+          });
+        }
+
+        // Generate test cases using existing pipeline
+        const { testCases, referenceSolution } = await aiService.generateTestCases(
+          rewritten.statement,
+          'python',
+          'general',
+          requiredConcepts
+        );
+
+        // Progress: done for this problem
+        if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+          event.sender.send('platform:progress', {
+            current: i + 1,
+            total: rawProblems.length,
+            stage: 'done',
+            problemTitle: rewritten.title,
+            percentComplete: Math.round(((i * 3 + 2) / totalSteps) * 100)
+          });
+        }
+
+        results.push({
+          rewritten,
+          testCases,
+          referenceSolution,
+          sourceInfo: {
+            platform: raw.sourcePlatform,
+            url: raw.sourceUrl,
+            originalTitle: raw.originalTitle,
+            difficulty: raw.difficulty,
+            tags: raw.tags
+          },
+          status: 'success'
+        });
+
+        console.log('[PlatformImport:IPC] ✓ Processed:', raw.originalTitle);
+      } catch (err) {
+        console.error('[PlatformImport:IPC] Problem processing failed:', raw.originalTitle, err.message);
+        results.push({
+          rewritten: null,
+          testCases: [],
+          sourceInfo: { platform: raw.sourcePlatform, originalTitle: raw.originalTitle },
+          status: 'failed',
+          error: err.message
+        });
+      }
+    }
+
+    // Final progress
+    if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+      event.sender.send('platform:progress', {
+        current: rawProblems.length,
+        total: rawProblems.length,
+        stage: 'complete',
+        problemTitle: '',
+        percentComplete: 100
+      });
+    }
+
+    return { success: true, results };
+  } catch (error) {
+    console.error('[PlatformImport:IPC] Fatal error:', error.message);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('platform:importQuestion', async (event, { examId, rewrittenQuestion, testCases, sourceInfo }) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Verify exam belongs to this teacher
+    const exam = dbService.getExamById(examId);
+    if (!exam || exam.teacher_id !== currentUser.userId) {
+      return { success: false, error: 'Exam not found or access denied' };
+    }
+
+    // Create question with source info
+    const questionData = {
+      title: rewrittenQuestion.title,
+      problem_text: rewrittenQuestion.statement,
+      language: 'python',
+      time_limit_seconds: 2,
+      memory_limit_mb: 256,
+      // Source tracking columns
+      source_platform: sourceInfo.platform,
+      source_url: sourceInfo.url,
+      source_id: `${sourceInfo.platform}_${Date.now()}`,
+      is_imported: 1,
+      difficulty: rewrittenQuestion.difficulty,
+      platform: sourceInfo.platform
+    };
+
+    const questionResult = dbService.createProgrammingQuestion(examId, questionData);
+    const questionId = questionResult.questionId;
+
+    // Add test cases
+    for (let i = 0; i < testCases.length; i++) {
+      const tc = testCases[i];
+      const testCaseData = {
+        input_data: tc.input,
+        expected_output: tc.expectedOutput,
+        description: tc.description || `Test case ${i + 1}`,
+        is_sample: i < 2 ? 1 : 0, // First two as sample
+        sort_order: i
+      };
+      dbService.createTestCase(questionId, testCaseData);
+    }
+
+    // Emit dashboard update
+    if (global.mainWindow && !global.mainWindow.isDestroyed()) {
+      global.mainWindow.webContents.send('dashboard:updated', {
+        type: 'questionAdded',
+        examId,
+        questionId
+      });
+    }
+
+    // Log audit event
+    dbService.logAuditEvent(currentUser.userId, 'QUESTION_IMPORTED', {
+      examId,
+      questionId,
+      platform: sourceInfo.platform,
+      originalTitle: sourceInfo.originalTitle
+    });
+
+    return { success: true, questionId, testCaseCount: testCases.length };
+  } catch (error) {
+    console.error('[PlatformImport:IPC] Import failed:', error.message);
+    return { success: false, error: error.message };
+  }
+});
+
+// ===== STUDENT ANALYTICS HANDLERS =====
+
+ipcMain.handle('students:getAll', async (event, teacherId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Verify teacher matches
+    if (currentUser.role === 'teacher' && currentUser.userId !== teacherId) {
+      return { success: false, error: 'Cannot access other teachers\' data' };
+    }
+
+    console.log('[StudentAnalytics] getAll for teacher:', teacherId);
+    const studentAnalytics = require('../services/studentAnalyticsService');
+
+    // Get all students
+    const students = dbService.getAllStudentsByTeacher(teacherId);
+
+    // For each student, quickly check if at-risk
+    const studentsWithRiskFlags = students.map(student => {
+      try {
+        const submissions = dbService.getStudentSubmissionHistory(student.user_id, teacherId);
+        const conceptStats = studentAnalytics.computeConceptStats(submissions);
+        const atRiskConcepts = conceptStats.filter(c => c.isAtRisk);
+
+        return {
+          ...student,
+          isAtRisk: atRiskConcepts.length > 0,
+          atRiskConceptCount: atRiskConcepts.length
+        };
+      } catch (err) {
+        console.warn('[StudentAnalytics] Error checking at-risk for student', student.user_id, err.message);
+        return {
+          ...student,
+          isAtRisk: false,
+          atRiskConceptCount: 0
+        };
+      }
+    });
+
+    return { success: true, students: studentsWithRiskFlags };
+  } catch (error) {
+    console.error('[StudentAnalytics] getAll error:', error.message);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('students:getProfile', async (event, { teacherId, studentId }) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Verify teacher matches
+    if (currentUser.role === 'teacher' && currentUser.userId !== teacherId) {
+      return { success: false, error: 'Cannot access other teachers\' data' };
+    }
+
+    console.log('[StudentAnalytics] getProfile for student:', studentId, 'teacher:', teacherId);
+
+    // Verify student submitted to at least one of this teacher's exams
+    const studentSubmission = dbService.verifyStudentBelongsToTeacher(studentId, teacherId);
+    if (!studentSubmission) {
+      return { success: false, error: 'Student has no submissions in your exams' };
+    }
+
+    const studentAnalytics = require('../services/studentAnalyticsService');
+    const authServiceModule = require('../services/auth');
+
+    // Get student basic info
+    const studentSubmissions = dbService.getStudentSubmissionHistory(studentId, teacherId);
+    if (studentSubmissions.length === 0) {
+      return { success: false, error: 'No submissions found' };
+    }
+
+    // Get student user data
+    const studentUser = dbService.getUserById(studentId);
+    if (!studentUser) {
+      return { success: false, error: 'Student not found' };
+    }
+
+    // Get overall stats
+    const allStudents = dbService.getAllStudentsByTeacher(teacherId);
+    const student = allStudents.find(s => s.user_id === studentId);
+    if (!student) {
+      return { success: false, error: 'Student not found in your class' };
+    }
+
+    // Compute concept stats
+    const conceptStats = studentAnalytics.computeConceptStats(studentSubmissions);
+    const atRiskConcepts = conceptStats.filter(c => c.isAtRisk);
+
+    // Get exam performance
+    const examPerformance = dbService.getStudentExamPerformance(studentId, teacherId);
+
+    // Compute overall trend
+    const overallTrend = studentAnalytics.computeImprovementTrend(
+      examPerformance.filter(e => e.questionsAttempted > 0)
+    );
+
+    return {
+      success: true,
+      profile: {
+        student,
+        conceptStats,
+        examPerformance: examPerformance.filter(e => e.questionsAttempted > 0),
+        atRiskConcepts,
+        overallTrend,
+        submissions: studentSubmissions
+      }
+    };
+  } catch (error) {
+    console.error('[StudentAnalytics] getProfile error:', error.message);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('students:getSubmissionDetail', async (event, { teacherId, studentId, submissionId }) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Verify teacher matches
+    if (currentUser.role === 'teacher' && currentUser.userId !== teacherId) {
+      return { success: false, error: 'Cannot access other teachers\' data' };
+    }
+
+    console.log('[StudentAnalytics] getSubmissionDetail for submission:', submissionId);
+
+    // Verify submission belongs to teacher's exam and student
+    const submission = dbService.verifySubmissionBelongsToTeacher(submissionId, teacherId);
+    if (!submission || submission.student_id !== studentId) {
+      return { success: false, error: 'Submission not found or access denied' };
+    }
+
+    // Get test case results
+    const testCaseResults = dbService.getSubmissionTestCaseResults(submissionId);
+
+    return {
+      success: true,
+      submission,
+      testCaseResults
+    };
+  } catch (error) {
+    console.error('[StudentAnalytics] getSubmissionDetail error:', error.message);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('students:generateReport', async (event, { teacherId, studentId, format }) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Verify teacher matches
+    if (currentUser.role === 'teacher' && currentUser.userId !== teacherId) {
+      return { success: false, error: 'Cannot generate reports for other teachers\' students' };
+    }
+
+    console.log('[StudentAnalytics] generateReport for student:', studentId, 'format:', format);
+
+    // Fetch full profile (reuse getProfile logic)
+    const profileResult = await new Promise((resolve) => {
+      event.sender.send = (channel) => {}; // dummy to avoid errors
+      dbService.verifyStudentBelongsToTeacher(studentId, teacherId);
+
+      const studentAnalytics = require('../services/studentAnalyticsService');
+      const studentSubmissions = dbService.getStudentSubmissionHistory(studentId, teacherId);
+      const allStudents = dbService.getAllStudentsByTeacher(teacherId);
+      const student = allStudents.find(s => s.user_id === studentId);
+      const conceptStats = studentAnalytics.computeConceptStats(studentSubmissions);
+      const atRiskConcepts = conceptStats.filter(c => c.isAtRisk);
+      const examPerformance = dbService.getStudentExamPerformance(studentId, teacherId);
+      const overallTrend = studentAnalytics.computeImprovementTrend(
+        examPerformance.filter(e => e.questionsAttempted > 0)
+      );
+
+      resolve({
+        student,
+        conceptStats,
+        examPerformance: examPerformance.filter(e => e.questionsAttempted > 0),
+        atRiskConcepts,
+        overallTrend,
+        submissions: studentSubmissions
+      });
+    });
+
+    const studentAnalytics = require('../services/studentAnalyticsService');
+    const reportText = studentAnalytics.generateReportText(profileResult, currentUser.fullName || 'Instructor');
+
+    if (format === 'text' || format === 'txt') {
+      return {
+        success: true,
+        format: 'text',
+        content: reportText,
+        filename: `labguard_report_${profileResult.student.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.txt`
+      };
+    } else if (format === 'json') {
+      return {
+        success: true,
+        format: 'json',
+        content: JSON.stringify(profileResult, null, 2),
+        filename: `labguard_report_${profileResult.student.name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`
+      };
+    } else {
+      return { success: false, error: 'Unsupported format: ' + format };
+    }
+  } catch (error) {
+    console.error('[StudentAnalytics] generateReport error:', error.message);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('students:getAtRisk', async (event, teacherId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Verify teacher matches
+    if (currentUser.role === 'teacher' && currentUser.userId !== teacherId) {
+      return { success: false, error: 'Cannot access other teachers\' data' };
+    }
+
+    console.log('[StudentAnalytics] getAtRisk for teacher:', teacherId);
+
+    const studentAnalytics = require('../services/studentAnalyticsService');
+    const allStudents = dbService.getAllStudentsByTeacher(teacherId);
+    const atRiskStudents = [];
+
+    for (const student of allStudents) {
+      try {
+        const submissions = dbService.getStudentSubmissionHistory(student.user_id, teacherId);
+        const conceptStats = studentAnalytics.computeConceptStats(submissions);
+        const atRiskConcepts = conceptStats.filter(c => c.isAtRisk);
+
+        if (atRiskConcepts.length > 0) {
+          atRiskStudents.push({
+            userId: student.user_id,
+            name: student.name,
+            email: student.email,
+            atRiskConcepts: atRiskConcepts.map(c => ({
+              concept: c.concept,
+              consecutiveFailures: c.consecutiveFailures,
+              failRate: c.failRate
+            })),
+            lastActive: student.lastActive
+          });
+        }
+      } catch (err) {
+        console.warn('[StudentAnalytics] Error checking at-risk for student', student.user_id, err.message);
+      }
+    }
+
+    return { success: true, atRiskStudents };
+  } catch (error) {
+    console.error('[StudentAnalytics] getAtRisk error:', error.message);
     return { success: false, error: error.message };
   }
 });
@@ -2596,6 +3207,352 @@ function generateCSVReport(reportData) {
 
   return csvContent;
 }
+
+// ============================================
+// TEACHER ANALYTICS DASHBOARD — IPC HANDLERS
+// ============================================
+
+// Lazy one-time migration to add dashboard-required columns
+let _dashboardMigrated = false;
+function ensureDashboardColumns() {
+  if (_dashboardMigrated || !dbService || !dbService.db) return;
+  try {
+    const pqExists = dbService.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='programming_questions'").get();
+    if (pqExists) {
+      const pqCols = dbService.db.prepare("PRAGMA table_info(programming_questions)").all().map(c => c.name);
+      if (!pqCols.includes('platform')) {
+        dbService.db.exec("ALTER TABLE programming_questions ADD COLUMN platform TEXT DEFAULT 'manual'");
+        console.log('[Dashboard] Added platform column to programming_questions');
+      }
+      if (!pqCols.includes('difficulty')) {
+        dbService.db.exec("ALTER TABLE programming_questions ADD COLUMN difficulty TEXT DEFAULT 'medium'");
+        console.log('[Dashboard] Added difficulty column to programming_questions');
+      }
+      if (!pqCols.includes('problem_type')) {
+        dbService.db.exec("ALTER TABLE programming_questions ADD COLUMN problem_type TEXT DEFAULT 'general'");
+        console.log('[Dashboard] Added problem_type column to programming_questions');
+      }
+      if (!pqCols.includes('source_url')) {
+        dbService.db.exec("ALTER TABLE programming_questions ADD COLUMN source_url TEXT");
+        console.log('[Dashboard] Added source_url column to programming_questions');
+      }
+    }
+    const qtcExists = dbService.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='question_test_cases'").get();
+    if (qtcExists) {
+      const qtcCols = dbService.db.prepare("PRAGMA table_info(question_test_cases)").all().map(c => c.name);
+      if (!qtcCols.includes('is_correct')) {
+        dbService.db.exec("ALTER TABLE question_test_cases ADD COLUMN is_correct INTEGER DEFAULT 1");
+        console.log('[Dashboard] Added is_correct column to question_test_cases');
+      }
+    }
+    _dashboardMigrated = true;
+  } catch (err) {
+    console.warn('[Dashboard] Migration warning:', err.message);
+  }
+}
+
+ipcMain.handle('dashboard:summary', async (event) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    ensureDashboardColumns();
+    console.log('[Dashboard] dashboard:summary querying DB for teacher:', currentUser.userId);
+    const db = dbService.db;
+    const teacherId = currentUser.userId;
+
+    // Filter all counts by teacher's exams
+    const totalExams = db.prepare("SELECT COUNT(*) as c FROM exams WHERE teacher_id = ?").get(teacherId).c;
+    const totalQuestions = db.prepare(`
+      SELECT COUNT(*) as c FROM programming_questions pq
+      JOIN exams e ON pq.exam_id = e.exam_id
+      WHERE e.teacher_id = ?
+    `).get(teacherId).c;
+    const totalTestCases = db.prepare(`
+      SELECT COUNT(*) as c FROM question_test_cases qtc
+      JOIN programming_questions pq ON qtc.question_id = pq.question_id
+      JOIN exams e ON pq.exam_id = e.exam_id
+      WHERE e.teacher_id = ?
+    `).get(teacherId).c;
+    const totalSubmissions = db.prepare(`
+      SELECT COUNT(*) as c FROM code_submissions cs
+      JOIN exams e ON cs.exam_id = e.exam_id
+      WHERE e.teacher_id = ?
+    `).get(teacherId).c;
+    const hardcodingFlags = db.prepare(`
+      SELECT COUNT(*) as c FROM code_submissions cs
+      JOIN exams e ON cs.exam_id = e.exam_id
+      WHERE e.teacher_id = ? AND cs.hardcoded = 1
+    `).get(teacherId).c;
+    const verifiedCorrect = db.prepare(`
+      SELECT COUNT(*) as c FROM question_test_cases qtc
+      JOIN programming_questions pq ON qtc.question_id = pq.question_id
+      JOIN exams e ON pq.exam_id = e.exam_id
+      WHERE e.teacher_id = ? AND qtc.is_correct = 1
+    `).get(teacherId).c;
+
+    const avgCasesPerQuestion = totalQuestions > 0 ? Math.round((totalTestCases / totalQuestions) * 100) / 100 : 0;
+    const accuracyRate = totalTestCases > 0 ? Math.round((verifiedCorrect / totalTestCases) * 10000) / 100 : 0;
+    return {
+      success: true,
+      data: { totalQuestions, totalTestCases, avgCasesPerQuestion, totalExams, totalSubmissions, hardcodingFlags, verifiedCorrect, accuracyRate }
+    };
+  } catch (error) {
+    console.error('[Dashboard] dashboard:summary error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('dashboard:papers', async (event) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    ensureDashboardColumns();
+    console.log('[Dashboard] dashboard:papers querying DB for teacher:', currentUser.userId);
+    const db = dbService.db;
+    const teacherId = currentUser.userId;
+
+    // Only get exams belonging to this teacher
+    const exams = db.prepare("SELECT exam_id, title, created_at FROM exams WHERE teacher_id = ? ORDER BY created_at DESC").all(teacherId);
+    const papers = exams.map(exam => {
+      const questions = db.prepare("SELECT question_id, difficulty FROM programming_questions WHERE exam_id = ?").all(exam.exam_id);
+      const questionIds = questions.map(q => q.question_id);
+      let testCaseCount = 0, correctCases = 0;
+      if (questionIds.length > 0) {
+        const ph = questionIds.map(() => '?').join(',');
+        testCaseCount = db.prepare(`SELECT COUNT(*) as c FROM question_test_cases WHERE question_id IN (${ph})`).get(...questionIds).c;
+        correctCases = db.prepare(`SELECT COUNT(*) as c FROM question_test_cases WHERE question_id IN (${ph}) AND is_correct = 1`).get(...questionIds).c;
+      }
+      const easyCount = questions.filter(q => q.difficulty === 'easy').length;
+      const hardCount = questions.filter(q => q.difficulty === 'hard').length;
+      const mediumCount = questions.length - easyCount - hardCount;
+      return {
+        examId: exam.exam_id, examTitle: exam.title,
+        questionCount: questions.length, testCaseCount,
+        correctCases, wrongCases: testCaseCount - correctCases,
+        easyCount, mediumCount, hardCount, createdAt: exam.created_at
+      };
+    });
+    return { success: true, data: papers };
+  } catch (error) {
+    console.error('[Dashboard] dashboard:papers error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('dashboard:concepts', async (event) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    console.log('[Dashboard] dashboard:concepts querying DB for teacher:', currentUser.userId);
+    const db = dbService.db;
+    const teacherId = currentUser.userId;
+
+    // Only get concepts from questions belonging to this teacher's exams
+    const rows = db.prepare(`
+      SELECT required_concepts FROM programming_questions pq
+      JOIN exams e ON pq.exam_id = e.exam_id
+      WHERE e.teacher_id = ? AND pq.required_concepts IS NOT NULL AND pq.required_concepts != ''
+    `).all(teacherId);
+
+    const TRACKED = ['loops', 'do_while', 'switch', 'nested_loops', 'arrays', 'arrays_2d', 'arrays_3d', 'pointers', 'conditionals', 'recursion'];
+    const counts = {};
+    for (const row of rows) {
+      try {
+        let c = row.required_concepts;
+        if (typeof c === 'string') c = JSON.parse(c);
+        if (Array.isArray(c)) {
+          for (const item of c) { const k = String(item).toLowerCase().trim(); counts[k] = (counts[k] || 0) + 1; }
+        }
+      } catch (_) {}
+    }
+    const result = TRACKED.map(c => ({ concept: c, count: counts[c] || 0 }));
+    for (const [c, count] of Object.entries(counts)) {
+      if (!TRACKED.includes(c)) result.push({ concept: c, count });
+    }
+    result.sort((a, b) => b.count - a.count);
+    return { success: true, data: result };
+  } catch (error) {
+    console.error('[Dashboard] dashboard:concepts error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('dashboard:questions', async (event, examId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    ensureDashboardColumns();
+    console.log('[Dashboard] dashboard:questions for exam:', examId, 'teacher:', currentUser.userId);
+    const db = dbService.db;
+    const teacherId = currentUser.userId;
+
+    // Verify exam belongs to current teacher
+    const exam = db.prepare("SELECT exam_id, teacher_id FROM exams WHERE exam_id = ?").get(examId);
+    if (!exam || exam.teacher_id !== teacherId) {
+      return { success: false, error: 'Unauthorized: Exam does not belong to this teacher' };
+    }
+
+    const questions = db.prepare("SELECT * FROM programming_questions WHERE exam_id = ? ORDER BY sort_order, created_at").all(examId);
+    const result = questions.map(q => {
+      const tcCount = db.prepare("SELECT COUNT(*) as c FROM question_test_cases WHERE question_id = ?").get(q.question_id).c;
+      const correctCount = db.prepare("SELECT COUNT(*) as c FROM question_test_cases WHERE question_id = ? AND is_correct = 1").get(q.question_id).c;
+      const accuracyPercent = tcCount > 0 ? Math.round((correctCount / tcCount) * 100) : 0;
+      let requiredConcepts = [];
+      try { requiredConcepts = q.required_concepts ? JSON.parse(q.required_concepts) : []; } catch (_) { requiredConcepts = []; }
+      return {
+        questionId: q.question_id,
+        title: q.title || (q.problem_text ? q.problem_text.slice(0, 60) : 'Untitled'),
+        testCaseCount: tcCount, correctCount, accuracyPercent,
+        requiredConcepts, difficulty: q.difficulty || 'medium', platform: q.platform || 'manual'
+      };
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    console.error('[Dashboard] dashboard:questions error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('dashboard:pipeline', async (event) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    console.log('[Dashboard] dashboard:pipeline returning config');
+    return {
+      success: true,
+      data: {
+        primaryModel: 'llama-3.3-70b-versatile', primaryProvider: 'Groq',
+        fallbackModel: 'gemini-2.0-flash', fallbackProvider: 'Gemini',
+        temperature: 0.1, maxTokens: 4096, casesPerPrompt: 6,
+        judge0PythonId: 71, judge0CppId: 54, memoryLimitMB: 256,
+        judge0Endpoint: 'https://ce.judge0.com',
+        groqConfigured: !!(process.env.GROQ_API_KEY && !process.env.GROQ_API_KEY.includes('your_')),
+        geminiConfigured: !!(process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes('your_'))
+      }
+    };
+  } catch (error) {
+    console.error('[Dashboard] dashboard:pipeline error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('dashboard:platforms', async (event) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    ensureDashboardColumns();
+    console.log('[Dashboard] dashboard:platforms querying DB for teacher:', currentUser.userId);
+    const db = dbService.db;
+    const teacherId = currentUser.userId;
+
+    // Only get platforms from questions belonging to this teacher's exams
+    const rows = db.prepare(`
+      SELECT COALESCE(pq.platform, 'manual') as platform, COUNT(*) as count
+      FROM programming_questions pq
+      JOIN exams e ON pq.exam_id = e.exam_id
+      WHERE e.teacher_id = ?
+      GROUP BY COALESCE(pq.platform, 'manual')
+    `).all(teacherId);
+
+    const total = rows.reduce((s, r) => s + r.count, 0);
+    const result = rows.map(r => ({ platform: r.platform, count: r.count, percentage: total > 0 ? Math.round((r.count / total) * 100) : 0 }));
+    const known = ['Codeforces', 'AtCoder', 'HackerRank'];
+    for (const p of known) {
+      if (!result.find(r => r.platform.toLowerCase() === p.toLowerCase())) {
+        result.push({ platform: p, count: 0, percentage: 0 });
+      }
+    }
+    return { success: true, data: result };
+  } catch (error) {
+    console.error('[Dashboard] dashboard:platforms error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('dashboard:events-recent', async (event) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    console.log('[Dashboard] dashboard:events-recent querying DB for teacher:', currentUser.userId);
+    const db = dbService.db;
+    const teacherId = currentUser.userId;
+    let rows = [];
+    try {
+      rows = db.prepare(`
+        SELECT av.violation_id as id, av.exam_id, av.student_id,
+               av.focus_start_time as timestamp, av.app_name as event_type,
+               av.window_title, 1 as is_violation,
+               u.full_name as student_name, e.title as exam_title
+        FROM app_violations av
+        LEFT JOIN users u ON u.user_id = av.student_id
+        LEFT JOIN exams e ON e.exam_id = av.exam_id
+        WHERE e.teacher_id = ?
+        ORDER BY av.focus_start_time DESC LIMIT 20
+      `).all(teacherId);
+    } catch (_) {
+      try {
+        rows = db.prepare(`
+          SELECT ev.event_id as id, ev.exam_id, ev.student_id,
+                 ev.timestamp, ev.event_type, ev.window_title, ev.is_violation,
+                 u.full_name as student_name, e.title as exam_title
+          FROM events ev
+          LEFT JOIN users u ON u.user_id = ev.student_id
+          LEFT JOIN exams e ON e.exam_id = ev.exam_id
+          WHERE e.teacher_id = ?
+          ORDER BY ev.timestamp DESC LIMIT 20
+        `).all(teacherId);
+      } catch (__) { rows = []; }
+    }
+    return { success: true, data: rows };
+  } catch (error) {
+    console.error('[Dashboard] dashboard:events-recent error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('dashboard:submissions-recent', async (event) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
+      return { success: false, error: 'Unauthorized' };
+    }
+    console.log('[Dashboard] dashboard:submissions-recent querying DB for teacher:', currentUser.userId);
+    const db = dbService.db;
+    const teacherId = currentUser.userId;
+    const rows = db.prepare(`
+      SELECT cs.submission_id, cs.exam_id, cs.question_id, cs.student_id,
+             cs.score, cs.passed_count, cs.total_count, cs.hardcoded,
+             cs.concept_passed, cs.submitted_at, cs.language,
+             u.full_name as student_name, u.username,
+             pq.title as question_title,
+             e.title as exam_title
+      FROM code_submissions cs
+      LEFT JOIN users u ON u.user_id = cs.student_id
+      LEFT JOIN programming_questions pq ON pq.question_id = cs.question_id
+      LEFT JOIN exams e ON e.exam_id = cs.exam_id
+      WHERE e.teacher_id = ?
+      ORDER BY cs.submitted_at DESC LIMIT 10
+    `).all(teacherId);
+    return { success: true, data: rows };
+  } catch (error) {
+    console.error('[Dashboard] dashboard:submissions-recent error:', error);
+    return { success: false, error: error.message };
+  }
+});
 
 // App event handlers
 app.whenReady().then(async () => {

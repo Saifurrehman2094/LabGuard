@@ -1,0 +1,94 @@
+.at-risk-panel {
+  background: linear-gradient(135deg, #fee2e2 0%, #fef2f2 100%);
+  border: 2px solid #dc2626;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.at-risk-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.at-risk-title-icon {
+  font-size: 18px;
+}
+
+.at-risk-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #991b1b;
+}
+
+.at-risk-description {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  color: #7f1d1d;
+  line-height: 1.4;
+}
+
+.at-risk-concepts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.at-risk-concept {
+  background: white;
+  border-left: 3px solid #dc2626;
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+
+.concept-name-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.concept-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  text-transform: capitalize;
+}
+
+.consecutive-count {
+  font-size: 11px;
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.concept-suggestion {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.concept-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.meta-item {
+  display: flex;
+  gap: 4px;
+}
+
+.meta-label {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.meta-value {
+  color: #1e293b;
+  font-weight: 500;
+}

@@ -243,6 +243,96 @@
 .total-red .ssp-total-pct { color: #dc2626; }
 .total-red .ssp-total-bar-fill { background: #ef4444; }
 
+/* ── Live activity bar ───────────────────── */
+.ssp-live-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--secondary-bg, #f0fdf4);
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  transition: background 0.4s;
+  font-size: 0.82rem;
+}
+
+.ssp-live-bar.ssp-live-flash {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.ssp-live-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+  animation: ssp-pulse 1.4s infinite;
+}
+
+@keyframes ssp-pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .5; transform: scale(1.35); }
+}
+
+.ssp-live-label {
+  font-weight: 700;
+  color: #15803d;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.ssp-last-refresh {
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.75rem;
+}
+
+.ssp-feed-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+
+.ssp-feed-chip {
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: default;
+}
+.feed-green  { background: #d1fae5; color: #065f46; }
+.feed-yellow { background: #fef9c3; color: #854d0e; }
+.feed-red    { background: #fee2e2; color: #991b1b; }
+.feed-hc     { background: #fca5a5; color: #7f1d1d; }
+
+.ssp-feed-empty {
+  color: var(--text-secondary, #9ca3af);
+  font-style: italic;
+  font-size: 0.78rem;
+}
+
+/* ── Detail button & clickable cells ────── */
+.ssp-detail-btn {
+  margin-top: 5px;
+  padding: 3px 10px;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: transparent;
+  color: #2563eb;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: block;
+}
+.ssp-detail-btn:hover { background: #eff6ff; }
+
+.ssp-td-clickable { cursor: pointer; }
+.ssp-td-clickable:hover { filter: brightness(0.94); }
+
 /* ── Legend ──────────────────────────────── */
 .ssp-legend {
   margin-top: 12px;

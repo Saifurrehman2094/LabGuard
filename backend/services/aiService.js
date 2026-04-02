@@ -261,10 +261,18 @@ const PROBLEM_TYPE_HINTS = {
 
   arrays_2d: `- 2D ARRAY / MATRIX PROBLEM: solution uses a 2D grid/matrix.
    - Input: line 1 = "rows cols", then each row on its own line as space-separated integers.
-   - Example 3x3: "3 3\\n1 2 3\\n4 5 6\\n7 8 9"
-   - Output: scalar (sum, trace, count) or matrix printed row-by-row space-separated.
-   - Typical: matrix sum, transpose, row/col totals, diagonal sum, search in matrix.
-   - Keep matrices small: 2x2 to 4x4 for test cases to avoid long inputs.`,
+   - Example 3x3 input: "3 3\\n1 2 3\\n4 5 6\\n7 8 9"
+   - Output format depends on the problem:
+       * Row sums THEN column sums: print n values (one per line) then m values (one per line).
+         Example 3x3 → "6\\n15\\n24\\n12\\n15\\n18"  (3 row sums + 3 col sums = 6 lines total)
+       * Transpose: print m rows of n values each, space-separated.
+       * Single scalar (total sum, trace, max): one number.
+       * Row-by-row output: each row on its own line, values space-separated.
+   - CRITICAL: If the problem asks for row sums AND column sums separately, output them on
+     SEPARATE lines — never combine on one line. Row sums come first (n lines), then
+     column sums (m lines). Total output lines = n + m.
+   - Typical problems: row/column totals, transpose, diagonal sum, matrix max/min, search.
+   - Keep matrices small: 2x2 to 4x4 for test cases.`,
 
   arrays_3d: `- 3D ARRAY PROBLEM: solution uses a 3-dimensional array.
    - Input: line 1 = "x y z" (layers rows cols), then all elements layer→row→col, each row on its own line.
@@ -642,21 +650,42 @@ C++ SYNTAX REQUIREMENT:
 
     arrays_2d: `
 CONCEPT ENFORCEMENT — 2D ARRAYS / MATRIX:
-- Solution MUST declare and use a 2-dimensional array/matrix.
-- Input format (strict): line 1 = "rows cols", then each row on its own line, space-separated.
-    Example 3×3: "3 3\\n1 2 3\\n4 5 6\\n7 8 9"
+- Solution MUST declare and use a 2-dimensional array/matrix with nested loops.
+- Input format (strict): line 1 = "rows cols" (two integers n and m), then n lines each with m space-separated integers.
+    Example 3×3 input: "3 3\\n1 2 3\\n4 5 6\\n7 8 9"
+
+OUTPUT FORMAT RULES (read the problem carefully to pick the right one):
+1. ROW SUMS then COLUMN SUMS (most common for this problem type):
+   - Print n lines (one per row): sum of that row.
+   - Then print m lines (one per column): sum of that column.
+   - Total output = n + m lines. Each line is a single integer.
+   - CORRECT for "3 3\\n1 2 3\\n4 5 6\\n7 8 9":
+       6      ← row 0 sum
+       15     ← row 1 sum
+       24     ← row 2 sum
+       12     ← col 0 sum
+       15     ← col 1 sum
+       18     ← col 2 sum
+   - WRONG: printing all 6 numbers on one line, or printing col sums before row sums.
+
+2. TRANSPOSE: print m rows, each with n values space-separated.
+
+3. SINGLE SCALAR: one integer (total sum, max element, trace, etc.).
+
+4. DIAGONAL: one integer per diagonal element, or single sum.
+
 - Keep matrix dimensions between 2×2 and 4×4 for test cases.
-- Test case values to generate:
-    square:     2×2, 3×3
-    rectangle:  2×3, 3×2
-    single row: 1×4
-    identity:   3×3 with 1s on diagonal
-- Expected output: scalar result (sum, trace, max) or matrix printed row-by-row space-separated.
+- Test inputs to cover: square (3×3), rectangle (2×3), negatives that cancel, single row (1×m), single col (n×1).
 ${isClike ? `
 C++ SYNTAX REQUIREMENT:
-- Use: int arr[10][10];
-- Read: for(int i=0;i<n;i++) for(int j=0;j<m;j++) cin >> arr[i][j];
-- Print: for(int i=0;i<n;i++) { for(int j=0;j<m;j++) cout << arr[i][j] << " "; cout << endl; }` : ''}`,
+- Declare: int arr[10][10];
+- Read:    for(int i=0;i<n;i++) for(int j=0;j<m;j++) cin >> arr[i][j];
+- Row sum: for(int j=0;j<m;j++) rowSum += arr[i][j];  cout << rowSum << endl;
+- Col sum: for(int i=0;i<n;i++) colSum += arr[i][j];  cout << colSum << endl;` : `
+PYTHON SYNTAX REQUIREMENT:
+- Read:    matrix = [list(map(int, input().split())) for _ in range(n)]
+- Row sum: print(sum(matrix[i]))  — one line per row
+- Col sum: print(sum(matrix[i][j] for i in range(n)))  — one line per col`}`,
 
     arrays_3d: `
 CONCEPT ENFORCEMENT — 3D ARRAYS:
@@ -1168,8 +1197,9 @@ function extractMinimalProblemInfo(fullText) {
   );
 
   // 3. Extract the FIRST "Input:" and "Output:" summary lines before removing detail blocks.
-  const inputSummaryMatch  = text.match(/\b(?:input\s*(?:format)?)\s*:\s*([^\n]{5,80})/i);
-  const outputSummaryMatch = text.match(/\b(?:output\s*(?:format)?)\s*:\s*([^\n]{5,80})/i);
+  //    Capture up to 200 chars so multi-part formats ("first n lines…next m lines…") survive.
+  const inputSummaryMatch  = text.match(/\b(?:input\s*(?:format)?)\s*:\s*([^\n]{5,200})/i);
+  const outputSummaryMatch = text.match(/\b(?:output\s*(?:format)?)\s*:\s*([^\n]{5,200})/i);
 
   // 4. Remove all detailed Input Format / Output Format sections (multi-line).
   text = text.replace(
@@ -1304,8 +1334,49 @@ ${minimalProblemText}`;
   const raw = await callAI(systemPrompt, userPrompt, { temperature: 0.08, maxTokens: 8192 }) || '';
   const { solution, inputs } = parseSolutionAndInputs(raw, questionText);
 
-  // ── Pattern solution guard ─────────────────────────────────────────────────
+  // ── 2D-array row/col sum guard ────────────────────────────────────────────
+  // If the problem asks for row sums then column sums, make sure the generated
+  // solution actually prints n+m lines and doesn't collapse both into one number.
   let finalSolution = solution;
+  if (problemType === 'arrays_2d' && solution) {
+    const isRowColSum = /\b(row.{0,20}col|column.{0,20}row|sum.{0,20}each.{0,20}(row|col)|row.{0,20}sum.{0,30}col.{0,20}sum)\b/i.test(questionText);
+    if (isRowColSum) {
+      // Check: solution must have at least 2 print loops (one for rows, one for cols)
+      const printLoopCount = (solution.match(/\bfor\b[^:]+:\s*\n[^:]+print/g) || []).length +
+                             (solution.match(/\bprint\s*\(.+\)\s*\n[^#]*\bfor\b/g) || []).length;
+      const hasSeparateOutputLoops = /for.+row|row_sum|rowsum|row\s+sum/i.test(solution) &&
+                                     /for.+col|col_sum|colsum|col\s+sum/i.test(solution);
+      if (!hasSeparateOutputLoops) {
+        console.warn('[aiService] arrays_2d row/col sum solution may be wrong — retrying with explicit prompt');
+        const rowColPrompt = systemPrompt + `\n\nCRITICAL FIX REQUIRED:
+The problem asks to print ROW SUMS first (n lines) then COLUMN SUMS (m lines).
+Your solution MUST:
+1. Loop over each row, compute sum, print one integer per line.
+2. Loop over each column, compute sum, print one integer per line.
+3. Total output lines = n + m.
+CORRECT Python:
+n, m = map(int, input().split())
+matrix = [list(map(int, input().split())) for _ in range(n)]
+for i in range(n):
+    print(sum(matrix[i]))
+for j in range(m):
+    print(sum(matrix[i][j] for i in range(n)))
+Do NOT print a single total. Do NOT put row and column sums on the same line.`;
+        try {
+          const retryRaw = await callAI(rowColPrompt, userPrompt, { temperature: 0.05, maxTokens: 8192 }) || '';
+          const retryParsed = parseSolutionAndInputs(retryRaw, questionText);
+          if (retryParsed.solution) {
+            finalSolution = retryParsed.solution;
+            console.log('[aiService] arrays_2d row/col retry succeeded');
+          }
+        } catch (e) {
+          console.warn('[aiService] arrays_2d retry failed:', e.message);
+        }
+      }
+    }
+  }
+
+  // ── Pattern solution guard ─────────────────────────────────────────────────
   if (problemType === 'patterns' && solution) {
 
     // 1. Auto-fix suppressed row newlines (end='' / end=' ' on print calls)
@@ -2035,6 +2106,119 @@ async function fixPatternTestCases(referenceSolution, testCases, language = 'pyt
   return results;
 }
 
+/**
+ * Rewrite a raw problem from external platform into LabGuard question format
+ * Used by platform import to adapt competitive programming problems
+ * @param {object} rawProblem - RawProblem from platformImportService
+ * @param {object} options - { requiredConcepts, problemType }
+ * @returns {Promise<object>} Rewritten question with title, statement, inputFormat, outputFormat, constraints, difficulty
+ */
+async function rewriteProblemForLabGuard(rawProblem, options = {}) {
+  const { requiredConcepts = [], problemType = 'general' } = options;
+
+  if (!rawProblem || !rawProblem.originalStatement || rawProblem.originalStatement.trim().length < 10) {
+    throw new Error('Raw problem statement too short or empty');
+  }
+
+  const systemPrompt = `You are a programming exam question designer for a university CS course. Rewrite the given competitive programming problem as a clean academic exam question.
+
+STRICT RULES:
+1. Remove all story/theme/fantasy framing completely
+2. Keep the exact same core algorithm and logic
+3. Simplify constraints: n <= 50 for easy, n <= 100 for medium
+4. Make it solvable in both Python and C++ with basic loops/arrays
+5. Write input/output format with exact types and ranges
+6. Add "Required approach" section listing: ${requiredConcepts.length > 0 ? requiredConcepts.join(', ') : 'loops, arrays, basic operations'}
+7. NEVER mention the source platform
+8. If the problem needs advanced algorithms (DP, graphs, trees, complex math), simplify it down to a version that only needs loops, arrays, conditionals, and basic sorting
+
+Output ONLY this JSON — no markdown, no explanation, no code blocks:
+{
+  "title": "string",
+  "statement": "string",
+  "inputFormat": "string",
+  "outputFormat": "string",
+  "constraints": "string",
+  "requiredApproach": "string",
+  "difficulty": "easy or medium",
+  "suggestedMarks": 20
+}`;
+
+  const userPrompt = `Rewrite for university exam:
+
+TITLE: ${rawProblem.originalTitle}
+DIFFICULTY: ${rawProblem.difficulty || 'medium'}
+TAGS: ${(rawProblem.tags || []).join(', ')}
+PLATFORM: ${rawProblem.sourcePlatform}
+
+STATEMENT:
+${rawProblem.originalStatement.slice(0, 3000)}
+
+INPUT FORMAT: ${rawProblem.inputFormat}
+OUTPUT FORMAT: ${rawProblem.outputFormat}
+CONSTRAINTS: ${rawProblem.constraints}
+
+SAMPLE INPUT 1: ${rawProblem.sampleInputs?.[0] || 'none'}
+SAMPLE OUTPUT 1: ${rawProblem.sampleOutputs?.[0] || 'none'}
+SAMPLE INPUT 2: ${rawProblem.sampleInputs?.[1] || 'none'}
+SAMPLE OUTPUT 2: ${rawProblem.sampleOutputs?.[1] || 'none'}`;
+
+  try {
+    const response = await callAI(systemPrompt, userPrompt, {
+      temperature: 0.3,
+      maxTokens: 2048
+    });
+
+    // Strip markdown fences if AI added them
+    const cleaned = response.replace(/```json\s*|```/g, '').trim();
+
+    let parsed = safeParseJSON(cleaned, null);
+
+    // If parsing failed, retry once with stricter prompt
+    if (!parsed || typeof parsed !== 'object') {
+      console.warn('[rewriteProblemForLabGuard] First parse failed, retrying...');
+      const retryResponse = await callAI(
+        'Output ONLY valid JSON. No markdown. No explanation. No code blocks.',
+        `Fix this broken JSON and return ONLY valid JSON:\n${cleaned}`,
+        { temperature: 0, maxTokens: 2048 }
+      );
+      const retried = retryResponse.replace(/```json\s*|```/g, '').trim();
+      parsed = safeParseJSON(retried, null);
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('AI returned invalid JSON after retry');
+    }
+
+    // Validate required fields
+    const required = ['title', 'statement', 'inputFormat', 'outputFormat', 'constraints', 'difficulty'];
+    for (const field of required) {
+      if (!parsed[field]) {
+        throw new Error(`Missing required field: ${field}`);
+      }
+    }
+
+    // Ensure difficulty is valid
+    if (!['easy', 'medium'].includes(parsed.difficulty.toLowerCase())) {
+      parsed.difficulty = 'medium';
+    }
+
+    return {
+      title: String(parsed.title || '').trim(),
+      statement: String(parsed.statement || '').trim(),
+      inputFormat: String(parsed.inputFormat || '').trim(),
+      outputFormat: String(parsed.outputFormat || '').trim(),
+      constraints: String(parsed.constraints || '').trim(),
+      requiredApproach: String(parsed.requiredApproach || 'Basic programming').trim(),
+      difficulty: parsed.difficulty.toLowerCase(),
+      suggestedMarks: parseInt(parsed.suggestedMarks) || 20
+    };
+  } catch (err) {
+    console.error('[rewriteProblemForLabGuard]', err.message);
+    throw new Error('Failed to rewrite problem: ' + (err.message || 'Unknown error'));
+  }
+}
+
 module.exports = {
   extractQuestionsFromText,
   extractQuestionAtIndex,
@@ -2048,5 +2232,6 @@ module.exports = {
   detectPatternSubtype,
   fixPatternTestCases,
   extractMinimalProblemInfo,
-  isConfigured
+  isConfigured,
+  rewriteProblemForLabGuard
 };

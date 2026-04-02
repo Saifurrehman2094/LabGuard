@@ -239,6 +239,31 @@ class DatabaseService {
           this.db.exec('ALTER TABLE programming_questions ADD COLUMN max_marks INTEGER DEFAULT 20');
           console.log('Added max_marks to programming_questions');
         }
+        // Platform import columns
+        if (!pqCols.includes('source_platform')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN source_platform TEXT DEFAULT "manual"');
+          console.log('Added source_platform to programming_questions');
+        }
+        if (!pqCols.includes('source_url')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN source_url TEXT');
+          console.log('Added source_url to programming_questions');
+        }
+        if (!pqCols.includes('source_id')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN source_id TEXT');
+          console.log('Added source_id to programming_questions');
+        }
+        if (!pqCols.includes('is_imported')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN is_imported INTEGER DEFAULT 0');
+          console.log('Added is_imported to programming_questions');
+        }
+        if (!pqCols.includes('difficulty')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN difficulty TEXT DEFAULT "medium"');
+          console.log('Added difficulty to programming_questions');
+        }
+        if (!pqCols.includes('platform')) {
+          this.db.exec('ALTER TABLE programming_questions ADD COLUMN platform TEXT DEFAULT "manual"');
+          console.log('Added platform to programming_questions');
+        }
       }
 
       // Add concept compliance to code_submissions
@@ -2009,6 +2034,18 @@ class DatabaseService {
     return true;
   }
 
+  deleteProgrammingQuestionsByExam(examId) {
+    // Get all questions for this exam first
+    const questions = this.db.prepare('SELECT question_id FROM programming_questions WHERE exam_id = ?').all(examId);
+    // Delete test cases for each question
+    for (const q of questions) {
+      this.db.prepare('DELETE FROM question_test_cases WHERE question_id = ?').run(q.question_id);
+    }
+    // Delete all questions for this exam
+    this.db.prepare('DELETE FROM programming_questions WHERE exam_id = ?').run(examId);
+    return true;
+  }
+
   createTestCase(questionId, data) {
     const { v4: uuidv4 } = require('uuid');
     const testCaseId = uuidv4();
@@ -2124,6 +2161,62 @@ class DatabaseService {
   }
 
   /**
+   * Teacher view: all submissions by one student for one exam, joined with
+   * question metadata and per-test-case results, grouped by question.
+   * Returns { student, questions: [{ ...questionMeta, submissions: [...] }] }
+   */
+  getTeacherStudentDetail(examId, studentId) {
+    // Student info
+    const student = this.db.prepare(
+      `SELECT user_id, full_name, username FROM users WHERE user_id = ?`
+    ).get(studentId);
+
+    // Questions for the exam (ordered) — include reference_solution & time_limit
+    const questions = this.db.prepare(`
+      SELECT question_id, title, marks, question_order, problem_type,
+             required_concepts, reference_solution, time_limit_seconds
+      FROM programming_questions
+      WHERE exam_id = ?
+      ORDER BY question_order ASC
+    `).all(examId);
+
+    // All submissions for this student+exam
+    const submissions = this.db.prepare(`
+      SELECT submission_id, question_id, source_code, language,
+             passed_count, total_count, score, status, submitted_at,
+             concept_passed, concept_details, hardcoded, hardcoded_reason
+      FROM code_submissions
+      WHERE exam_id = ? AND student_id = ?
+      ORDER BY submitted_at ASC
+    `).all(examId, studentId);
+
+    // For each submission, load test-case results
+    const resultStmt = this.db.prepare(`
+      SELECT sr.result_id, sr.test_case_id, sr.passed, sr.score,
+             sr.actual_output, sr.execution_time_ms, sr.error_message,
+             qt.input_data, qt.expected_output, qt.description
+      FROM submission_results sr
+      JOIN question_test_cases qt ON sr.test_case_id = qt.test_case_id
+      WHERE sr.submission_id = ?
+      ORDER BY qt.description ASC
+    `);
+
+    const enriched = submissions.map(sub => ({
+      ...sub,
+      testResults: resultStmt.all(sub.submission_id)
+    }));
+
+    // Group submissions by question
+    const byQuestion = questions.map(q => {
+      const qSubs = enriched.filter(s => s.question_id === q.question_id);
+      const best  = qSubs.reduce((b, s) => (!b || s.score > b.score) ? s : b, null);
+      return { ...q, submissions: qSubs, bestSubmission: best };
+    });
+
+    return { student: student || { user_id: studentId, full_name: 'Unknown', username: '' }, questions: byQuestion };
+  }
+
+  /**
    * Get per-student, per-question best scores for an exam.
    * Returns one row per (student, question) pair showing their best submission.
    */
@@ -2225,6 +2318,156 @@ class DatabaseService {
       JOIN question_test_cases qt ON sr.test_case_id = qt.test_case_id
       WHERE sr.submission_id = ?
     `).all(submissionId);
+  }
+
+  // ===== STUDENT ANALYTICS QUERIES =====
+
+  /**
+   * Get all students who submitted to this teacher's exams (Query 1)
+   * @param {string} teacherId
+   * @returns {Array} Student summaries with submission stats
+   */
+  getAllStudentsByTeacher(teacherId) {
+    return this.db
+      .prepare(
+        `SELECT
+          u.user_id,
+          u.full_name as name,
+          u.email,
+          COUNT(DISTINCT cs.exam_id) as examsAttempted,
+          COUNT(DISTINCT cs.submission_id) as totalSubmissions,
+          ROUND(AVG(cs.score), 1) as overallAvgScore,
+          MAX(cs.submitted_at) as lastActive
+        FROM users u
+        JOIN code_submissions cs ON cs.student_id = u.user_id
+        JOIN exams e ON e.exam_id = cs.exam_id
+        WHERE e.teacher_id = ?
+          AND u.role = 'student'
+        GROUP BY u.user_id
+        ORDER BY u.full_name ASC`
+      )
+      .all(teacherId);
+  }
+
+  /**
+   * Get full submission history for one student in this teacher's exams (Query 2)
+   * @param {string} studentId
+   * @param {string} teacherId
+   * @returns {Array} Submissions with question details
+   */
+  getStudentSubmissionHistory(studentId, teacherId) {
+    return this.db
+      .prepare(
+        `SELECT
+          cs.submission_id,
+          cs.exam_id,
+          e.title as examTitle,
+          cs.question_id,
+          pq.title as questionTitle,
+          pq.required_concepts,
+          pq.difficulty,
+          cs.score,
+          cs.submitted_at,
+          cs.language,
+          cs.concept_passed,
+          cs.hardcoded,
+          cs.status
+        FROM code_submissions cs
+        JOIN exams e ON e.exam_id = cs.exam_id
+        JOIN programming_questions pq ON pq.question_id = cs.question_id
+        WHERE cs.student_id = ?
+          AND e.teacher_id = ?
+        ORDER BY cs.submitted_at ASC`
+      )
+      .all(studentId, teacherId);
+  }
+
+  /**
+   * Get per-exam performance for one student in this teacher's exams (Query 4)
+   * @param {string} studentId
+   * @param {string} teacherId
+   * @returns {Array} Per-exam aggregated stats
+   */
+  getStudentExamPerformance(studentId, teacherId) {
+    return this.db
+      .prepare(
+        `SELECT
+          e.exam_id,
+          e.title as examTitle,
+          e.created_at as examDate,
+          COUNT(cs.submission_id) as questionsAttempted,
+          ROUND(AVG(CASE WHEN cs.score > 0 THEN cs.score ELSE 0 END), 1) as avgScore,
+          SUM(CASE WHEN cs.score >= 80 THEN 1 ELSE 0 END) as passedCount,
+          SUM(CASE WHEN cs.score > 0 AND cs.score < 80 THEN 1 ELSE 0 END) as failedCount,
+          SUM(CASE WHEN cs.hardcoded = 1 THEN 1 ELSE 0 END) as hardcodingFlags
+        FROM exams e
+        LEFT JOIN code_submissions cs
+          ON cs.exam_id = e.exam_id AND cs.student_id = ?
+        WHERE e.teacher_id = ?
+        GROUP BY e.exam_id
+        ORDER BY e.created_at ASC`
+      )
+      .all(studentId, teacherId);
+  }
+
+  /**
+   * Get test case level detail for one submission (Query 5)
+   * @param {string} submissionId
+   * @returns {Array} Per-test-case results
+   */
+  getSubmissionTestCaseResults(submissionId) {
+    return this.db
+      .prepare(
+        `SELECT
+          sr.submission_id,
+          sr.test_case_id,
+          qtc.description,
+          qtc.input_data,
+          qtc.expected_output,
+          sr.actual_output,
+          sr.passed,
+          sr.score,
+          sr.error_message
+        FROM submission_results sr
+        JOIN question_test_cases qtc
+          ON qtc.test_case_id = sr.test_case_id
+        WHERE sr.submission_id = ?
+        ORDER BY qtc.sort_order ASC`
+      )
+      .all(submissionId);
+  }
+
+  /**
+   * Verify that a submission belongs to a teacher's exam (for auth)
+   * @param {string} submissionId
+   * @param {string} teacherId
+   * @returns {object|null} Submission if authorized, null otherwise
+   */
+  verifySubmissionBelongsToTeacher(submissionId, teacherId) {
+    return this.db
+      .prepare(
+        `SELECT cs.* FROM code_submissions cs
+        JOIN exams e ON e.exam_id = cs.exam_id
+        WHERE cs.submission_id = ? AND e.teacher_id = ?`
+      )
+      .get(submissionId, teacherId);
+  }
+
+  /**
+   * Verify that a student submitted to at least one of teacher's exams
+   * @param {string} studentId
+   * @param {string} teacherId
+   * @returns {object|null} At least one submission if exists
+   */
+  verifyStudentBelongsToTeacher(studentId, teacherId) {
+    return this.db
+      .prepare(
+        `SELECT cs.* FROM code_submissions cs
+        JOIN exams e ON e.exam_id = cs.exam_id
+        WHERE cs.student_id = ? AND e.teacher_id = ?
+        LIMIT 1`
+      )
+      .get(studentId, teacherId);
   }
 
   close() {

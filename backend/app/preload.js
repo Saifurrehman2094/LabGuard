@@ -107,6 +107,40 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCodeSubmissions: (examId, studentId) => ipcRenderer.invoke('programming:get-submissions', examId, studentId),
   getSubmissionResults: (submissionId) => ipcRenderer.invoke('programming:get-submission-results', submissionId),
   getExamStudentScores: (examId) => ipcRenderer.invoke('programming:get-exam-scores', examId),
+  getTeacherStudentDetail: (examId, studentId) => ipcRenderer.invoke('programming:teacher-get-student-detail', examId, studentId),
+  onStudentSubmitted: (cb) => ipcRenderer.on('student-code-submitted', (_, data) => cb(data)),
+
+  // Teacher Analytics Dashboard
+  getDashboardSummary: () => ipcRenderer.invoke('dashboard:summary'),
+  getDashboardPapers: () => ipcRenderer.invoke('dashboard:papers'),
+  getDashboardConcepts: () => ipcRenderer.invoke('dashboard:concepts'),
+  getDashboardQuestions: (examId) => ipcRenderer.invoke('dashboard:questions', examId),
+  getDashboardPipeline: () => ipcRenderer.invoke('dashboard:pipeline'),
+  getDashboardPlatforms: () => ipcRenderer.invoke('dashboard:platforms'),
+  getDashboardEventsRecent: () => ipcRenderer.invoke('dashboard:events-recent'),
+  getDashboardSubmissionsRecent: () => ipcRenderer.invoke('dashboard:submissions-recent'),
+  onDashboardUpdated: (callback) => {
+    const handler = (event, data) => callback(event, data);
+    ipcRenderer.on('dashboard:updated', handler);
+    return () => ipcRenderer.removeListener('dashboard:updated', handler);
+  },
+
+  // Platform Import - Auto-fetch from Codeforces, AtCoder, HackerRank
+  platformFetchProblems: (payload) => ipcRenderer.invoke('platform:fetchProblems', payload),
+  platformImportQuestion: (payload) => ipcRenderer.invoke('platform:importQuestion', payload),
+  platformGetTags: (payload) => ipcRenderer.invoke('platform:getTags', payload),
+  onPlatformProgress: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('platform:progress', handler);
+    return () => ipcRenderer.removeListener('platform:progress', handler);
+  },
+
+  // Student Analytics - Progress tracking and reporting
+  studentsGetAll: (teacherId) => ipcRenderer.invoke('students:getAll', teacherId),
+  studentsGetProfile: (payload) => ipcRenderer.invoke('students:getProfile', payload),
+  studentsGetSubmissionDetail: (payload) => ipcRenderer.invoke('students:getSubmissionDetail', payload),
+  studentsGenerateReport: (payload) => ipcRenderer.invoke('students:generateReport', payload),
+  studentsGetAtRisk: (teacherId) => ipcRenderer.invoke('students:getAtRisk', teacherId),
 
   // Event listeners
   onMonitoringEvent: (callback) => {

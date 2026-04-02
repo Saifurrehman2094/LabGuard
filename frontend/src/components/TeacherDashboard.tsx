@@ -4,7 +4,10 @@ import ExamList from './ExamList';
 import ViolationReport from './ViolationReport';
 import CourseManagement from './CourseManagement';
 import StudentScoresPanel from './StudentScoresPanel';
+import LiveSubmissionToast from './LiveSubmissionToast';
 import ThemeToggle from './ThemeToggle';
+import AnalyticsDashboard from './AnalyticsDashboard';
+import StudentsPage from './students/StudentsPage';
 import WebStorageService from '../services/webStorage';
 import './TeacherDashboard.css';
 
@@ -35,7 +38,7 @@ interface TeacherDashboardProps {
 }
 
 const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'manage' | 'courses' | 'monitoring' | 'scores'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'manage' | 'courses' | 'monitoring' | 'scores' | 'analytics' | 'students'>('overview');
   const [exams, setExams] = useState<Exam[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -170,10 +173,36 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
         >
           Student Scores
         </button>
+        <button
+          className={`nav-tab ${activeTab === 'analytics' ? 'active' : ''}`}
+          onClick={() => setActiveTab('analytics')}
+        >
+          Analytics
+        </button>
+        <button
+          className={`nav-tab ${activeTab === 'students' ? 'active' : ''}`}
+          onClick={() => setActiveTab('students')}
+        >
+          Students
+        </button>
       </div>
 
+      {/* Analytics tab — full-page, rendered outside the normal content wrapper */}
+      {activeTab === 'analytics' && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <AnalyticsDashboard user={user} />
+        </div>
+      )}
+
+      {/* Students tab — full-page, rendered outside the normal content wrapper */}
+      {activeTab === 'students' && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <StudentsPage teacherId={user.userId} />
+        </div>
+      )}
+
       {/* Content Area */}
-      <div className="dashboard-content">
+      <div className="dashboard-content" style={{ display: (activeTab === 'analytics' || activeTab === 'students') ? 'none' : undefined }}>
         {activeTab === 'overview' && (
           <div className="overview-tab">
             <div className="stats-grid">
@@ -324,7 +353,11 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
             )}
           </div>
         )}
+
       </div>
+
+      {/* Live submission toast — fixed bottom-right, visible on every tab */}
+      <LiveSubmissionToast exams={exams} />
     </div>
   );
 };
