@@ -4,7 +4,11 @@
 
 .teacher-dashboard {
   min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 100%);
+  overflow: hidden;
 }
 
 [data-theme="dark"] .teacher-dashboard {
@@ -93,15 +97,23 @@
 
 .dashboard-nav {
   background: var(--theme-bg-elevated, white);
-  padding: var(--space-2) var(--space-8);
+  padding: var(--space-1) var(--space-6);
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
   border-bottom: 1px solid var(--theme-border, transparent);
   display: flex;
-  gap: var(--space-2);
+  flex-wrap: nowrap;
+  gap: var(--space-1);
   overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   position: sticky;
   top: 88px;
   z-index: 90;
+  align-items: center;
+}
+
+.dashboard-nav::-webkit-scrollbar {
+  display: none;
 }
 
 [data-theme="dark"] .dashboard-nav {
@@ -111,10 +123,12 @@
 }
 
 .nav-tab {
-  padding: var(--space-3) var(--space-6);
+  padding: var(--space-2) var(--space-4);
   background-color: transparent;
   border: 2px solid transparent;
   border-radius: var(--radius-lg);
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
   color: var(--color-text-secondary);
@@ -153,9 +167,49 @@
 /* ========== DASHBOARD CONTENT ========== */
 
 .dashboard-content {
-  max-width: var(--max-width-page);
-  margin: 0 auto;
+  flex: 1;
+  overflow-y: auto;
+  width: 100%;
   padding: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #0f172a;
+}
+
+.dashboard-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dashboard-content::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.dashboard-content::-webkit-scrollbar-thumb {
+  background-color: #334155;
+  border-radius: 4px;
+  border: 2px solid #0f172a;
+}
+
+.dashboard-content::-webkit-scrollbar-thumb:hover {
+  background-color: #475569;
+}
+
+[data-theme="light"] .dashboard-content {
+  scrollbar-color: #cbd5e1 #f0f9ff;
+}
+
+[data-theme="light"] .dashboard-content::-webkit-scrollbar-track {
+  background: #f0f9ff;
+}
+
+[data-theme="light"] .dashboard-content::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-color: #f0f9ff;
+}
+
+[data-theme="light"] .dashboard-content::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
 }
 
 /* ========== OVERVIEW TAB ========== */

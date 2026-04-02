@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   submitExam: (examId, filesData) => ipcRenderer.invoke('exam:submit', examId, filesData),
   getExamSubmission: (examId) => ipcRenderer.invoke('exam:get-submission', examId),
   unsubmitExam: (examId) => ipcRenderer.invoke('exam:unsubmit', examId),
+  getStudentExamSession: (examId) => ipcRenderer.invoke('exam:get-student-session', examId),
 
   // Monitoring methods
   startMonitoring: (examId, studentId, allowedApps) =>
@@ -76,6 +77,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // System methods
   getSystemSetupStatus: () => ipcRenderer.invoke('system:get-setup-status'),
+  getInitError: () => ipcRenderer.invoke('system:get-init-error'),
 
   // PDF methods
   viewPDF: (examId) => ipcRenderer.invoke('pdf:view', examId),
@@ -83,9 +85,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Test Case Generation - AI & Code Execution
   aiExtractQuestions: (rawText) => ipcRenderer.invoke('ai:extract-questions', rawText),
-  aiGenerateTestCases: (questionText, language) => ipcRenderer.invoke('ai:generate-test-cases', questionText, language),
+  aiExtractQuestionAtIndex: (rawText, index) => ipcRenderer.invoke('ai:extract-question-at-index', rawText, index),
+  aiGenerateTestCases: (questionText, language, problemType, requiredConcepts) => ipcRenderer.invoke('ai:generate-test-cases', questionText, language, problemType, requiredConcepts),
+  aiAnalyzeRequirements: (problemText) => ipcRenderer.invoke('ai:analyze-requirements', problemText),
   aiGenerateThreeSolutions: (questionText, language) => ipcRenderer.invoke('ai:generate-three-solutions', questionText, language),
   aiIsConfigured: () => ipcRenderer.invoke('ai:is-configured'),
+  aiFixPatternTestCases: (questionId) => ipcRenderer.invoke('ai:fix-pattern-test-cases', questionId),
   codeRun: (params) => ipcRenderer.invoke('code:run', params),
   codeRunTestCases: (params) => ipcRenderer.invoke('code:run-test-cases', params),
   getProgrammingQuestions: (examId) => ipcRenderer.invoke('programming:get-questions', examId),
@@ -101,6 +106,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('programming:submit-code', examId, questionId, sourceCode, language),
   getCodeSubmissions: (examId, studentId) => ipcRenderer.invoke('programming:get-submissions', examId, studentId),
   getSubmissionResults: (submissionId) => ipcRenderer.invoke('programming:get-submission-results', submissionId),
+  getExamStudentScores: (examId) => ipcRenderer.invoke('programming:get-exam-scores', examId),
+  getTeacherStudentDetail: (examId, studentId) => ipcRenderer.invoke('programming:teacher-get-student-detail', examId, studentId),
+  onStudentSubmitted: (cb) => ipcRenderer.on('student-code-submitted', (_, data) => cb(data)),
+
+  // Teacher Analytics Dashboard
+  getDashboardSummary: () => ipcRenderer.invoke('dashboard:summary'),
+  getDashboardPapers: () => ipcRenderer.invoke('dashboard:papers'),
+  getDashboardConcepts: () => ipcRenderer.invoke('dashboard:concepts'),
+  getDashboardQuestions: (examId) => ipcRenderer.invoke('dashboard:questions', examId),
+  getDashboardPipeline: () => ipcRenderer.invoke('dashboard:pipeline'),
+  getDashboardPlatforms: () => ipcRenderer.invoke('dashboard:platforms'),
+  getDashboardEventsRecent: () => ipcRenderer.invoke('dashboard:events-recent'),
+  getDashboardSubmissionsRecent: () => ipcRenderer.invoke('dashboard:submissions-recent'),
+  onDashboardUpdated: (callback) => {
+    const handler = (event, data) => callback(event, data);
+    ipcRenderer.on('dashboard:updated', handler);
+    return () => ipcRenderer.removeListener('dashboard:updated', handler);
+  },
+
+  // Platform Import - Auto-fetch from Codeforces, AtCoder, HackerRank
+  platformFetchProblems: (payload) => ipcRenderer.invoke('platform:fetchProblems', payload),
+  platformImportQuestion: (payload) => ipcRenderer.invoke('platform:importQuestion', payload),
+  platformGetTags: (payload) => ipcRenderer.invoke('platform:getTags', payload),
+  onPlatformProgress: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('platform:progress', handler);
+    return () => ipcRenderer.removeListener('platform:progress', handler);
+  },
+
+  // Student Analytics - Progress tracking and reporting
+  studentsGetAll: (teacherId) => ipcRenderer.invoke('students:getAll', teacherId),
+  studentsGetProfile: (payload) => ipcRenderer.invoke('students:getProfile', payload),
+  studentsGetSubmissionDetail: (payload) => ipcRenderer.invoke('students:getSubmissionDetail', payload),
+  studentsGenerateReport: (payload) => ipcRenderer.invoke('students:generateReport', payload),
+  studentsGetAtRisk: (teacherId) => ipcRenderer.invoke('students:getAtRisk', teacherId),
 
   // Event listeners
   onMonitoringEvent: (callback) => {
@@ -118,6 +158,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('monitoring:violation-ended', violationEndHandler);
       ipcRenderer.removeListener('monitoring:application-changed', violationUpdateHandler);
     };
+  },
+
+  // Exam update event — fired by teacher saving edits; resets student timers
+  onExamUpdated: (callback) => {
+    const handler = (event, data) => callback(data.examId);
+    ipcRenderer.on('exam-updated', handler);
+    return () => ipcRenderer.removeListener('exam-updated', handler);
   },
 
   // Monitoring status event listeners

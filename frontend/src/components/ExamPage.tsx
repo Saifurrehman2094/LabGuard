@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import JSZip from 'jszip';
 import ProgrammingCodeEditor from './ProgrammingCodeEditor';
@@ -25,6 +25,8 @@ interface Exam {
     teacher_name: string;
     course_name?: string;
     course_code?: string;
+    updatedAt?: string;
+    duration?: number;  // duration in minutes (computed server-side)
 }
 
 interface ExamPageProps {
@@ -59,6 +61,12 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [zipContents, setZipContents] = useState<{ [key: string]: string[] }>({});
     const [programmingQuestions, setProgrammingQuestions] = useState<any[]>([]);
+    const [questionsVersion, setQuestionsVersion] = useState(0);
+    const [questionsRefreshing, setQuestionsRefreshing] = useState(false);
+    // Session-based timer: true once we've loaded the session from the backend
+    const [sessionLoaded, setSessionLoaded] = useState(false);
+    // Banner shown when teacher resets the exam while student is active
+    const [examUpdateBanner, setExamUpdateBanner] = useState(false);
 
     const isElectron = () => !!(window as any).electronAPI;
 
@@ -108,22 +116,59 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
         reloadExamData();
     }, [initialExam.exam_id]);
 
-    // Calculate time remaining only when exam is started
-    useEffect(() => {
-        if (!examStarted) return;
-
-        const calculateTimeRemaining = () => {
+    // ── Session-based timer ────────────────────────────────────────────────────
+    // When the exam starts, fetch (or create) the student's session from the
+    // backend and initialise the countdown from the returned remainingSeconds.
+    // This supports per-student timer reset when the teacher edits the exam.
+    const loadExamSession = async (showBanner = false) => {
+        const api = (window as any).electronAPI;
+        if (!isElectron() || !api?.getStudentExamSession) {
+            // Fallback: use wall-clock approach
             const now = new Date();
             const endTime = new Date(exam.end_time);
             const remaining = Math.floor((endTime.getTime() - now.getTime()) / 1000);
             setTimeRemaining(Math.max(0, remaining));
-        };
+            setSessionLoaded(true);
+            return;
+        }
+        try {
+            const res = await api.getStudentExamSession(exam.exam_id);
+            if (res.success) {
+                setTimeRemaining(res.remainingSeconds);
+                if (res.isReset || showBanner) {
+                    setExamUpdateBanner(true);
+                    setTimeout(() => setExamUpdateBanner(false), 5000);
+                }
+            } else {
+                // Fallback
+                const now = new Date();
+                const endTime = new Date(exam.end_time);
+                setTimeRemaining(Math.max(0, Math.floor((endTime.getTime() - now.getTime()) / 1000)));
+            }
+        } catch {
+            const now = new Date();
+            const endTime = new Date(exam.end_time);
+            setTimeRemaining(Math.max(0, Math.floor((endTime.getTime() - now.getTime()) / 1000)));
+        }
+        setSessionLoaded(true);
+    };
 
-        calculateTimeRemaining();
-        const interval = setInterval(calculateTimeRemaining, 1000);
+    // Fetch session once exam starts
+    useEffect(() => {
+        if (!examStarted) return;
+        loadExamSession();
+    }, [examStarted]);
+
+    // Pure countdown — ticks every second once session is loaded
+    useEffect(() => {
+        if (!examStarted || !sessionLoaded) return;
+
+        const interval = setInterval(() => {
+            setTimeRemaining(prev => Math.max(0, prev - 1));
+        }, 1000);
 
         return () => clearInterval(interval);
-    }, [exam.end_time, examStarted]);
+    }, [examStarted, sessionLoaded]);
 
     // Auto end exam when time runs out
     useEffect(() => {
@@ -147,30 +192,78 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
         }
     }, [timeRemaining, examStarted, submissionStatus.submitted]);
 
-    // Load programming questions when exam is started
-    useEffect(() => {
-        const loadProgrammingQuestions = async () => {
-            if (!examStarted || !isElectron()) return;
-            const api = (window as any).electronAPI;
-            if (!api?.getProgrammingQuestions) return;
-            try {
-                const r = await api.getProgrammingQuestions(exam.exam_id);
-                if (r.success && Array.isArray(r.questions)) {
-                    setProgrammingQuestions(r.questions.map((q: any) => ({
-                        question_id: q.question_id,
-                        title: q.title || 'Question',
-                        problem_text: q.problem_text || '',
-                        sample_input: q.sample_input,
-                        sample_output: q.sample_output,
-                        language: q.language || 'python'
-                    })));
-                }
-            } catch {
-                setProgrammingQuestions([]);
+    // Load / refresh programming questions
+    const loadProgrammingQuestions = useCallback(async (silent = false) => {
+        if (!isElectron()) return;
+        const api = (window as any).electronAPI;
+        if (!api?.getProgrammingQuestions) return;
+        if (!silent) setQuestionsRefreshing(true);
+        try {
+            const r = await api.getProgrammingQuestions(exam.exam_id);
+            if (r.success && Array.isArray(r.questions)) {
+                setProgrammingQuestions(r.questions.map((q: any) => ({
+                    question_id: q.question_id,
+                    title: q.title || 'Question',
+                    problem_text: q.problem_text || '',
+                    sample_input: q.sample_input,
+                    sample_output: q.sample_output,
+                    language: q.language || 'python',
+                    max_marks: q.max_marks
+                })));
+                setQuestionsVersion(v => v + 1);
             }
-        };
-        loadProgrammingQuestions();
+        } catch {
+            if (!silent) setProgrammingQuestions([]);
+        } finally {
+            if (!silent) setQuestionsRefreshing(false);
+        }
+    }, [exam.exam_id]);
+
+    // Initial load when exam starts
+    useEffect(() => {
+        if (examStarted) loadProgrammingQuestions(false);
     }, [examStarted, exam.exam_id]);
+
+    // Auto-refresh every 60 seconds to pick up teacher edits — continues even after student submits
+    useEffect(() => {
+        if (!examStarted) return;
+        const interval = setInterval(() => loadProgrammingQuestions(true), 60000);
+        return () => clearInterval(interval);
+    }, [examStarted, loadProgrammingQuestions]);
+
+    // Listen for real-time exam-updated broadcast from teacher
+    useEffect(() => {
+        const api = (window as any).electronAPI;
+        if (!isElectron() || !api?.onExamUpdated) return;
+
+        const unsub = api.onExamUpdated((updatedExamId: string) => {
+            if (updatedExamId !== exam.exam_id) return;
+            // Reload exam data then recalculate session timer
+            api.getExamById(exam.exam_id).then((result: any) => {
+                if (result.success && result.exam) {
+                    const dbExam = result.exam;
+                    setExam(prev => ({
+                        ...prev,
+                        title: dbExam.title || prev.title,
+                        start_time: dbExam.startTime || prev.start_time,
+                        end_time: dbExam.endTime || prev.end_time,
+                        updatedAt: dbExam.updatedAt,
+                        duration: dbExam.duration
+                    }));
+                }
+            });
+            if (examStarted) {
+                setSessionLoaded(false);
+                loadExamSession(true);
+            } else {
+                setExamUpdateBanner(true);
+                setTimeout(() => setExamUpdateBanner(false), 5000);
+            }
+            loadProgrammingQuestions(true);
+        });
+
+        return () => { if (typeof unsub === 'function') unsub(); };
+    }, [exam.exam_id, examStarted]);
 
     // Load submission status and check if exam was already started
     useEffect(() => {
@@ -636,25 +729,41 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
 
                         {/* Programming Questions - Student code editor */}
                         {examStarted && user.role === 'student' && programmingQuestions.length > 0 && (
-                            <ProgrammingCodeEditor
-                                examId={exam.exam_id}
-                                studentId={user.userId}
-                                questions={programmingQuestions}
-                                onLoadTestCases={async (questionId) => {
-                                    const api = (window as any).electronAPI;
-                                    if (!api?.getProgrammingTestCases) return [];
-                                    const r = await api.getProgrammingTestCases(questionId);
-                                    if (r.success && Array.isArray(r.testCases)) {
-                                        return r.testCases.map((tc: any) => ({
-                                            test_case_id: tc.test_case_id,
-                                            input_data: tc.input_data || '',
-                                            expected_output: tc.expected_output || '',
-                                            description: tc.description
-                                        }));
-                                    }
-                                    return [];
-                                }}
-                            />
+                            <>
+                                <div className="prog-questions-refresh-bar">
+                                    <span className="prog-questions-refresh-label">
+                                        {programmingQuestions.length} question{programmingQuestions.length !== 1 ? 's' : ''}
+                                    </span>
+                                    <button
+                                        className="prog-questions-refresh-btn"
+                                        onClick={() => loadProgrammingQuestions(false)}
+                                        disabled={questionsRefreshing}
+                                        title="Reload questions in case teacher made updates"
+                                    >
+                                        {questionsRefreshing ? 'Refreshing...' : '↻ Refresh Questions'}
+                                    </button>
+                                </div>
+                                <ProgrammingCodeEditor
+                                    examId={exam.exam_id}
+                                    studentId={user.userId}
+                                    questions={programmingQuestions}
+                                    refreshVersion={questionsVersion}
+                                    onLoadTestCases={async (questionId) => {
+                                        const api = (window as any).electronAPI;
+                                        if (!api?.getProgrammingTestCases) return [];
+                                        const r = await api.getProgrammingTestCases(questionId);
+                                        if (r.success && Array.isArray(r.testCases)) {
+                                            return r.testCases.map((tc: any) => ({
+                                                test_case_id: tc.test_case_id,
+                                                input_data: tc.input_data || '',
+                                                expected_output: tc.expected_output || '',
+                                                description: tc.description
+                                            }));
+                                        }
+                                        return [];
+                                    }}
+                                />
+                            </>
                         )}
                     </div>
                 </div>
@@ -676,6 +785,23 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                             </div>
                         )}
                     </div>
+
+                    {/* Exam-update banner — shown when teacher saves changes */}
+                    {examUpdateBanner && (
+                        <div style={{
+                            background: '#1e3a5f',
+                            border: '1px solid #3b82f6',
+                            borderRadius: '8px',
+                            padding: '0.6rem 1rem',
+                            marginTop: '0.5rem',
+                            color: '#93c5fd',
+                            fontSize: '0.82rem',
+                            lineHeight: '1.4',
+                            animation: 'fadeIn 0.3s ease'
+                        }}>
+                            📢 Your teacher has updated this exam. Your timer has been refreshed.
+                        </div>
+                    )}
 
                     {/* Monitoring Status Card */}
                     {examStarted && (

@@ -43,10 +43,14 @@ interface ElectronAPI {
   getFaceStats: () => Promise<any>;
   getSystemSettings: () => Promise<any>;
   updateSystemSettings: (settings: any) => Promise<any>;
-  
+  getSystemSetupStatus?: () => Promise<any>;
+  getInitError?: () => Promise<{ hasError: boolean; message?: string }>;
+
   // Test Case Generation
   aiExtractQuestions?: (rawText: string) => Promise<{ success: boolean; questions?: any[]; error?: string }>;
-  aiGenerateTestCases?: (questionText: string, language?: string) => Promise<{ success: boolean; testCases?: any[]; referenceSolution?: string; error?: string }>;
+  aiExtractQuestionAtIndex?: (rawText: string, index: number) => Promise<{ success: boolean; question?: { id: number; text: string } | null; error?: string }>;
+  aiGenerateTestCases?: (questionText: string, language?: string, problemType?: string, requiredConcepts?: string[]) => Promise<{ success: boolean; testCases?: any[]; referenceSolution?: string; error?: string }>;
+  aiAnalyzeRequirements?: (problemText: string) => Promise<{ success: boolean; requiredConcepts?: string[]; isPatternQuestion?: boolean; problemType?: string; error?: string }>;
   aiGenerateThreeSolutions?: (questionText: string, language?: string) => Promise<{ success: boolean; solutions?: Array<{ label: string; code: string }>; error?: string }>;
   aiIsConfigured?: () => Promise<{ configured: boolean }>;
   codeRun?: (params: { sourceCode: string; stdin: string; language?: string; timeLimit?: number }) => Promise<any>;

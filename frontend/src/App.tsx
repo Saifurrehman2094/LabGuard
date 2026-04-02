@@ -28,11 +28,21 @@ function App() {
     return !!(window as any).electronAPI;
   };
 
+  const [initError, setInitError] = useState<string | null>(null);
+
   // Check for existing session and system status on app start
   useEffect(() => {
     const initializeApp = async () => {
       try {
         if (isElectron()) {
+          // Check if backend failed to initialize (e.g. better-sqlite3 blocked)
+          const initErr = await (window as any).electronAPI.getInitError?.();
+          if (initErr?.hasError) {
+            setInitError(initErr.message || 'Failed to start');
+            setIsLoading(false);
+            return;
+          }
+
           // Check existing session
           const sessionResult = await (window as any).electronAPI.getCurrentUser();
           if (sessionResult.success && sessionResult.user) {
@@ -89,6 +99,28 @@ function App() {
   const handleSetupComplete = () => {
     setShowSetupWizard(false);
   };
+
+  // Show init error (e.g. better-sqlite3 blocked by Windows)
+  if (initError) {
+    return (
+      <ThemeProvider>
+        <div className="App">
+          <div className="loading-container init-error-container">
+            <h2>LAB-Guard could not start</h2>
+            <p className="init-error-message">{initError}</p>
+            <p className="init-error-hint">
+              This often happens when Windows blocks the database file. Try:
+            </p>
+            <ul>
+              <li>Add LabGuard folder to Windows Defender exclusions</li>
+              <li>Run as Administrator</li>
+              <li>Disable Smart App Control (Settings → Privacy & security)</li>
+            </ul>
+          </div>
+        </div>
+      </ThemeProvider>
+    );
+  }
 
   // Show loading screen while checking session
   if (isLoading) {

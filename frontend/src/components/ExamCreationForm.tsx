@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import WebStorageService from '../services/webStorage';
+import PlatformImportSection from './PlatformImportSection';
 import './ExamCreationForm.css';
 
 interface User {
@@ -642,6 +643,18 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
             <div className="field-error">{getFieldError('allowedApps')}</div>
           )}
         </div>
+
+        {/* Platform Import Section */}
+        <PlatformImportSection
+          onQuestionsImported={(count) => {
+            if (count > 0) {
+              setErrors([]);
+              // Show success feedback
+              const msg = `Successfully imported ${count} question${count !== 1 ? 's' : ''}`;
+              console.log(msg);
+            }
+          }}
+        />
 
         {/* Submit Button */}
         <div className="form-actions">

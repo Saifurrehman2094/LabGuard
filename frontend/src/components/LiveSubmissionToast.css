@@ -1,0 +1,192 @@
+/* ── Panel (fixed bottom-right, always on top) ──────────────────── */
+.lst-panel {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 360px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.22);
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  z-index: 900;
+  overflow: hidden;
+}
+
+/* ── Panel header ────────────────────────────────────────────────── */
+.lst-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #1e293b;
+  color: #f8fafc;
+  flex-shrink: 0;
+}
+
+.lst-live-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+  animation: lst-pulse 1.4s infinite;
+}
+
+@keyframes lst-pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .45; transform: scale(1.4); }
+}
+
+.lst-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  flex: 1;
+  letter-spacing: .02em;
+}
+
+.lst-collapse-btn,
+.lst-clear-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.lst-collapse-btn:hover,
+.lst-clear-btn:hover { color: #f8fafc; background: rgba(255,255,255,.1); }
+
+/* ── Cards container ─────────────────────────────────────────────── */
+.lst-cards {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: calc(80vh - 44px);
+}
+
+/* ── Single card ─────────────────────────────────────────────────── */
+.lst-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-color, #f1f5f9);
+  animation: lst-slide 0.25s ease;
+  transition: background 0.15s;
+}
+
+@keyframes lst-slide {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.lst-card:hover { background: var(--hover-bg, #f8fafc); }
+
+/* colour left-border accent per result */
+.lst-chip-green  { border-left: 4px solid #22c55e; }
+.lst-chip-yellow { border-left: 4px solid #eab308; }
+.lst-chip-red    { border-left: 4px solid #ef4444; }
+.lst-chip-hc     { border-left: 4px solid #dc2626; background: #fff1f2; }
+
+/* ── Avatar ──────────────────────────────────────────────────────── */
+.lst-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ── Info block ──────────────────────────────────────────────────── */
+.lst-info { flex: 1; min-width: 0; }
+
+.lst-student {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--text-color, #111);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.lst-exam {
+  font-size: 0.74rem;
+  color: var(--text-secondary, #6b7280);
+  margin-bottom: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.lst-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.lst-pct {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+.lst-chip-green  .lst-pct { background: #d1fae5; color: #065f46; }
+.lst-chip-yellow .lst-pct { background: #fef9c3; color: #854d0e; }
+.lst-chip-red    .lst-pct { background: #fee2e2; color: #991b1b; }
+.lst-chip-hc     .lst-pct { background: #fca5a5; color: #7f1d1d; }
+
+.lst-marks, .lst-tc {
+  font-size: 0.74rem;
+  color: var(--text-secondary, #374151);
+}
+
+.lst-concept-warn {
+  font-size: 0.68rem;
+  background: #fef9c3; color: #854d0e;
+  padding: 1px 5px; border-radius: 4px; font-weight: 600;
+}
+
+.lst-time {
+  font-size: 0.7rem;
+  color: var(--text-secondary, #9ca3af);
+  margin-top: 3px;
+}
+
+/* ── Action buttons ──────────────────────────────────────────────── */
+.lst-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.lst-view-btn {
+  padding: 5px 10px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lst-view-btn:hover { opacity: 0.85; }
+
+.lst-dismiss-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #9ca3af);
+  cursor: pointer;
+  font-size: 0.82rem;
+  padding: 2px 5px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.lst-dismiss-btn:hover { color: #dc2626; background: #fee2e2; }
