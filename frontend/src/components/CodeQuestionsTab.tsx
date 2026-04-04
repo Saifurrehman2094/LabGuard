@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import './CodeQuestionsTab.css';
 
 interface ExamSummary {
@@ -16,7 +16,13 @@ interface Question {
   max_score?: number;
   constraints_json?: any;
   created_at?: string;
-  // UI-only
+  problem_type?: string;
+  required_concepts?: string[];
+  requirements_mode?: 'auto' | 'manual';
+  concept_threshold?: number;
+  is_pattern_question?: boolean;
+  difficulty?: string;
+  testCases?: TestCase[];
   _tempId?: string;
 }
 
@@ -24,6 +30,7 @@ interface TestCase {
   test_case_id?: string;
   question_id?: string;
   name: string;
+  description?: string;
   input?: string;
   expected_output?: string;
   is_hidden?: boolean;
@@ -33,8 +40,6 @@ interface TestCase {
   memory_limit_kb?: number | null;
   weight?: number;
   metadata?: any;
-  // UI-only flags
-  _isNew?: boolean;
   _isDeleted?: boolean;
 }
 
@@ -42,39 +47,110 @@ interface CodeQuestionsTabProps {
   exam: ExamSummary;
 }
 
+const REQUIREMENT_OPTIONS = [
+  { value: 'loops', label: 'Loops' },
+  { value: 'do_while', label: 'Do-While' },
+  { value: 'switch', label: 'Switch/Case' },
+  { value: 'nested_loops', label: 'Nested Loops' },
+  { value: 'conditionals', label: 'Conditionals' },
+  { value: 'recursion', label: 'Recursion' },
+  { value: 'arrays', label: '1D Arrays' },
+  { value: 'arrays_2d', label: '2D Arrays' },
+  { value: 'arrays_3d', label: '3D Arrays' },
+  { value: 'pointers', label: 'Pointers' }
+];
+
+const PROBLEM_TYPES = [
+  { value: 'basic_programming', label: 'Basic Programming' },
+  { value: 'loops', label: 'Loops' },
+  { value: 'conditionals', label: 'Conditionals' },
+  { value: 'recursion', label: 'Recursion' },
+  { value: 'arrays_1d', label: '1D Arrays' },
+  { value: 'arrays_2d', label: '2D Arrays' },
+  { value: 'arrays_3d', label: '3D Arrays' },
+  { value: 'pointers', label: 'Pointers' },
+  { value: 'patterns', label: 'Patterns' }
+];
+
+const DIFFICULTY_OPTIONS = ['easy', 'medium', 'hard'];
+
+const ensureConstraints = (question: Question) => ({
+  ...(question.constraints_json || {}),
+  problem_type: question.problem_type || question.constraints_json?.problem_type || 'basic_programming',
+  required_concepts: question.required_concepts || question.constraints_json?.required_concepts || [],
+  requirements_mode: question.requirements_mode || question.constraints_json?.requirements_mode || 'auto',
+  concept_threshold: question.concept_threshold ?? question.constraints_json?.concept_threshold ?? 99,
+  is_pattern_question: question.is_pattern_question ?? question.constraints_json?.is_pattern_question ?? false,
+  difficulty: question.difficulty || question.constraints_json?.difficulty || 'medium'
+});
+
+const normalizeTestCase = (testCase: any): TestCase => ({
+  ...testCase,
+  description:
+    testCase?.description ||
+    testCase?.metadata?.description ||
+    testCase?.name ||
+    'Covers a representative execution path.',
+  metadata: {
+    ...(testCase?.metadata || {}),
+    description:
+      testCase?.description ||
+      testCase?.metadata?.description ||
+      testCase?.name ||
+      'Covers a representative execution path.'
+  }
+});
+
+const normalizeQuestion = (question: any): Question => {
+  const constraints = question?.constraints_json || {};
+  return {
+    ...question,
+    constraints_json: constraints,
+    problem_type: question?.problem_type || constraints.problem_type || 'basic_programming',
+    required_concepts: question?.required_concepts || constraints.required_concepts || [],
+    requirements_mode: question?.requirements_mode || constraints.requirements_mode || 'auto',
+    concept_threshold: question?.concept_threshold ?? constraints.concept_threshold ?? 99,
+    is_pattern_question: question?.is_pattern_question ?? constraints.is_pattern_question ?? false,
+    difficulty: question?.difficulty || constraints.difficulty || 'medium',
+    testCases: (question?.testCases || []).map(normalizeTestCase)
+  };
+};
+
+const getQuestionSelectionId = (question: Question, index: number) =>
+  question.question_id || question._tempId || `draft-${index}`;
+
 const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
+  const api = (window as any).electronAPI;
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [selectedQuestionId, setSelectedQuestionId] = useState<string | undefined>(undefined);
+  const [selectedQuestionId, setSelectedQuestionId] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [analyzingRequirementId, setAnalyzingRequirementId] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
-  const isElectron = () => !!(window as any).electronAPI;
-
   const loadQuestions = async () => {
-    if (!isElectron()) return;
+    if (!api?.getQuestionsWithTestCases) return;
     try {
       setLoading(true);
       setError(null);
-      const res = await (window as any).electronAPI.getQuestionsWithTestCases(exam.examId);
+      const res = await api.getQuestionsWithTestCases(exam.examId);
       if (!res.success) {
         setError(res.error || 'Failed to load questions');
         setQuestions([]);
         return;
       }
-      const loaded: Question[] = (res.questions || []).map((q: any) => ({
-        ...q
-      }));
+      const loaded = (res.questions || []).map(normalizeQuestion);
       setQuestions(loaded);
-      if (loaded.length && !selectedQuestionId) {
-        setSelectedQuestionId(loaded[0].question_id);
+      if (loaded.length) {
+        setSelectedQuestionId((current) => current || getQuestionSelectionId(loaded[0], 0));
       }
     } catch (err: any) {
       console.error('Error loading questions:', err);
       setError('Failed to load questions. Please try again.');
+      setQuestions([]);
     } finally {
       setLoading(false);
     }
@@ -84,29 +160,104 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
     loadQuestions();
   }, [exam.examId]);
 
+  const currentQuestion = useMemo(
+    () =>
+      questions.find((question, index) => getQuestionSelectionId(question, index) === selectedQuestionId) || null,
+    [questions, selectedQuestionId]
+  );
+
+  const currentQuestionIndex = currentQuestion
+    ? questions.findIndex((question, index) => getQuestionSelectionId(question, index) === selectedQuestionId)
+    : -1;
+
+  const handleQuestionChange = (index: number, patch: Partial<Question>) => {
+    setQuestions((previous) => {
+      const next = [...previous];
+      next[index] = normalizeQuestion({
+        ...next[index],
+        ...patch,
+        constraints_json: patch.constraints_json ?? next[index].constraints_json
+      });
+      return next;
+    });
+  };
+
+  const setQuestionRequirements = (index: number, patch: Partial<Question>) => {
+    setQuestions((previous) => {
+      const next = [...previous];
+      const existing = next[index];
+      const constraints = {
+        ...ensureConstraints(existing),
+        ...(patch.constraints_json || {}),
+        ...(patch.problem_type !== undefined ? { problem_type: patch.problem_type } : {}),
+        ...(patch.required_concepts !== undefined ? { required_concepts: patch.required_concepts } : {}),
+        ...(patch.requirements_mode !== undefined ? { requirements_mode: patch.requirements_mode } : {}),
+        ...(patch.concept_threshold !== undefined ? { concept_threshold: patch.concept_threshold } : {}),
+        ...(patch.is_pattern_question !== undefined ? { is_pattern_question: patch.is_pattern_question } : {}),
+        ...(patch.difficulty !== undefined ? { difficulty: patch.difficulty } : {})
+      };
+      next[index] = normalizeQuestion({ ...existing, ...patch, constraints_json: constraints });
+      return next;
+    });
+  };
+
   const handleExtractFromPdf = async () => {
-    if (!isElectron()) return;
+    if (!api?.extractQuestions) return;
     try {
       setExtracting(true);
       setError(null);
       setInfo(null);
-      const res = await (window as any).electronAPI.extractQuestions(exam.examId);
+      const res = await api.extractQuestions(exam.examId);
       if (!res.success) {
         setError(res.error || 'Failed to extract questions from PDF');
         return;
       }
-      const extracted = (res.questions || []).map((q: any, index: number) => ({
-        title: q.title || `Question ${index + 1}`,
-        description: q.description || '',
-        source_page: q.page ?? null,
-        max_score: 10,
-        _tempId: q.tempId
-      })) as Question[];
-      setQuestions(extracted);
-      setSelectedQuestionId(undefined);
-      setInfo(
-        'Questions extracted from PDF. Review and edit them, then click "Save Questions" to persist.'
+
+      const extracted: Question[] = await Promise.all(
+        (res.questions || []).map(async (question: any, index: number) => {
+          const baseQuestion: Question = normalizeQuestion({
+            title: question.title || `Question ${index + 1}`,
+            description: question.description || '',
+            source_page: question.page ?? null,
+            max_score: 10,
+            _tempId: question.tempId,
+            testCases: []
+          });
+
+          if (!api?.aiAnalyzeRequirements || !baseQuestion.description) {
+            return baseQuestion;
+          }
+
+          try {
+            const analysis = await api.aiAnalyzeRequirements(
+              [baseQuestion.title, baseQuestion.description].filter(Boolean).join('\n\n')
+            );
+            if (!analysis?.success) return baseQuestion;
+            return normalizeQuestion({
+              ...baseQuestion,
+              problem_type: analysis.problemType || 'basic_programming',
+              required_concepts: analysis.requiredConcepts || [],
+              requirements_mode: 'auto',
+              concept_threshold: 99,
+              is_pattern_question: !!analysis.isPatternQuestion,
+              constraints_json: {
+                ...ensureConstraints(baseQuestion),
+                problem_type: analysis.problemType || 'basic_programming',
+                required_concepts: analysis.requiredConcepts || [],
+                requirements_mode: 'auto',
+                concept_threshold: 99,
+                is_pattern_question: !!analysis.isPatternQuestion
+              }
+            });
+          } catch {
+            return baseQuestion;
+          }
+        })
       );
+
+      setQuestions(extracted);
+      setSelectedQuestionId(extracted.length ? getQuestionSelectionId(extracted[0], 0) : undefined);
+      setInfo('Questions extracted and requirement suggestions generated. Review them, then save.');
     } catch (err: any) {
       console.error('Error extracting questions:', err);
       setError('Failed to extract questions. You can still add questions manually.');
@@ -115,56 +266,34 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
     }
   };
 
-  const handleQuestionChange = (index: number, patch: Partial<Question>) => {
-    setQuestions(prev => {
-      const next = [...prev];
-      next[index] = { ...next[index], ...patch };
-      return next;
-    });
-  };
-
-  const handleAddQuestion = () => {
-    const newQuestion: Question = {
-      title: 'New Question',
-      description: '',
-      source_page: null,
-      max_score: 10
-    };
-    setQuestions(prev => [...prev, newQuestion]);
-    setSelectedQuestionId(undefined);
-  };
-
-  const handleDeleteQuestion = (index: number) => {
-    setQuestions(prev => prev.filter((_, i) => i !== index));
-    if (questions[index]?.question_id === selectedQuestionId) {
-      setSelectedQuestionId(undefined);
-    }
-  };
-
   const handleSaveQuestions = async () => {
-    if (!isElectron()) return;
+    if (!api?.saveQuestions) return;
     try {
       setSaving(true);
       setError(null);
       setInfo(null);
-      const payload = questions.map(q => ({
-        question_id: q.question_id,
-        title: q.title,
-        description: q.description,
-        page: q.source_page,
-        maxScore: q.max_score,
-        constraints_json: q.constraints_json ?? null
+      const payload = questions.map((question) => ({
+        question_id: question.question_id,
+        title: question.title,
+        description: question.description,
+        page: question.source_page,
+        maxScore: question.max_score,
+        constraints_json: ensureConstraints(question),
+        problem_type: question.problem_type,
+        required_concepts: question.required_concepts,
+        requirements_mode: question.requirements_mode,
+        concept_threshold: question.concept_threshold,
+        is_pattern_question: question.is_pattern_question,
+        difficulty: question.difficulty
       }));
-      const res = await (window as any).electronAPI.saveQuestions(exam.examId, payload);
+      const res = await api.saveQuestions(exam.examId, payload);
       if (!res.success) {
         setError(res.error || 'Failed to save questions');
         return;
       }
-      const saved: Question[] = (res.questions || []).map((q: any) => ({ ...q }));
+      const saved = (res.questions || []).map(normalizeQuestion);
       setQuestions(saved);
-      if (saved.length) {
-        setSelectedQuestionId(saved[0].question_id);
-      }
+      if (saved.length) setSelectedQuestionId(getQuestionSelectionId(saved[0], 0));
       setInfo('Questions saved successfully.');
     } catch (err: any) {
       console.error('Error saving questions:', err);
@@ -174,23 +303,79 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
     }
   };
 
-  const currentQuestion = questions.find(q => q.question_id === selectedQuestionId) || null;
-  const currentQuestionIndex = currentQuestion
-    ? questions.findIndex(q => q.question_id === currentQuestion.question_id)
-    : -1;
-
-  const ensureQuestionSelected = () => {
-    if (!currentQuestion && questions.length > 0) {
-      setSelectedQuestionId(questions[0].question_id);
-      return questions[0];
+  const handleGenerateRequirementSuggestions = async (question: Question) => {
+    if (!api?.aiAnalyzeRequirements || !question.description) return;
+    try {
+      setAnalyzingRequirementId(question.question_id);
+      setError(null);
+      const res = await api.aiAnalyzeRequirements(
+        [question.title, question.description].filter(Boolean).join('\n\n')
+      );
+      if (!res.success) {
+        setError(res.error || 'Failed to analyze requirements.');
+        return;
+      }
+      const index = questions.findIndex((item) => item === question);
+      if (index >= 0) {
+        setQuestionRequirements(index, {
+          problem_type: res.problemType || 'basic_programming',
+          required_concepts: res.requiredConcepts || [],
+          requirements_mode: 'auto',
+          concept_threshold: 99,
+          is_pattern_question: !!res.isPatternQuestion
+        });
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to analyze requirements.');
+    } finally {
+      setAnalyzingRequirementId(undefined);
     }
-    return currentQuestion;
   };
 
-  const handleGenerateTestCases = async (provider: 'auto' | 'groq' | 'gemini' = 'auto') => {
-    if (!isElectron()) return;
-    const q = ensureQuestionSelected();
-    if (!q || !q.question_id) {
+  const handleAddQuestion = () => {
+    const nextQuestion = normalizeQuestion({
+      title: 'New Question',
+      description: '',
+      source_page: null,
+      max_score: 10,
+      constraints_json: ensureConstraints({
+        title: '',
+        problem_type: 'basic_programming',
+        required_concepts: [],
+        requirements_mode: 'auto',
+        concept_threshold: 99,
+        is_pattern_question: false,
+        difficulty: 'medium'
+      }),
+      testCases: []
+    });
+    setQuestions((previous) => [...previous, nextQuestion]);
+  };
+
+  const handleDeleteQuestion = (index: number) => {
+    setQuestions((previous) => previous.filter((_, currentIndex) => currentIndex !== index));
+    if (getQuestionSelectionId(questions[index], index) === selectedQuestionId) {
+      setSelectedQuestionId(undefined);
+    }
+  };
+
+  const getCurrentTestCases = (): TestCase[] =>
+    currentQuestion?.testCases?.filter((testCase) => !testCase._isDeleted) || [];
+
+  const updateTestCasesForCurrent = (updater: (previous: TestCase[]) => TestCase[]) => {
+    if (currentQuestionIndex < 0) return;
+    setQuestions((previous) => {
+      const next = [...previous];
+      next[currentQuestionIndex] = {
+        ...next[currentQuestionIndex],
+        testCases: updater(next[currentQuestionIndex].testCases || []).map(normalizeTestCase)
+      };
+      return next;
+    });
+  };
+
+  const handleGenerateTestCases = async () => {
+    if (!api?.generateTestCases || !currentQuestion?.question_id) {
       setError('Please save questions first, then select a question to generate test cases for.');
       return;
     }
@@ -198,128 +383,67 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
       setGenerating(true);
       setError(null);
       setInfo(null);
-      const res = await (window as any).electronAPI.generateTestCases(
-        exam.examId,
-        q.question_id,
-        provider
-      );
+      const res = await api.generateTestCases(exam.examId, currentQuestion.question_id, 'auto');
       if (!res.success) {
-        const code = res.code || 'ERROR';
-        if (code === 'NO_API_KEY' || code === 'UNAUTHORIZED' || code === 'RATE_LIMIT') {
-          setError(
-            (res.error as string) ||
-              'LLM is not available right now. You can continue by adding test cases manually.'
-          );
-        } else {
-          setError(
-            (res.error as string) ||
-              'Could not generate test cases. You can continue by adding test cases manually.'
-          );
-        }
+        setError(res.error || 'Failed to generate test cases.');
         return;
       }
-      const generated = (res.testCases || []) as any[];
-      if (!Array.isArray(generated) || generated.length === 0) {
-        setInfo('No test cases were returned by the LLM. You can add them manually.');
-        return;
-      }
-      const mapped: TestCase[] = generated.map(tc => ({
-        name: tc.name || 'Test case',
-        input: tc.input || '',
-        expected_output: tc.expectedOutput || tc.expected_output || '',
-        is_hidden: !!(tc.isHidden ?? tc.is_hidden),
-        is_edge_case: !!(tc.isEdgeCase ?? tc.is_edge_case),
-        is_generated: true,
-        time_limit_ms: tc.timeLimitMs ?? tc.time_limit_ms ?? null,
-        memory_limit_kb: tc.memoryLimitKb ?? tc.memory_limit_kb ?? null,
-        weight: tc.weight != null ? tc.weight : 1
-      }));
-
-      // Attach generated cases to question (in-memory; persist via save test cases)
-      const idx = questions.findIndex(qq => qq.question_id === q.question_id);
-      if (idx >= 0) {
-        const existingForQ = (questions as any)[idx].testCases || [];
-        const merged = [...existingForQ, ...mapped.map(tc => ({ ...tc, _isNew: true }))];
-        setQuestions(prev => {
-          const next = [...prev] as any;
-          next[idx] = { ...next[idx], testCases: merged };
-          return next;
-        });
-      }
-      setInfo('AI-generated test cases added. Review and then click "Save Test Cases".');
+      const generated = (res.testCases || []).map(normalizeTestCase);
+      updateTestCasesForCurrent((previous) => [...previous, ...generated]);
+      setInfo('AI-generated test cases added. Review them, then save test cases.');
     } catch (err: any) {
       console.error('Error generating test cases:', err);
-      setError(
-        'Failed to generate test cases. You can continue by adding and editing test cases manually.'
-      );
+      setError('Failed to generate test cases. You can still add them manually.');
     } finally {
       setGenerating(false);
     }
   };
 
-  const getCurrentTestCases = (): TestCase[] => {
-    const q = ensureQuestionSelected();
-    if (!q) return [];
-    const idx = questions.findIndex(qq => qq.question_id === q.question_id);
-    if (idx < 0) return [];
-    const anyQ: any = questions[idx] as any;
-    return (anyQ.testCases || []) as TestCase[];
-  };
-
-  const updateTestCasesForCurrent = (updater: (prev: TestCase[]) => TestCase[]) => {
-    const q = ensureQuestionSelected();
-    if (!q) return;
-    const idx = questions.findIndex(qq => qq.question_id === q.question_id);
-    if (idx < 0) return;
-    setQuestions(prev => {
-      const next = [...prev] as any;
-      const currentTc: TestCase[] = (next[idx].testCases || []) as TestCase[];
-      next[idx] = { ...next[idx], testCases: updater(currentTc) };
-      return next;
-    });
-  };
-
   const handleAddTestCase = () => {
-    updateTestCasesForCurrent(prev => [
-      ...prev,
-      {
+    updateTestCasesForCurrent((previous) => [
+      ...previous,
+      normalizeTestCase({
         name: 'New test case',
+        description: 'Describe what this test case is checking.',
         input: '',
         expected_output: '',
         is_hidden: false,
         is_edge_case: false,
         is_generated: false,
-        weight: 1,
-        _isNew: true
-      }
+        weight: 1
+      })
     ]);
   };
 
   const handleUpdateTestCase = (index: number, patch: Partial<TestCase>) => {
-    updateTestCasesForCurrent(prev => {
-      const next = [...prev];
-      next[index] = { ...next[index], ...patch };
+    updateTestCasesForCurrent((previous) => {
+      const next = [...previous];
+      const current = next[index];
+      next[index] = normalizeTestCase({
+        ...current,
+        ...patch,
+        metadata: {
+          ...(current.metadata || {}),
+          ...(patch.metadata || {}),
+          ...(patch.description !== undefined ? { description: patch.description } : {})
+        }
+      });
       return next;
     });
   };
 
   const handleDeleteTestCase = (index: number) => {
-    updateTestCasesForCurrent(prev => {
-      const next = [...prev];
-      const tc = next[index];
-      if (tc && tc.test_case_id) {
-        next[index] = { ...tc, _isDeleted: true };
-      } else {
-        next.splice(index, 1);
-      }
+    updateTestCasesForCurrent((previous) => {
+      const next = [...previous];
+      const current = next[index];
+      if (current?.test_case_id) next[index] = { ...current, _isDeleted: true };
+      else next.splice(index, 1);
       return next;
     });
   };
 
   const handleSaveTestCases = async () => {
-    if (!isElectron()) return;
-    const q = ensureQuestionSelected();
-    if (!q || !q.question_id) {
+    if (!api?.upsertTestCases || !currentQuestion?.question_id) {
       setError('Please save questions first, then select a question to save test cases for.');
       return;
     }
@@ -327,38 +451,32 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
       setSaving(true);
       setError(null);
       setInfo(null);
-      const tcs = getCurrentTestCases();
-      const payload = tcs.map(tc => ({
-        test_case_id: tc.test_case_id,
-        name: tc.name,
-        input: tc.input,
-        expected_output: tc.expected_output,
-        is_hidden: tc.is_hidden,
-        is_edge_case: tc.is_edge_case,
-        is_generated: tc.is_generated,
-        time_limit_ms: tc.time_limit_ms,
-        memory_limit_kb: tc.memory_limit_kb,
-        weight: tc.weight,
-        metadata: tc.metadata,
-        op: tc._isDeleted ? 'delete' : tc.test_case_id ? 'update' : 'create'
+      const payload = (currentQuestion.testCases || []).map((testCase) => ({
+        test_case_id: testCase.test_case_id,
+        name: testCase.name,
+        description: testCase.description,
+        input: testCase.input,
+        expected_output: testCase.expected_output,
+        is_hidden: testCase.is_hidden,
+        is_edge_case: testCase.is_edge_case,
+        is_generated: testCase.is_generated,
+        time_limit_ms: testCase.time_limit_ms,
+        memory_limit_kb: testCase.memory_limit_kb,
+        weight: testCase.weight,
+        metadata: {
+          ...(testCase.metadata || {}),
+          description: testCase.description
+        },
+        op: testCase._isDeleted ? 'delete' : testCase.test_case_id ? 'update' : 'create'
       }));
-      const res = await (window as any).electronAPI.upsertTestCases(q.question_id, payload);
+      const res = await api.upsertTestCases(currentQuestion.question_id, payload);
       if (!res.success) {
         setError(res.error || 'Failed to save test cases');
         return;
       }
-      const saved: TestCase[] = (res.testCases || []).map((tc: any) => ({
-        ...tc
-      }));
-      // Replace on question
-      const idx = questions.findIndex(qq => qq.question_id === q.question_id);
-      if (idx >= 0) {
-        setQuestions(prev => {
-          const next = [...prev] as any;
-          next[idx] = { ...next[idx], testCases: saved };
-          return next;
-        });
-      }
+      handleQuestionChange(currentQuestionIndex, {
+        testCases: (res.testCases || []).map(normalizeTestCase)
+      });
       setInfo('Test cases saved successfully.');
     } catch (err: any) {
       console.error('Error saving test cases:', err);
@@ -376,15 +494,11 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         <div className="cq-header-text">
           <h3>Code Questions for: {exam.title}</h3>
           <p className="cq-subtitle">
-            Extract questions from the exam PDF, edit them, and manage test cases (manual or AI).
+            Extract questions from the exam PDF, review AI-suggested requirements, and manage teacher-facing test cases.
           </p>
         </div>
         <div className="cq-header-actions">
-          <button
-            className="btn-secondary"
-            onClick={handleExtractFromPdf}
-            disabled={extracting || loading}
-          >
+          <button className="btn-secondary" onClick={handleExtractFromPdf} disabled={extracting || loading}>
             {extracting ? 'Extracting…' : 'Extract from PDF'}
           </button>
           <button className="btn-secondary" onClick={handleAddQuestion} disabled={loading}>
@@ -403,7 +517,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         </div>
       )}
 
-      <div className="cq-body">
+      <div className="cq-body cq-body-grid">
         <div className="cq-questions-list">
           <div className="cq-list-header">
             <h4>Questions</h4>
@@ -412,29 +526,27 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
           {questions.length === 0 && !loading ? (
             <div className="cq-empty">
               <p>No questions yet.</p>
-              <p>You can extract from PDF or add questions manually.</p>
+              <p>Extract from PDF or add questions manually.</p>
             </div>
           ) : (
             <ul className="cq-question-items">
-              {questions.map((q, index) => (
+              {questions.map((question, index) => (
                 <li
-                  key={q.question_id || q._tempId || index}
-                  className={`cq-question-item ${
-                    q.question_id === selectedQuestionId ? 'active' : ''
-                  }`}
-                  onClick={() => setSelectedQuestionId(q.question_id)}
+                  key={question.question_id || question._tempId || index}
+                  className={`cq-question-item ${question.question_id === selectedQuestionId ? 'active' : ''}`}
+                  onClick={() => setSelectedQuestionId(question.question_id)}
                 >
                   <div className="cq-question-main">
                     <input
                       type="text"
-                      value={q.title}
-                      onChange={e => handleQuestionChange(index, { title: e.target.value })}
+                      value={question.title}
+                      onChange={(e) => handleQuestionChange(index, { title: e.target.value })}
                       placeholder="Question title"
                     />
                     <button
                       className="cq-delete-btn"
                       type="button"
-                      onClick={e => {
+                      onClick={(e) => {
                         e.stopPropagation();
                         handleDeleteQuestion(index);
                       }}
@@ -443,15 +555,22 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                     </button>
                   </div>
                   <div className="cq-question-meta">
-                    {q.source_page != null && <span>Page {q.source_page}</span>}
-                    {q.max_score != null && <span>Max score: {q.max_score}</span>}
+                    {question.source_page != null && <span>Page {question.source_page}</span>}
+                    {question.max_score != null && <span>Max score: {question.max_score}</span>}
+                  </div>
+                  <div className="cq-badge-row">
+                    <span className="cq-badge">{question.problem_type?.replace(/_/g, ' ')}</span>
+                    {(question.required_concepts || []).slice(0, 2).map((concept) => (
+                      <span key={concept} className="cq-badge cq-badge-muted">
+                        {concept.replace(/_/g, ' ')}
+                      </span>
+                    ))}
                   </div>
                 </li>
               ))}
             </ul>
           )}
         </div>
-
         <div className="cq-details">
           {currentQuestion ? (
             <>
@@ -459,26 +578,139 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                 <h4>Question Details</h4>
                 <textarea
                   value={currentQuestion.description || ''}
-                  onChange={e =>
-                    handleQuestionChange(currentQuestionIndex, { description: e.target.value })
-                  }
+                  onChange={(e) => handleQuestionChange(currentQuestionIndex, { description: e.target.value })}
                   placeholder="Question description / problem statement"
                 />
               </div>
 
-              <div className="cq-question-detail" style={{ marginTop: 14 }}>
-                <h4>Teacher Constraints (for evaluation)</h4>
+              <div className="cq-question-detail">
+                <div className="cq-section-head">
+                  <div>
+                    <h4>Suggested Requirements</h4>
+                    <p className="cq-subtitle">
+                      Auto-detected from the problem text. Switch to manual mode if you want to override them.
+                    </p>
+                  </div>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => handleGenerateRequirementSuggestions(currentQuestion)}
+                    disabled={analyzingRequirementId === currentQuestion.question_id}
+                  >
+                    {analyzingRequirementId === currentQuestion.question_id ? 'Analyzing…' : 'Analyze Again'}
+                  </button>
+                </div>
+
+                <div className="cq-requirements-grid">
+                  <label className="cq-constraint-item">
+                    Problem type
+                    <select
+                      value={currentQuestion.problem_type || 'basic_programming'}
+                      onChange={(e) => setQuestionRequirements(currentQuestionIndex, { problem_type: e.target.value })}
+                    >
+                      {PROBLEM_TYPES.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="cq-constraint-item">
+                    Requirements mode
+                    <select
+                      value={currentQuestion.requirements_mode || 'auto'}
+                      onChange={(e) =>
+                        setQuestionRequirements(currentQuestionIndex, {
+                          requirements_mode: e.target.value as 'auto' | 'manual'
+                        })
+                      }
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="manual">Manual</option>
+                    </select>
+                  </label>
+
+                  <label className="cq-constraint-item">
+                    Concept threshold
+                    <select
+                      value={currentQuestion.concept_threshold ?? 99}
+                      onChange={(e) =>
+                        setQuestionRequirements(currentQuestionIndex, {
+                          concept_threshold: Number(e.target.value)
+                        })
+                      }
+                    >
+                      <option value={99}>99%</option>
+                      <option value={90}>90%</option>
+                      <option value={75}>75%</option>
+                      <option value={50}>50%</option>
+                    </select>
+                  </label>
+
+                  <label className="cq-constraint-item">
+                    Difficulty
+                    <select
+                      value={currentQuestion.difficulty || 'medium'}
+                      onChange={(e) => setQuestionRequirements(currentQuestionIndex, { difficulty: e.target.value })}
+                    >
+                      {DIFFICULTY_OPTIONS.map((difficulty) => (
+                        <option key={difficulty} value={difficulty}>
+                          {difficulty}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <label className="cq-pattern-toggle">
+                  <input
+                    type="checkbox"
+                    checked={!!currentQuestion.is_pattern_question}
+                    onChange={(e) =>
+                      setQuestionRequirements(currentQuestionIndex, {
+                        is_pattern_question: e.target.checked
+                      })
+                    }
+                  />
+                  Treat this as a pattern-printing question
+                </label>
+
+                <div className="cq-concepts-wrap">
+                  {REQUIREMENT_OPTIONS.map((option) => (
+                    <label key={option.value} className="cq-concept-check">
+                      <input
+                        type="checkbox"
+                        checked={(currentQuestion.required_concepts || []).includes(option.value)}
+                        disabled={currentQuestion.requirements_mode !== 'manual'}
+                        onChange={() => {
+                          const current = new Set(currentQuestion.required_concepts || []);
+                          if (current.has(option.value)) current.delete(option.value);
+                          else current.add(option.value);
+                          setQuestionRequirements(currentQuestionIndex, {
+                            required_concepts: Array.from(current)
+                          });
+                        }}
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="cq-question-detail">
+                <h4>Teacher Constraints</h4>
                 <p className="cq-subtitle">
-                  These are checked during evaluation (signals for teacher). They are not used as automatic grading.
+                  These remain teacher-side evaluation signals and can coexist with the suggested requirements above.
                 </p>
                 {(() => {
-                  const c = (currentQuestion.constraints_json || {}) as any;
-                  const requiredLoop = !!c.required_loop;
-                  const requiredRecursion = !!c.required_recursion;
-                  const maxLoopNesting =
-                    typeof c.max_loop_nesting === 'number' ? c.max_loop_nesting : 0;
+                  const constraints = ensureConstraints(currentQuestion);
+                  const requiredLoop = !!constraints.required_loop;
+                  const requiredRecursion = !!constraints.required_recursion;
+                  const maxLoopNesting = typeof constraints.max_loop_nesting === 'number' ? constraints.max_loop_nesting : 0;
                   const expectedComplexity =
-                    typeof c.expected_complexity === 'string' ? c.expected_complexity : 'unspecified';
+                    typeof constraints.expected_complexity === 'string'
+                      ? constraints.expected_complexity
+                      : 'unspecified';
                   return (
                     <div className="cq-constraints-grid">
                       <label className="cq-constraint-item">
@@ -486,54 +718,46 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                           type="checkbox"
                           checked={requiredLoop}
                           onChange={(e) =>
-                            handleQuestionChange(currentQuestionIndex, {
-                              constraints_json: { ...c, required_loop: e.target.checked }
+                            setQuestionRequirements(currentQuestionIndex, {
+                              constraints_json: { ...constraints, required_loop: e.target.checked }
                             })
                           }
                         />
                         Require loop usage
                       </label>
-
                       <label className="cq-constraint-item">
                         <input
                           type="checkbox"
                           checked={requiredRecursion}
                           onChange={(e) =>
-                            handleQuestionChange(currentQuestionIndex, {
-                              constraints_json: { ...c, required_recursion: e.target.checked }
+                            setQuestionRequirements(currentQuestionIndex, {
+                              constraints_json: { ...constraints, required_recursion: e.target.checked }
                             })
                           }
                         />
                         Require recursion usage
                       </label>
-
                       <label className="cq-constraint-item">
-                        Max loop nesting:
+                        Max loop nesting
                         <input
-                          style={{ width: 80, marginLeft: 8 }}
                           type="number"
                           min={0}
                           step={1}
                           value={maxLoopNesting}
                           onChange={(e) =>
-                            handleQuestionChange(currentQuestionIndex, {
-                              constraints_json: {
-                                ...c,
-                                max_loop_nesting: Number(e.target.value) || 0
-                              }
+                            setQuestionRequirements(currentQuestionIndex, {
+                              constraints_json: { ...constraints, max_loop_nesting: Number(e.target.value) || 0 }
                             })
                           }
                         />
                       </label>
-
                       <label className="cq-constraint-item">
-                        Expected complexity:
+                        Expected complexity
                         <select
-                          style={{ marginLeft: 8 }}
                           value={expectedComplexity}
                           onChange={(e) =>
-                            handleQuestionChange(currentQuestionIndex, {
-                              constraints_json: { ...c, expected_complexity: e.target.value }
+                            setQuestionRequirements(currentQuestionIndex, {
+                              constraints_json: { ...constraints, expected_complexity: e.target.value }
                             })
                           }
                         >
@@ -550,30 +774,21 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                   );
                 })()}
               </div>
-
               <div className="cq-testcases-header">
                 <div>
                   <h4>Test Cases</h4>
                   <p className="cq-subtitle">
-                    Generate with AI or manage manually. Hidden cases are not shown to students.
+                    Every saved test case carries a short description so teachers know what it is checking at review time.
                   </p>
                 </div>
                 <div className="cq-header-actions">
-                  <button
-                    className="btn-secondary"
-                    onClick={() => handleGenerateTestCases('auto')}
-                    disabled={generating || saving}
-                  >
+                  <button className="btn-secondary" onClick={handleGenerateTestCases} disabled={generating || saving}>
                     {generating ? 'Generating…' : 'Generate test cases (AI)'}
                   </button>
                   <button className="btn-secondary" onClick={handleAddTestCase} disabled={saving}>
                     Add Test Case
                   </button>
-                  <button
-                    className="btn-primary"
-                    onClick={handleSaveTestCases}
-                    disabled={saving || generating}
-                  >
+                  <button className="btn-primary" onClick={handleSaveTestCases} disabled={saving || generating}>
                     {saving ? 'Saving…' : 'Save Test Cases'}
                   </button>
                 </div>
@@ -589,6 +804,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                   <thead>
                     <tr>
                       <th>Name</th>
+                      <th>Description</th>
                       <th>Input (stdin)</th>
                       <th>Expected Output (stdout)</th>
                       <th>Flags</th>
@@ -597,81 +813,67 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {testCases
-                      .filter(tc => !tc._isDeleted)
-                      .map((tc, index) => (
-                        <tr key={tc.test_case_id || index}>
-                          <td>
+                    {testCases.map((testCase, index) => (
+                      <tr key={testCase.test_case_id || index}>
+                        <td>
+                          <input
+                            type="text"
+                            value={testCase.name}
+                            onChange={(e) => handleUpdateTestCase(index, { name: e.target.value })}
+                          />
+                        </td>
+                        <td>
+                          <textarea
+                            value={testCase.description || ''}
+                            onChange={(e) => handleUpdateTestCase(index, { description: e.target.value })}
+                          />
+                        </td>
+                        <td>
+                          <textarea
+                            value={testCase.input || ''}
+                            onChange={(e) => handleUpdateTestCase(index, { input: e.target.value })}
+                          />
+                        </td>
+                        <td>
+                          <textarea
+                            value={testCase.expected_output || ''}
+                            onChange={(e) => handleUpdateTestCase(index, { expected_output: e.target.value })}
+                          />
+                        </td>
+                        <td className="cq-flags-cell">
+                          <label>
                             <input
-                              type="text"
-                              value={tc.name}
-                              onChange={e =>
-                                handleUpdateTestCase(index, { name: e.target.value })
-                              }
+                              type="checkbox"
+                              checked={!!testCase.is_hidden}
+                              onChange={(e) => handleUpdateTestCase(index, { is_hidden: e.target.checked })}
                             />
-                          </td>
-                          <td>
-                            <textarea
-                              value={tc.input || ''}
-                              onChange={e =>
-                                handleUpdateTestCase(index, { input: e.target.value })
-                              }
-                            />
-                          </td>
-                          <td>
-                            <textarea
-                              value={tc.expected_output || ''}
-                              onChange={e =>
-                                handleUpdateTestCase(index, { expected_output: e.target.value })
-                              }
-                            />
-                          </td>
-                          <td className="cq-flags-cell">
-                            <label>
-                              <input
-                                type="checkbox"
-                                checked={!!tc.is_hidden}
-                                onChange={e =>
-                                  handleUpdateTestCase(index, { is_hidden: e.target.checked })
-                                }
-                              />
-                              Hidden
-                            </label>
-                            <label>
-                              <input
-                                type="checkbox"
-                                checked={!!tc.is_edge_case}
-                                onChange={e =>
-                                  handleUpdateTestCase(index, { is_edge_case: e.target.checked })
-                                }
-                              />
-                              Edge
-                            </label>
-                          </td>
-                          <td>
+                            Hidden
+                          </label>
+                          <label>
                             <input
-                              type="number"
-                              min={0}
-                              step={0.1}
-                              value={tc.weight ?? 1}
-                              onChange={e =>
-                                handleUpdateTestCase(index, {
-                                  weight: parseFloat(e.target.value) || 0
-                                })
-                              }
+                              type="checkbox"
+                              checked={!!testCase.is_edge_case}
+                              onChange={(e) => handleUpdateTestCase(index, { is_edge_case: e.target.checked })}
                             />
-                          </td>
-                          <td>
-                            <button
-                              className="cq-delete-btn"
-                              type="button"
-                              onClick={() => handleDeleteTestCase(index)}
-                            >
-                              ✕
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                            Edge
+                          </label>
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.1}
+                            value={testCase.weight ?? 1}
+                            onChange={(e) => handleUpdateTestCase(index, { weight: parseFloat(e.target.value) || 0 })}
+                          />
+                        </td>
+                        <td>
+                          <button className="cq-delete-btn" type="button" onClick={() => handleDeleteTestCase(index)}>
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               )}
@@ -688,4 +890,3 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
 };
 
 export default CodeQuestionsTab;
-

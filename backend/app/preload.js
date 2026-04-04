@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   extractQuestions: (examId) => ipcRenderer.invoke('exam:extract-questions', examId),
   generateTestCases: (examId, questionId, llmProvider) =>
     ipcRenderer.invoke('exam:generate-testcases', examId, questionId, llmProvider),
+  aiAnalyzeRequirements: (problemText) => ipcRenderer.invoke('ai:analyze-requirements', problemText),
   saveQuestions: (examId, questions) => ipcRenderer.invoke('exam:save-questions', examId, questions),
   upsertTestCases: (questionId, testCases) =>
     ipcRenderer.invoke('exam:upsert-testcases', questionId, testCases),
@@ -151,6 +152,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('evaluation:generate-summary', evaluationId, options),
   getEvaluationAnalysisCapabilities: () =>
     ipcRenderer.invoke('evaluation:get-analysis-capabilities'),
+
+  // Teacher analytics dashboard
+  getDashboardSummary: () => ipcRenderer.invoke('dashboard:summary'),
+  getDashboardPapers: () => ipcRenderer.invoke('dashboard:papers'),
+  getDashboardConcepts: () => ipcRenderer.invoke('dashboard:concepts'),
+  getDashboardQuestions: (examId) => ipcRenderer.invoke('dashboard:questions', examId),
+  getDashboardPipeline: () => ipcRenderer.invoke('dashboard:pipeline'),
+  getDashboardPlatforms: () => ipcRenderer.invoke('dashboard:platforms'),
+  getDashboardEventsRecent: () => ipcRenderer.invoke('dashboard:events-recent'),
+  getDashboardSubmissionsRecent: () => ipcRenderer.invoke('dashboard:submissions-recent'),
+
+  // Student analytics
+  studentsGetAll: (teacherId) => ipcRenderer.invoke('students:getAll', teacherId),
+  studentsGetAtRisk: (teacherId) => ipcRenderer.invoke('students:getAtRisk', teacherId),
+  studentsGetProfile: (payload) => ipcRenderer.invoke('students:getProfile', payload),
+  studentsGenerateReport: (payload) => ipcRenderer.invoke('students:generateReport', payload),
+  getExamStudentScores: (examId) => ipcRenderer.invoke('students:getExamScores', examId),
+  onDashboardUpdated: (callback) => {
+    const handler = (event, data) => callback(event, data);
+    ipcRenderer.on('dashboard:updated', handler);
+    return () => ipcRenderer.removeListener('dashboard:updated', handler);
+  },
 
   // Event listeners
   onMonitoringEvent: (callback) => {

@@ -25,6 +25,19 @@ const TEST_CASE_SCHEMA = {
   notes: 'string'
 };
 
+const VALID_REQUIREMENT_KEYS = [
+  'loops',
+  'do_while',
+  'switch',
+  'nested_loops',
+  'conditionals',
+  'recursion',
+  'arrays',
+  'arrays_2d',
+  'arrays_3d',
+  'pointers'
+];
+
 function loadConfig() {
   const fromEnv = {
     groqApiKey: process.env.GROQ_API_KEY,
@@ -153,9 +166,15 @@ function normalizeInputForStdin(inputStr) {
 function normalizeTestCase(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const rawInput = typeof raw.input === 'string' ? raw.input : (raw.input != null ? String(raw.input) : '');
+  const rawDescription =
+    typeof raw.description === 'string'
+      ? raw.description
+      : typeof raw.notes === 'string'
+      ? raw.notes
+      : '';
   return {
     name: typeof raw.name === 'string' ? raw.name : (raw.name != null ? String(raw.name) : 'Unnamed'),
-    description: typeof raw.description === 'string' ? raw.description : (raw.description != null ? String(raw.description) : ''),
+    description: rawDescription.trim() || 'Covers a representative execution path.',
     input: normalizeInputForStdin(rawInput),
     expectedOutput: typeof raw.expectedOutput === 'string' ? raw.expectedOutput : (raw.expectedOutput != null ? String(raw.expectedOutput) : ''),
     isHidden: Boolean(raw.isHidden),
@@ -198,6 +217,72 @@ function parseTestCasesJson(text) {
     return { ok: false, error: 'Parsed array contained no valid test cases' };
   }
   return { ok: true, testCases };
+}
+
+function parseRequirementAnalysis(text) {
+  const parsed = safeParseJSON(text, null);
+  if (!parsed || typeof parsed !== 'object') return null;
+  const requiredConcepts = Array.isArray(parsed.requiredConcepts)
+    ? parsed.requiredConcepts
+        .map((item) => String(item || '').toLowerCase().replace(/\s+/g, '_').trim())
+        .filter((item) => VALID_REQUIREMENT_KEYS.includes(item))
+    : [];
+  const problemType =
+    typeof parsed.problemType === 'string' && parsed.problemType.trim()
+      ? parsed.problemType.trim().toLowerCase()
+      : inferProblemTypeFromConcepts(requiredConcepts, false);
+  return {
+    requiredConcepts: Array.from(new Set(requiredConcepts)),
+    isPatternQuestion: !!parsed.isPatternQuestion,
+    problemType
+  };
+}
+
+function inferProblemTypeFromConcepts(requiredConcepts, isPatternQuestion) {
+  if (isPatternQuestion) return 'patterns';
+  if (requiredConcepts.includes('arrays_3d')) return 'arrays_3d';
+  if (requiredConcepts.includes('arrays_2d')) return 'arrays_2d';
+  if (requiredConcepts.includes('arrays')) return 'arrays_1d';
+  if (requiredConcepts.includes('pointers')) return 'pointers';
+  if (requiredConcepts.includes('recursion')) return 'recursion';
+  if (requiredConcepts.includes('conditionals')) return 'conditionals';
+  if (requiredConcepts.includes('nested_loops')) return 'loops';
+  if (requiredConcepts.includes('loops')) return 'loops';
+  return 'basic_programming';
+}
+
+function heuristicAnalyzeRequirements(problemText) {
+  const text = String(problemText || '');
+  const lower = text.toLowerCase();
+  const requiredConcepts = new Set();
+
+  const add = (key) => {
+    if (VALID_REQUIREMENT_KEYS.includes(key)) requiredConcepts.add(key);
+  };
+
+  if (/\bpattern|star pattern|print.*triangle|diamond|pyramid|asterisk/.test(lower)) {
+    add('loops');
+    add('nested_loops');
+  }
+  if (/\bmatrix|2d array|two dimensional|row|column|grid/.test(lower)) add('arrays_2d');
+  if (/\b3d array|three dimensional|cube/.test(lower)) add('arrays_3d');
+  if (/\barray|list of numbers|elements/.test(lower)) add('arrays');
+  if (/\bpointer|address operator|dereference/.test(lower)) add('pointers');
+  if (/\brecursive|recursion|factorial|fibonacci/.test(lower)) add('recursion');
+  if (/\bif\b|\belse\b|\belseif\b|\bswitch\b|decision|grade|positive|negative|even|odd|eligible/.test(lower)) add('conditionals');
+  if (/\bswitch\b|case\b/.test(lower)) add('switch');
+  if (/\bdo[- ]while\b/.test(lower)) add('do_while');
+  if (/\bloop\b|\biterate\b|\bfor each\b|\bseries\b|\bsum of first\b|\bcount\b|\bprint numbers\b|\bpattern\b/.test(lower)) add('loops');
+  if (/\bnested\b|\bfor each row\b|\bfor each column\b|\bpattern\b/.test(lower)) add('nested_loops');
+
+  const isPatternQuestion = /\bpattern|triangle|diamond|pyramid|asterisk|stars?\b/.test(lower);
+  const conceptsArray = Array.from(requiredConcepts);
+
+  return {
+    requiredConcepts: conceptsArray,
+    isPatternQuestion,
+    problemType: inferProblemTypeFromConcepts(conceptsArray, isPatternQuestion)
+  };
 }
 
 const SYSTEM_PROMPT = `You are generating deterministic unit test cases for C++ console programs. The program reads from stdin and writes to stdout.
@@ -373,8 +458,20 @@ class LLMTestCaseService {
 
       // Batch fallback: fill in any test cases that have empty expectedOutput
       const enriched = await this._batchFillMissingOutputs(questionText, parsed.testCases);
+      const normalized = enriched.map((tc, index) => ({
+        ...tc,
+        name: tc.name || `test_case_${index + 1}`,
+        description:
+          typeof tc.description === 'string' && tc.description.trim()
+            ? tc.description.trim()
+            : tc.isEdgeCase
+            ? 'Covers an edge or boundary condition.'
+            : tc.isHidden
+            ? 'Hidden validation case for grading coverage.'
+            : 'Covers a representative execution path.'
+      }));
 
-      return { success: true, testCases: enriched };
+      return { success: true, testCases: normalized };
     } catch (err) {
       const msg = err.message || String(err);
       if (msg.includes('429') || msg.includes('rate_limit')) {
@@ -391,6 +488,47 @@ class LLMTestCaseService {
         return { success: false, error: 'Network error. Check your internet connection and try again.', code: 'NETWORK' };
       }
       return { success: false, error: msg, code: 'ERROR' };
+    }
+  }
+
+  async analyzeRequirements(problemText) {
+    const heuristic = heuristicAnalyzeRequirements(problemText);
+    if (!this.config.groqApiKey && !this.config.geminiApiKey) {
+      return { success: true, ...heuristic, source: 'heuristic' };
+    }
+
+    const sys = `You analyze programming questions and infer what concepts a correct student solution must use.
+Return ONLY valid JSON:
+{
+  "requiredConcepts": ["loops", "conditionals"],
+  "isPatternQuestion": false,
+  "problemType": "loops"
+}
+Valid concept keys only: ${VALID_REQUIREMENT_KEYS.join(', ')}.
+Problem types should be one of: basic_programming, loops, conditionals, recursion, arrays_1d, arrays_2d, arrays_3d, pointers, patterns.`;
+    const usr = `Question text:\n${String(problemText || '').slice(0, 5000)}`;
+
+    try {
+      const raw = await this._callAI(sys, usr, { temperature: 0.05, maxTokens: 1200 });
+      const parsed = parseRequirementAnalysis(raw);
+      if (!parsed) {
+        return { success: true, ...heuristic, source: 'heuristic_fallback' };
+      }
+      const mergedConcepts = Array.from(
+        new Set([...(heuristic.requiredConcepts || []), ...(parsed.requiredConcepts || [])])
+      );
+      return {
+        success: true,
+        requiredConcepts: mergedConcepts,
+        isPatternQuestion: heuristic.isPatternQuestion || parsed.isPatternQuestion,
+        problemType:
+          parsed.problemType ||
+          heuristic.problemType ||
+          inferProblemTypeFromConcepts(mergedConcepts, heuristic.isPatternQuestion || parsed.isPatternQuestion),
+        source: 'ai'
+      };
+    } catch (err) {
+      return { success: true, ...heuristic, source: 'heuristic_fallback' };
     }
   }
 

@@ -3,6 +3,8 @@ import ExamCreationForm from './ExamCreationForm';
 import ExamList from './ExamList';
 import ViolationReport from './ViolationReport';
 import CodeEvaluationTab from './CodeEvaluationTab';
+import AnalyticsDashboard from './AnalyticsDashboard';
+import StudentsHub from './StudentsHub';
 import WebStorageService from '../services/webStorage';
 import './TeacherDashboard.css';
 
@@ -33,7 +35,7 @@ interface TeacherDashboardProps {
 }
 
 const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'manage' | 'monitoring' | 'codeEval'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'manage' | 'monitoring' | 'codeEval' | 'analytics' | 'students'>('overview');
   const [exams, setExams] = useState<Exam[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -159,10 +161,34 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
         >
           Code Evaluation
         </button>
+        <button
+          className={`nav-tab ${activeTab === 'analytics' ? 'active' : ''}`}
+          onClick={() => setActiveTab('analytics')}
+        >
+          Analytics
+        </button>
+        <button
+          className={`nav-tab ${activeTab === 'students' ? 'active' : ''}`}
+          onClick={() => setActiveTab('students')}
+        >
+          Students
+        </button>
       </div>
 
+      {activeTab === 'analytics' && (
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <AnalyticsDashboard user={{ userId: user.userId, role: user.role, fullName: user.fullName }} />
+        </div>
+      )}
+
+      {activeTab === 'students' && (
+        <div className="dashboard-content">
+          <StudentsHub teacherId={user.userId} exams={exams} />
+        </div>
+      )}
+
       {/* Content Area */}
-      <div className="dashboard-content">
+      <div className="dashboard-content" style={{ display: activeTab === 'analytics' || activeTab === 'students' ? 'none' : undefined }}>
         {activeTab === 'overview' && (
           <div className="overview-tab">
             <div className="stats-grid">

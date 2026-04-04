@@ -1,10 +1,8 @@
 interface ElectronAPI {
-  // Authentication methods
   login: (credentials: { username: string; password: string }) => Promise<any>;
   logout: () => Promise<any>;
   getCurrentUser: () => Promise<any>;
-  
-  // 2FA and Face Recognition methods
+
   verifyFace: (sessionId: string, faceEmbedding: number[]) => Promise<any>;
   storeFaceEmbedding: (userId: string, embedding: number[], confidenceScore?: number) => Promise<any>;
   verifyFaceEmbedding: (userId: string, embedding: number[]) => Promise<any>;
@@ -12,28 +10,35 @@ interface ElectronAPI {
   setFaceThreshold: (threshold: number) => Promise<any>;
   hasRegisteredFace: (userId: string) => Promise<any>;
   registerMultipleFaces: (userId: string, embeddings: number[][], confidenceScores?: number[]) => Promise<any>;
-  
-  // Exam management methods
+
   createExam: (examData: any) => Promise<any>;
   getExamsByTeacher: (teacherId: string) => Promise<any>;
+  getExamById: (examId: string) => Promise<any>;
   updateExam: (updateData: any) => Promise<any>;
   deleteExam: (examId: string) => Promise<any>;
   getAvailableExams: (studentId: string) => Promise<any>;
   getStudentExamHistory: (studentId: string) => Promise<any>;
-  
-  // Monitoring methods
+  submitExam: (examId: string, filesData: any) => Promise<any>;
+  getExamSubmission: (examId: string) => Promise<any>;
+  unsubmitExam: (examId: string) => Promise<any>;
+  extractQuestions: (examId: string) => Promise<any>;
+  generateTestCases: (examId: string, questionId: string, llmProvider?: string) => Promise<any>;
+  aiAnalyzeRequirements: (problemText: string) => Promise<any>;
+  saveQuestions: (examId: string, questions: any[]) => Promise<any>;
+  upsertTestCases: (questionId: string, testCases: any[]) => Promise<any>;
+  getQuestionsWithTestCases: (examId: string) => Promise<any>;
+
   startMonitoring: (examId: string, studentId: string, allowedApps: string[]) => Promise<any>;
   stopMonitoring: () => Promise<any>;
+  getMonitoringStatus: () => Promise<any>;
   getMonitoringEvents: (examId: string) => Promise<any>;
-  
-  // File methods
+  getViolations: (examId: string) => Promise<any>;
+  getStudentViolations: (examId: string) => Promise<any>;
+
   uploadPDF: (filePath: string, examId: string) => Promise<any>;
-  openFileDialog: () => Promise<any>;
-  
-  // Device methods
+  openFileDialog: (options?: any) => Promise<any>;
   getDeviceId: () => Promise<any>;
-  
-  // Admin management methods
+
   getUsers: (filters?: any) => Promise<any>;
   createUser: (userData: any) => Promise<any>;
   bulkCreateUsers: (csvData: any[]) => Promise<any>;
@@ -43,8 +48,8 @@ interface ElectronAPI {
   getFaceStats: () => Promise<any>;
   getSystemSettings: () => Promise<any>;
   updateSystemSettings: (settings: any) => Promise<any>;
-  
-  // Snapshot configuration methods (admin)
+  getSystemSetupStatus: () => Promise<any>;
+
   getSnapshotConfig: () => Promise<{
     success: boolean;
     config?: {
@@ -59,8 +64,7 @@ interface ElectronAPI {
     cooldown_seconds?: number;
     snapshots_enabled?: boolean;
   }) => Promise<{ success: boolean; message?: string; error?: string }>;
-  
-  // Camera monitoring methods
+
   camera: {
     startTest: (options?: any) => Promise<any>;
     stopTest: () => Promise<any>;
@@ -69,9 +73,41 @@ interface ElectronAPI {
     onError: (callback: (error: any) => void) => () => void;
     onProcessExit: (callback: (data: any) => void) => () => void;
   };
-  
-  // Event listeners
+
+  getScreenshot: (screenshotPath: string) => Promise<any>;
+  downloadScreenshot: (screenshotPath: string) => Promise<any>;
+  exportViolationReport: (reportData: any) => Promise<any>;
+  viewPDF: (examId: string) => Promise<any>;
+  getPDFData: (examId: string) => Promise<any>;
+  phase1CodeEvalDbTest: () => Promise<any>;
+
+  runEvaluation: (examId: string, submissionId: string, questionId: string, reRun?: boolean) => Promise<any>;
+  runEvaluationForSubmission: (examId: string, submissionId: string) => Promise<any>;
+  runEvaluationForExam: (examId: string) => Promise<any>;
+  getEvaluationDetail: (evaluationId: string) => Promise<any>;
+  getEvaluationsByExam: (examId: string) => Promise<any>;
+  updateEvaluationManualScore: (evaluationId: string, manualScore: number | null) => Promise<any>;
+  generateEvaluationSummary: (evaluationId: string, options?: any) => Promise<any>;
+  getEvaluationAnalysisCapabilities: () => Promise<any>;
+
+  getDashboardSummary: () => Promise<any>;
+  getDashboardPapers: () => Promise<any>;
+  getDashboardConcepts: () => Promise<any>;
+  getDashboardQuestions: (examId: string) => Promise<any>;
+  getDashboardPipeline: () => Promise<any>;
+  getDashboardPlatforms: () => Promise<any>;
+  getDashboardEventsRecent: () => Promise<any>;
+  getDashboardSubmissionsRecent: () => Promise<any>;
+  onDashboardUpdated: (callback: (...args: any[]) => void) => () => void;
+
+  studentsGetAll: (teacherId: string) => Promise<any>;
+  studentsGetAtRisk: (teacherId: string) => Promise<any>;
+  studentsGetProfile: (payload: any) => Promise<any>;
+  studentsGenerateReport: (payload: any) => Promise<any>;
+  getExamStudentScores: (examId: string) => Promise<any>;
+
   onMonitoringEvent: (callback: (...args: any[]) => void) => () => void;
+  onMonitoringStatusChange?: (callback: (...args: any[]) => void) => () => void;
 }
 
 declare global {

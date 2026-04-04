@@ -1,0 +1,64 @@
+.students-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.students-hub-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-end;
+}
+
+.students-hub-header h2 {
+  margin: 0;
+}
+
+.students-hub-header p {
+  margin: 6px 0 0 0;
+  color: var(--color-text-secondary);
+  max-width: 720px;
+}
+
+.students-hub-tabs {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+}
+
+.students-hub-tabs button {
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+
+.students-hub-tabs button.active {
+  background: white;
+  color: var(--color-text-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.students-hub-body {
+  min-height: 600px;
+}
+
+@media (max-width: 768px) {
+  .students-hub-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .students-hub-tabs {
+    justify-content: stretch;
+  }
+
+  .students-hub-tabs button {
+    flex: 1;
+  }
+}

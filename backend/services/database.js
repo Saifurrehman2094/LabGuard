@@ -2029,6 +2029,7 @@ class DatabaseService {
   }
 
   _rowToQuestionTestCase(row) {
+    const metadata = row.metadata ? JSON.parse(row.metadata) : null;
     return {
       test_case_id: row.test_case_id,
       question_id: row.question_id,
@@ -2041,7 +2042,11 @@ class DatabaseService {
       time_limit_ms: row.time_limit_ms,
       memory_limit_kb: row.memory_limit_kb,
       weight: row.weight,
-      metadata: row.metadata ? JSON.parse(row.metadata) : null
+      metadata,
+      description:
+        metadata && typeof metadata.description === 'string' && metadata.description.trim()
+          ? metadata.description.trim()
+          : row.name || ''
     };
   }
 
@@ -2254,7 +2259,20 @@ class DatabaseService {
    * Get all test case results for an evaluation
    */
   getTestCaseResultsByEvaluationId(evaluationId) {
-    const rows = this.db.prepare('SELECT * FROM test_case_results WHERE evaluation_id = ?').all(evaluationId);
+    const rows = this.db.prepare(`
+      SELECT
+        r.*,
+        tc.name AS test_case_name,
+        tc.input AS test_case_input,
+        tc.expected_output AS test_case_expected_output,
+        tc.is_hidden AS test_case_is_hidden,
+        tc.is_edge_case AS test_case_is_edge_case,
+        tc.metadata AS test_case_metadata
+      FROM test_case_results r
+      LEFT JOIN question_test_cases tc ON tc.test_case_id = r.test_case_id
+      WHERE r.evaluation_id = ?
+      ORDER BY tc.is_hidden ASC, tc.name ASC, r.result_id ASC
+    `).all(evaluationId);
     return rows.map(r => this._rowToTestCaseResult(r));
   }
 
@@ -2284,6 +2302,7 @@ class DatabaseService {
   }
 
   _rowToTestCaseResult(row) {
+    const metadata = row.test_case_metadata ? this._fromJsonText(row.test_case_metadata) : null;
     return {
       result_id: row.result_id,
       evaluation_id: row.evaluation_id,
@@ -2293,8 +2312,425 @@ class DatabaseService {
       memory_kb: row.memory_kb,
       exit_code: row.exit_code,
       stdout: row.stdout,
-      stderr: row.stderr
+      stderr: row.stderr,
+      name: row.test_case_name || null,
+      input: row.test_case_input ?? null,
+      expected_output: row.test_case_expected_output ?? null,
+      is_hidden: row.test_case_is_hidden == null ? null : !!row.test_case_is_hidden,
+      is_edge_case: row.test_case_is_edge_case == null ? null : !!row.test_case_is_edge_case,
+      metadata,
+      description:
+        metadata && typeof metadata.description === 'string' && metadata.description.trim()
+          ? metadata.description.trim()
+          : row.test_case_name || null
     };
+  }
+
+  _extractQuestionRequirementSummary(constraints) {
+    const c = constraints && typeof constraints === 'object' ? constraints : {};
+    return {
+      problem_type:
+        typeof c.problem_type === 'string' && c.problem_type.trim()
+          ? c.problem_type.trim()
+          : 'basic_programming',
+      required_concepts: Array.isArray(c.required_concepts)
+        ? c.required_concepts.filter((item) => typeof item === 'string' && item.trim())
+        : [],
+      concept_threshold:
+        typeof c.concept_threshold === 'number' && Number.isFinite(c.concept_threshold)
+          ? c.concept_threshold
+          : 99,
+      requirements_mode:
+        c.requirements_mode === 'manual' || c.requirements_mode === 'auto'
+          ? c.requirements_mode
+          : 'auto',
+      is_pattern_question: !!c.is_pattern_question,
+      difficulty:
+        typeof c.difficulty === 'string' && c.difficulty.trim() ? c.difficulty.trim() : 'medium',
+      expected_complexity:
+        typeof c.expected_complexity === 'string' && c.expected_complexity.trim()
+          ? c.expected_complexity.trim()
+          : 'unspecified'
+    };
+  }
+
+  _isEvaluationHardcoded(evaluation) {
+    const hardcoding = evaluation && evaluation.hardcoding_flags_json;
+    if (!hardcoding || typeof hardcoding !== 'object') return false;
+    const suspicion = String(hardcoding.suspicion_level || 'low').toLowerCase();
+    return suspicion === 'medium' || suspicion === 'high';
+  }
+
+  _isConceptRequirementMet(evaluation) {
+    const requirementChecks = evaluation && evaluation.requirement_checks_json;
+    if (!requirementChecks || typeof requirementChecks !== 'object') return true;
+    const unmet = Array.isArray(requirementChecks.unmet_requirements)
+      ? requirementChecks.unmet_requirements
+      : [];
+    return unmet.length === 0;
+  }
+
+  /**
+   * Get all students who have submissions in this teacher's exams.
+   */
+  getAllStudentsByTeacher(teacherId) {
+    const rows = this.db.prepare(`
+      SELECT
+        u.user_id,
+        u.full_name AS name,
+        COALESCE(u.email, '') AS email,
+        COUNT(DISTINCT es.exam_id) AS examsAttempted,
+        COUNT(DISTINCT es.submission_id) AS totalSubmissions,
+        MAX(es.submitted_at) AS lastActive
+      FROM users u
+      JOIN exam_submissions es ON es.student_id = u.user_id
+      JOIN exams e ON e.exam_id = es.exam_id
+      WHERE e.teacher_id = ?
+        AND u.role = 'student'
+      GROUP BY u.user_id
+      ORDER BY u.full_name ASC
+    `).all(teacherId);
+
+    const avgStmt = this.db.prepare(`
+      WITH latest_per_question AS (
+        SELECT ce.*
+        FROM code_evaluations ce
+        JOIN (
+          SELECT submission_id, question_id, MAX(created_at) AS created_at
+          FROM code_evaluations
+          GROUP BY submission_id, question_id
+        ) latest
+          ON latest.submission_id = ce.submission_id
+         AND latest.question_id = ce.question_id
+         AND latest.created_at = ce.created_at
+        JOIN exam_submissions es ON es.submission_id = ce.submission_id
+        JOIN exams e ON e.exam_id = es.exam_id
+        WHERE e.teacher_id = ?
+          AND es.student_id = ?
+      )
+      SELECT
+        ROUND(AVG(
+          CASE
+            WHEN COALESCE(max_score, 0) > 0
+              THEN (COALESCE(final_score, score, 0) * 100.0) / max_score
+            ELSE 0
+          END
+        ), 1) AS overallAvgScore
+      FROM latest_per_question
+    `);
+
+    return rows.map((row) => {
+      const avgRow = avgStmt.get(teacherId, row.user_id);
+      return {
+        userId: row.user_id,
+        user_id: row.user_id,
+        name: row.name,
+        email: row.email || '',
+        examsAttempted: row.examsAttempted || 0,
+        totalSubmissions: row.totalSubmissions || 0,
+        overallAvgScore: Number(avgRow?.overallAvgScore ?? 0),
+        lastActive: row.lastActive || null
+      };
+    });
+  }
+
+  /**
+   * Get latest evaluation-backed submission history for one student across a teacher's exams.
+   */
+  getStudentSubmissionHistory(studentId, teacherId) {
+    const rows = this.db.prepare(`
+      WITH latest_per_question AS (
+        SELECT ce.*
+        FROM code_evaluations ce
+        JOIN (
+          SELECT submission_id, question_id, MAX(created_at) AS created_at
+          FROM code_evaluations
+          GROUP BY submission_id, question_id
+        ) latest
+          ON latest.submission_id = ce.submission_id
+         AND latest.question_id = ce.question_id
+         AND latest.created_at = ce.created_at
+      )
+      SELECT
+        lpq.evaluation_id,
+        lpq.submission_id,
+        es.exam_id,
+        e.title AS examTitle,
+        lpq.question_id,
+        q.title AS questionTitle,
+        q.constraints_json,
+        COALESCE(lpq.final_score, lpq.score, 0) AS score,
+        lpq.created_at AS submitted_at,
+        'cpp' AS language,
+        lpq.status,
+        lpq.requirement_checks_json,
+        lpq.hardcoding_flags_json
+      FROM latest_per_question lpq
+      JOIN exam_submissions es ON es.submission_id = lpq.submission_id
+      JOIN exams e ON e.exam_id = es.exam_id
+      JOIN exam_questions q ON q.question_id = lpq.question_id
+      WHERE es.student_id = ?
+        AND e.teacher_id = ?
+      ORDER BY lpq.created_at ASC
+    `).all(studentId, teacherId);
+
+    return rows.map((row) => {
+      const constraints = this._fromJsonText(row.constraints_json) || {};
+      const summary = this._extractQuestionRequirementSummary(constraints);
+      const requirementChecks = this._fromJsonText(row.requirement_checks_json) || {};
+      const hardcodingFlags = this._fromJsonText(row.hardcoding_flags_json) || {};
+      return {
+        evaluation_id: row.evaluation_id,
+        submission_id: row.submission_id,
+        exam_id: row.exam_id,
+        examTitle: row.examTitle,
+        question_id: row.question_id,
+        questionTitle: row.questionTitle,
+        required_concepts: JSON.stringify(summary.required_concepts || []),
+        difficulty: summary.difficulty,
+        score: Number(row.score || 0),
+        submitted_at: row.submitted_at,
+        language: row.language || 'cpp',
+        concept_passed: (Array.isArray(requirementChecks.unmet_requirements) ? requirementChecks.unmet_requirements.length : 0) === 0 ? 1 : 0,
+        hardcoded: this._isEvaluationHardcoded({ hardcoding_flags_json: hardcodingFlags }) ? 1 : 0,
+        status: row.status
+      };
+    });
+  }
+
+  /**
+   * Get aggregated exam performance for one student.
+   */
+  getStudentExamPerformance(studentId, teacherId) {
+    const history = this.getStudentSubmissionHistory(studentId, teacherId);
+    const examMap = new Map();
+    for (const row of history) {
+      const existing = examMap.get(row.exam_id) || {
+        examId: row.exam_id,
+        examTitle: row.examTitle,
+        examDate: row.submitted_at,
+        questionsAttempted: 0,
+        scoreTotal: 0,
+        passedCount: 0,
+        failedCount: 0,
+        hardcodingFlags: 0
+      };
+      existing.questionsAttempted += 1;
+      existing.scoreTotal += Number(row.score || 0);
+      if (Number(row.score || 0) >= 80) existing.passedCount += 1;
+      else existing.failedCount += 1;
+      if (row.hardcoded) existing.hardcodingFlags += 1;
+      if (!existing.examDate || row.submitted_at < existing.examDate) {
+        existing.examDate = row.submitted_at;
+      }
+      examMap.set(row.exam_id, existing);
+    }
+
+    return Array.from(examMap.values())
+      .map((exam) => ({
+        examId: exam.examId,
+        examTitle: exam.examTitle,
+        examDate: exam.examDate,
+        questionsAttempted: exam.questionsAttempted,
+        avgScore:
+          exam.questionsAttempted > 0
+            ? Math.round((exam.scoreTotal / exam.questionsAttempted) * 10) / 10
+            : 0,
+        passedCount: exam.passedCount,
+        failedCount: exam.failedCount,
+        hardcodingFlags: exam.hardcodingFlags
+      }))
+      .sort((a, b) => new Date(a.examDate) - new Date(b.examDate));
+  }
+
+  verifySubmissionBelongsToTeacher(submissionId, teacherId) {
+    return this.db.prepare(`
+      SELECT es.* FROM exam_submissions es
+      JOIN exams e ON e.exam_id = es.exam_id
+      WHERE es.submission_id = ? AND e.teacher_id = ?
+    `).get(submissionId, teacherId);
+  }
+
+  verifyStudentBelongsToTeacher(studentId, teacherId) {
+    return this.db.prepare(`
+      SELECT es.* FROM exam_submissions es
+      JOIN exams e ON e.exam_id = es.exam_id
+      WHERE es.student_id = ? AND e.teacher_id = ?
+      LIMIT 1
+    `).get(studentId, teacherId);
+  }
+
+  getSubmissionTestCaseResults(submissionId) {
+    const rows = this.db.prepare(`
+      WITH latest_eval AS (
+        SELECT ce.*
+        FROM code_evaluations ce
+        JOIN (
+          SELECT question_id, MAX(created_at) AS created_at
+          FROM code_evaluations
+          WHERE submission_id = ?
+          GROUP BY question_id
+        ) latest
+          ON latest.question_id = ce.question_id
+         AND latest.created_at = ce.created_at
+        WHERE ce.submission_id = ?
+      )
+      SELECT
+        le.submission_id,
+        r.test_case_id,
+        tc.input AS input_data,
+        tc.expected_output,
+        r.stdout AS actual_output,
+        r.passed,
+        0 AS score,
+        r.stderr AS error_message,
+        tc.metadata AS metadata,
+        tc.name
+      FROM latest_eval le
+      JOIN test_case_results r ON r.evaluation_id = le.evaluation_id
+      LEFT JOIN question_test_cases tc ON tc.test_case_id = r.test_case_id
+      ORDER BY tc.name ASC, r.result_id ASC
+    `).all(submissionId, submissionId);
+
+    return rows.map((row) => {
+      const metadata = this._fromJsonText(row.metadata) || {};
+      return {
+        submission_id: row.submission_id,
+        test_case_id: row.test_case_id,
+        description:
+          typeof metadata.description === 'string' && metadata.description.trim()
+            ? metadata.description.trim()
+            : row.name || '',
+        input_data: row.input_data,
+        expected_output: row.expected_output,
+        actual_output: row.actual_output,
+        passed: row.passed ? 1 : 0,
+        score: row.passed ? 100 : 0,
+        error_message: row.error_message
+      };
+    });
+  }
+
+  getExamStudentScores(examId) {
+    const questionRows = this.getExamQuestionsByExamId(examId);
+    const questions = questionRows.map((q, index) => ({
+      question_id: q.question_id,
+      title: q.title,
+      marks: q.max_score || 0,
+      question_order: index + 1
+    }));
+
+    const students = this.db.prepare(`
+      SELECT DISTINCT
+        es.student_id,
+        u.full_name AS student_name,
+        u.username
+      FROM exam_submissions es
+      JOIN users u ON u.user_id = es.student_id
+      WHERE es.exam_id = ?
+      ORDER BY u.full_name ASC
+    `).all(examId);
+
+    const latestEvaluations = this.db.prepare(`
+      WITH latest_per_submission_question AS (
+        SELECT ce.*
+        FROM code_evaluations ce
+        JOIN (
+          SELECT submission_id, question_id, MAX(created_at) AS created_at
+          FROM code_evaluations
+          GROUP BY submission_id, question_id
+        ) latest
+          ON latest.submission_id = ce.submission_id
+         AND latest.question_id = ce.question_id
+         AND latest.created_at = ce.created_at
+      )
+      SELECT
+        es.student_id,
+        le.question_id,
+        le.evaluation_id,
+        COALESCE(le.final_score, le.score, 0) AS final_score,
+        COALESCE(le.max_score, 0) AS eval_max_score,
+        le.requirement_checks_json,
+        le.hardcoding_flags_json,
+        le.created_at,
+        COUNT(*) OVER (PARTITION BY es.student_id, le.question_id) AS attempts
+      FROM latest_per_submission_question le
+      JOIN exam_submissions es ON es.submission_id = le.submission_id
+      WHERE es.exam_id = ?
+    `).all(examId);
+
+    const bestMap = new Map();
+    for (const row of latestEvaluations) {
+      const key = `${row.student_id}|${row.question_id}`;
+      const existing = bestMap.get(key);
+      const currentPct = row.eval_max_score > 0 ? (Number(row.final_score || 0) * 100) / Number(row.eval_max_score) : 0;
+      const existingPct =
+        existing && existing.eval_max_score > 0
+          ? (Number(existing.final_score || 0) * 100) / Number(existing.eval_max_score)
+          : -1;
+      if (!existing || currentPct >= existingPct) {
+        bestMap.set(key, row);
+      }
+    }
+
+    const resultStudents = students.map((student) => {
+      let totalEarned = 0;
+      let totalMax = 0;
+
+      const scores = questions.map((question) => {
+        totalMax += Number(question.marks || 0);
+        const best = bestMap.get(`${student.student_id}|${question.question_id}`) || null;
+        if (!best) {
+          return {
+            questionId: question.question_id,
+            evaluationId: null,
+            earnedPct: null,
+            earned: null,
+            maxMarks: question.marks || 0,
+            attempts: 0,
+            hardcoded: false,
+            conceptFailed: false,
+            lastSubmitted: null
+          };
+        }
+
+        const earnedPct =
+          Number(best.eval_max_score || 0) > 0
+            ? Math.round((Number(best.final_score || 0) * 10000) / Number(best.eval_max_score || 1)) / 100
+            : 0;
+        const earned =
+          question.marks && question.marks > 0
+            ? Math.round(((earnedPct / 100) * Number(question.marks || 0)) * 100) / 100
+            : 0;
+        totalEarned += earned;
+        const requirementChecks = this._fromJsonText(best.requirement_checks_json);
+        const hardcodingFlags = this._fromJsonText(best.hardcoding_flags_json);
+
+        return {
+          questionId: question.question_id,
+          evaluationId: best.evaluation_id,
+          earnedPct,
+          earned,
+          maxMarks: question.marks || 0,
+          attempts: Number(best.attempts || 1),
+          hardcoded: this._isEvaluationHardcoded({ hardcoding_flags_json: hardcodingFlags }),
+          conceptFailed: !this._isConceptRequirementMet({ requirement_checks_json: requirementChecks }),
+          lastSubmitted: best.created_at || null
+        };
+      });
+
+      return {
+        studentId: student.student_id,
+        studentName: student.student_name,
+        username: student.username,
+        scores,
+        totalEarned: Math.round(totalEarned * 100) / 100,
+        totalMax,
+        totalPct: totalMax > 0 ? Math.round((totalEarned / totalMax) * 100) : 0
+      };
+    });
+
+    return { questions, students: resultStudents };
   }
 
   /**
