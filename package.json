@@ -5,6 +5,9 @@
   "main": "backend/app/main.js",
   "homepage": "./",
   "scripts": {
+    "install:all": "npm install --legacy-peer-deps && npm run setup:frontend",
+    "setup:frontend": "cd frontend && npm install --legacy-peer-deps",
+    "setup:quick": "npm run install:all && npm run electron-rebuild && npm run download-models",
     "start": "set NODE_ENV=production && electron .",
     "start:dev": "electron .",
     "start:prod": "npm run build && set NODE_ENV=production && electron .",

@@ -16,7 +16,8 @@ dist/
 .env.production.local
 
 # Database files
-backend/data/database.sqlite
+# Keep primary DB trackable so shared seed users can be distributed via Git
+# (WAL/SHM/JOURNAL files remain ignored as runtime artifacts)
 backend/data/database.sqlite-journal
 backend/data/database.sqlite-shm
 backend/data/database.sqlite-wal

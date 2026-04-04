@@ -1,135 +1,184 @@
-# LAB-Guard - AI-Assisted Exam Monitoring and Code Evaluation
+# LAB-Guard
 
-LAB-Guard is a Windows desktop proctoring and assessment system built with Electron and React. It combines desktop monitoring, camera-based violation detection, face verification, and an AI-assisted code-evaluation pipeline for C++ programming exams.
+LAB-Guard is a Windows desktop exam monitoring and code-evaluation platform built with Electron and React. It combines role-based exam workflows, desktop activity monitoring, camera-based violation detection, face verification, and AI-assisted programming assessment.
 
-## What the System Includes
+## Table of Contents
 
-- Desktop exam app with role-based login (`Admin`, `Teacher`, `Student`)
-- Face-auth flows and model diagnostics in the frontend
-- Windows activity monitoring and screenshot evidence capture
-- Python camera monitoring pipeline for real-time behavior detection
-- Code evaluation module with weighted test cases, static signals, and teacher-facing AI summaries
+- Overview
+- Key Capabilities
+- Architecture
+- Repository Layout
+- Prerequisites
+- Quick Start (Fresh Clone)
+- Environment Configuration
+- Running the Application
+- Important Pipelines
+- Scripts Reference
+- Troubleshooting
+- Security and Data Handling
+- Known Constraints
+- License
 
-## Tech Stack
+## Overview
 
-- Frontend: `React 19`, `TypeScript`, `react-scripts`
-- Desktop app shell: `Electron 38`
-- Backend services: `Node.js` (Electron main-process services)
-- Database: `SQLite` via `better-sqlite3`
-- Authentication: `JWT` + `bcrypt`
-- Native/OS integration: `koffi` (Windows API bridge)
-- Camera AI pipeline: `Python 3.9-3.11`, `OpenCV`, `MediaPipe`, `Ultralytics`
+LAB-Guard is designed for controlled university/computer-lab exams. It provides:
 
-## AI/ML Models Used
+- Admin, teacher, and student role flows
+- Exam creation and submission lifecycle
+- Desktop and camera proctoring signals
+- Face enrollment and verification helpers
+- C++ code evaluation with weighted test cases
+- LLM-assisted test-case generation and teacher summaries
 
-### Camera and Face Models
+## Key Capabilities
 
-- `YOLOv8n` (`backend/camera_monitoring/models/`) for object detection (including phone detection)
-- `face-api.js` models (downloaded into `frontend/public/models/`):
-  - Tiny Face Detector
-  - Face Landmark 68
-  - Face Recognition
+### Exam and Course Management
 
-### LLM Models (Code Evaluation Module)
+- Course creation, enrollment, and roster views
+- Exam creation, update, deletion, and publication flows
+- PDF upload and question extraction pipeline
 
-- Primary provider: `Groq` using model `llama-3.3-70b-versatile`
-- Fallback provider: `Gemini` using model `gemini-flash-latest`
-- Provider routing supports `auto` (Groq first, Gemini fallback), or forced provider selection
+### Proctoring and Monitoring
 
-## Main Modules
+- Active window/application monitoring on Windows
+- Violation lifecycle tracking (start, update, end)
+- Optional screenshot evidence capture
+- Camera monitoring via Python subprocess with live status events
 
-### `backend/services`
+### Programming Evaluation
 
-- `auth.js`: authentication and role checks
-- `database.js`: SQLite access layer and schema operations
-- `monitoringService.js`, `monitoringController.js`, `monitoring.js`: monitoring orchestration
-- `windowsMonitorService.js`, `windowsApi.js`, `applicationDetector.js`: desktop activity detection
-- `screenshotService.js`: screenshot capture and storage
-- `cameraMonitoringService.js`: bridge from Electron/Node to Python camera processor
-- `faceRecognition.js`: face verification helpers
-- `pdfTextExtractor.js`: exam PDF parsing/extraction
-- `llmTestCaseService.js`: AI test-case generation and summary generation
-- `codeEvalService.js`, `codeAnalysisService.js`: compile/run/evaluate C++ submissions and analysis
+- C++ compile-and-run sandbox workflow
+- Weighted test cases with per-case pass/fail storage
+- Timeout handling and partial scoring
+- Static requirement checks and hardcoding heuristics
+- Teacher-facing analytics and evaluation detail views
 
-### `backend/camera_monitoring`
+### AI-Assisted Workflows
 
-- `camera_processor.py`: primary camera monitoring process
-- `detectors/object_detector.py`: YOLO-based detection
-- `detectors/face_analyzer.py`: face/pose/blink analysis
-- `detectors/gaze_estimator.py`: gaze-direction estimation
-- `config.py`, `run_processor.py`: runtime configuration and launcher
+- LLM-based test-case generation from question text
+- Requirement analysis (concept detection, pattern detection)
+- Provider routing with Groq primary and Gemini fallback
 
-### `frontend/src/components`
+## Architecture
 
-- `TeacherDashboard.tsx`, `StudentDashboard.tsx`, `AdminPanel.tsx`
-- `CodeQuestionsTab.tsx`, `CodeEvaluationTab.tsx`
-- `FaceAuth.tsx`, `FaceCapture.tsx`, `ModelDiagnostics.tsx`
-- `ViolationsTab.tsx`, `CameraLogWindow.tsx`, `ScreenshotViewer.tsx`
+- Desktop shell: Electron 38
+- Frontend: React 19 + TypeScript
+- Backend logic: Node.js services in Electron main process
+- Database: SQLite via better-sqlite3
+- Camera AI pipeline: Python (OpenCV, MediaPipe, Ultralytics)
+- Face models: face-api model files under frontend public assets
 
-## Project Structure
+High-level runtime flow:
+
+1. Electron main process boots and initializes services.
+2. Preload exposes a typed IPC bridge to the renderer.
+3. React renderer drives UI and invokes backend actions over IPC.
+4. Backend services persist data/events in SQLite and orchestrate monitoring/evaluation.
+
+## Repository Layout
 
 ```text
-LAB-Guard/
-├── backend/
-│   ├── app/                        # Electron main/preload
-│   ├── services/                   # Node/Electron services
-│   ├── scripts/                    # Setup/util scripts
-│   ├── camera_monitoring/          # Python AI monitoring module
-│   └── data/                       # Runtime DB/config artifacts
-├── frontend/
-│   ├── src/                        # React + TypeScript UI
-│   └── public/models/              # face-api model files
-├── Iteration3Testing/              # Code-evaluation validation docs/scripts
-├── scripts/                        # Root helper scripts
-├── data/                           # App evidence output
-├── package.json
-└── python_requirements.txt
+LabGuard/
+|-- backend/
+|   |-- app/                    # Electron main + preload
+|   |-- services/               # Auth, DB, monitoring, AI, evaluation services
+|   |-- scripts/                # Camera/setup helper scripts
+|   `-- camera_monitoring/      # Python camera pipeline
+|-- frontend/
+|   |-- src/                    # React UI components and pages
+|   `-- public/models/          # face-api model files
+|-- scripts/                    # Startup/rebuild/reset helper scripts
+|-- data/                       # Runtime outputs (e.g., screenshots)
+|-- python_requirements.txt
+`-- package.json
 ```
 
 ## Prerequisites
 
 - Windows 10/11
-- Node.js 18+ (recommended for modern Electron toolchain)
-- Python 3.9, 3.10, or 3.11 (camera module compatibility target)
-- `g++` available in PATH (required for C++ code evaluation)
-- Webcam (for camera and face verification features)
+- Node.js 18+ (Node 20 LTS recommended)
+- npm 9+
+- Python 3.9, 3.10, or 3.11 (camera module requirement)
+- Webcam (for face and camera monitoring features)
+- C++ compiler in PATH (g++) for code evaluation module
 
-## Setup and Run
+## Quick Start (Fresh Clone)
 
-Install dependencies:
-
-```bash
-npm install
-```
-
-Run development mode (Electron + React):
+1. Clone the repository.
 
 ```bash
-npm run dev
+git clone <repository-url>
+cd LabGuard
 ```
 
-Production run:
+2. Install all Node dependencies (root + frontend).
 
 ```bash
-npm run build
-npm start
+npm run install:all
 ```
 
-## Camera Monitoring Setup
+3. Rebuild native SQLite binding for Electron.
 
-First-time setup:
+```bash
+npm run electron-rebuild
+```
+
+4. Download face-api model assets.
+
+```bash
+npm run download-models
+```
+
+5. (Optional but recommended for camera features) setup Python camera stack.
 
 ```bash
 npm run setup-camera
 ```
 
-This setup script:
+6. Start in development mode.
 
-- Detects compatible Python (3.9-3.11)
-- Installs `python_requirements.txt` dependencies
-- Verifies required Python imports
-- Ensures YOLO model assets are present
-- Validates camera access
+```bash
+npm run dev
+```
+
+One-command bootstrap (except API key setup):
+
+```bash
+npm run setup:quick
+```
+
+## Environment Configuration
+
+Create a local .env file in project root when using LLM features.
+
+```env
+GROQ_API_KEY=your_groq_api_key
+GEMINI_API_KEY=your_gemini_api_key
+
+# Optional camera overrides
+CAMERA_PYTHON_PATH=py
+CAMERA_PYTHON_ARGS=-3.11 -m camera_monitoring.camera_processor
+```
+
+Notes:
+
+- You can also provide keys using backend/data/llm-config.json (ignored by git).
+- If no LLM key is configured, LLM test-case generation and AI summary actions will fail gracefully.
+
+## Running the Application
+
+Development mode (React + Electron):
+
+```bash
+npm run dev
+```
+
+Production build and run:
+
+```bash
+npm run build
+npm start
+```
 
 Standalone camera processor test:
 
@@ -137,51 +186,143 @@ Standalone camera processor test:
 npm run test-camera
 ```
 
-## Code Evaluation Module
+## Important Pipelines
 
-Implemented flow (see `Iteration3Testing/README.md` for full verification notes):
+### 1) Exam Creation and Question Extraction Pipeline
 
-- Teacher uploads PDF and extracts/refines code questions
-- Teacher defines per-question constraints (`required_loop`, `required_recursion`, `max_loop_nesting`, `expected_complexity`)
-- AI generates test cases (with robust JSON parsing and input normalization)
-- Student submits C++ solution
-- System compiles (`g++ -std=c++17`) and runs weighted test cases with timeout controls
-- Backend computes correctness, requirement checks, complexity signal, and hardcoding suspicion
-- Teacher reviews evidence and can generate AI summary with manual score override as final authority
+1. Teacher uploads exam PDF.
+2. Backend file service stores file metadata.
+3. PDF text extractor reads full text and page text.
+4. Heuristics split candidate questions.
+5. Questions are persisted and returned for teacher review/edit.
 
-## NPM Scripts
+Primary modules involved:
+
+- backend/services/files.js
+- backend/services/pdfTextExtractor.js
+- backend/app/main.js IPC handlers
+
+### 2) AI Test-Case Generation Pipeline
+
+1. Teacher triggers test-case generation for a question.
+2. Requirement analysis determines required concepts/problem type.
+3. LLM request is sent (Groq primary, Gemini fallback).
+4. Response goes through robust JSON repair/parsing.
+5. Test-case inputs are normalized for stdin compatibility.
+6. Generated test cases are saved and exposed to teacher UI.
+
+Primary modules involved:
+
+- backend/services/llmTestCaseService.js
+- backend/app/main.js exam IPC handlers
+- frontend components under code-question management
+
+### 3) C++ Code Evaluation Pipeline
+
+1. Student submission is retrieved.
+2. C++ source is materialized into a temp run directory.
+3. Code is compiled with g++.
+4. Executable runs against weighted test cases with timeout controls.
+5. Per-test results are stored.
+6. Static analysis and hardcoding checks run.
+7. Evaluation summary and scores are persisted.
+
+Primary modules involved:
+
+- backend/services/codeEvalService.js
+- backend/services/codeAnalysisService.js
+- backend/services/database.js
+
+### 4) Desktop Monitoring Pipeline
+
+1. Exam monitoring starts with allowed application list.
+2. Windows monitor polls active process/window state.
+3. Unauthorized usage opens/updates violation records.
+4. Optional screenshots are captured.
+5. Monitoring events are persisted and emitted to UI in real time.
+
+Primary modules involved:
+
+- backend/services/monitoringController.js
+- backend/services/windowsMonitorService.js
+- backend/services/screenshotService.js
+- backend/services/monitoringService.js
+
+### 5) Camera Monitoring Pipeline
+
+1. Electron requests camera test/start through IPC.
+2. Node service spawns Python camera processor subprocess.
+3. Python detector stack produces structured stdout status updates.
+4. Node parses/emits updates to renderer and logs errors/exits.
+5. Snapshot events are stored under camera snapshot directory.
+
+Primary modules involved:
+
+- backend/services/cameraMonitoringService.js
+- backend/camera_monitoring/camera_processor.py
+- backend/camera_monitoring/detectors/*
+
+## Scripts Reference
+
+Common scripts from root package.json:
+
+- npm run dev: start React and Electron together
+- npm run dev:react: start React dev server helper
+- npm run dev:electron: start Electron after React health check
+- npm run install:all: install root + frontend dependencies
+- npm run setup:quick: install + rebuild + model download
+- npm run electron-rebuild: rebuild better-sqlite3 for Electron
+- npm run setup-camera: install/verify Python camera dependencies
+- npm run test-camera: run Python camera processor directly
+- npm run reset-db: reset local database
+
+## Troubleshooting
+
+### better-sqlite3 ABI mismatch (NODE_MODULE_VERSION error)
 
 ```bash
-npm start
-npm run start:dev
-npm run start:prod
-npm run start:full
-npm run dev
-npm run dev:electron
-npm run dev:react
-npm run build
-npm run build:electron
-npm run dist
-npm test
-npm run rebuild
-npm run reset-db
-npm run download-models
-npm run setup-camera
-npm run test-camera
-npm run cleanup-db
-npm run clear-audit-logs
 npm run electron-rebuild
 ```
 
-## Security and Data Notes
+If issue persists:
 
-- Passwords are hashed with `bcrypt`
-- JWT is used for authenticated access
-- Monitoring and audit events are persisted in SQLite
-- Camera violation snapshots are stored under `backend/camera_monitoring/violation_snapshots/`
-- Desktop screenshots are stored under `data/screenshots/`
-- LLM keys can be provided via environment variables or `backend/data/llm-config.json` (local, gitignored)
+```bash
+npm run install:all
+npm run electron-rebuild
+```
+
+### Frontend compile/lint dependency issues after branch switch
+
+```bash
+npm run setup:frontend
+```
+
+### Camera setup fails
+
+- Ensure Python version is 3.9-3.11
+- Run npm run setup-camera and inspect the printed step that failed
+- Verify webcam permission and availability
+
+### React starts but Electron cannot connect
+
+- Ensure port 3001 is free
+- Retry npm run dev
+- If needed, run React and Electron helper scripts separately for diagnostics
+
+## Security and Data Handling
+
+- Passwords are hashed with bcrypt.
+- JWT is used for authenticated access flows.
+- Runtime SQLite DB and logs are local to machine.
+- Screenshot and camera violation artifacts are stored locally.
+- API keys should be kept in local environment/config only (never committed).
+
+## Known Constraints
+
+- Windows-first monitoring implementation (Windows API integration)
+- Programming evaluation path is currently C++ focused
+- Camera pipeline requires supported Python environment and native packages
 
 ## License
 
-MIT (as declared in `package.json`)
+MIT
