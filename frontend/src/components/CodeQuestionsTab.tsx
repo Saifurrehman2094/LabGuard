@@ -19,7 +19,6 @@ interface Question {
   problem_type?: string;
   required_concepts?: string[];
   requirements_mode?: 'auto' | 'manual';
-  concept_threshold?: number;
   is_pattern_question?: boolean;
   difficulty?: string;
   testCases?: TestCase[];
@@ -74,18 +73,32 @@ const PROBLEM_TYPES = [
 
 const DIFFICULTY_OPTIONS = ['easy', 'medium', 'hard'];
 
+const normalizeMultilineText = (value: any): string => {
+  if (value == null) return '';
+  let text = String(value);
+  text = text.replace(/\r\n/g, '\n');
+  text = text.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+  if (text.includes('/n') && !text.includes('\\n')) {
+    text = text.replace(/\/n/g, '\n');
+  }
+  return text;
+};
+
 const ensureConstraints = (question: Question) => ({
   ...(question.constraints_json || {}),
   problem_type: question.problem_type || question.constraints_json?.problem_type || 'basic_programming',
   required_concepts: question.required_concepts || question.constraints_json?.required_concepts || [],
   requirements_mode: question.requirements_mode || question.constraints_json?.requirements_mode || 'auto',
-  concept_threshold: question.concept_threshold ?? question.constraints_json?.concept_threshold ?? 99,
   is_pattern_question: question.is_pattern_question ?? question.constraints_json?.is_pattern_question ?? false,
   difficulty: question.difficulty || question.constraints_json?.difficulty || 'medium'
 });
 
 const normalizeTestCase = (testCase: any): TestCase => ({
   ...testCase,
+  input:
+    normalizeMultilineText(testCase?.input ?? testCase?.stdin ?? ''),
+  expected_output:
+    normalizeMultilineText(testCase?.expected_output ?? testCase?.expectedOutput ?? testCase?.stdout ?? ''),
   description:
     testCase?.description ||
     testCase?.metadata?.description ||
@@ -109,7 +122,6 @@ const normalizeQuestion = (question: any): Question => {
     problem_type: question?.problem_type || constraints.problem_type || 'basic_programming',
     required_concepts: question?.required_concepts || constraints.required_concepts || [],
     requirements_mode: question?.requirements_mode || constraints.requirements_mode || 'auto',
-    concept_threshold: question?.concept_threshold ?? constraints.concept_threshold ?? 99,
     is_pattern_question: question?.is_pattern_question ?? constraints.is_pattern_question ?? false,
     difficulty: question?.difficulty || constraints.difficulty || 'medium',
     testCases: (question?.testCases || []).map(normalizeTestCase)
@@ -130,6 +142,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
   const [analyzingRequirementId, setAnalyzingRequirementId] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [deletedQuestionIds, setDeletedQuestionIds] = useState<string[]>([]);
 
   const loadQuestions = async () => {
     if (!api?.getQuestionsWithTestCases) return;
@@ -144,6 +157,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
       }
       const loaded = (res.questions || []).map(normalizeQuestion);
       setQuestions(loaded);
+      setDeletedQuestionIds([]);
       if (loaded.length) {
         setSelectedQuestionId((current) => current || getQuestionSelectionId(loaded[0], 0));
       }
@@ -192,7 +206,6 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         ...(patch.problem_type !== undefined ? { problem_type: patch.problem_type } : {}),
         ...(patch.required_concepts !== undefined ? { required_concepts: patch.required_concepts } : {}),
         ...(patch.requirements_mode !== undefined ? { requirements_mode: patch.requirements_mode } : {}),
-        ...(patch.concept_threshold !== undefined ? { concept_threshold: patch.concept_threshold } : {}),
         ...(patch.is_pattern_question !== undefined ? { is_pattern_question: patch.is_pattern_question } : {}),
         ...(patch.difficulty !== undefined ? { difficulty: patch.difficulty } : {})
       };
@@ -238,14 +251,12 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
               problem_type: analysis.problemType || 'basic_programming',
               required_concepts: analysis.requiredConcepts || [],
               requirements_mode: 'auto',
-              concept_threshold: 99,
               is_pattern_question: !!analysis.isPatternQuestion,
               constraints_json: {
                 ...ensureConstraints(baseQuestion),
                 problem_type: analysis.problemType || 'basic_programming',
                 required_concepts: analysis.requiredConcepts || [],
                 requirements_mode: 'auto',
-                concept_threshold: 99,
                 is_pattern_question: !!analysis.isPatternQuestion
               }
             });
@@ -282,19 +293,22 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         problem_type: question.problem_type,
         required_concepts: question.required_concepts,
         requirements_mode: question.requirements_mode,
-        concept_threshold: question.concept_threshold,
         is_pattern_question: question.is_pattern_question,
         difficulty: question.difficulty
       }));
-      const res = await api.saveQuestions(exam.examId, payload);
+      const res = await api.saveQuestions(exam.examId, payload, deletedQuestionIds);
       if (!res.success) {
         setError(res.error || 'Failed to save questions');
         return;
       }
+      if (Array.isArray(res.blockedDeletes) && res.blockedDeletes.length > 0) {
+        setError(res.blockedDeletes.map((item: any) => item.reason || 'Delete blocked').join(' '));
+      }
       const saved = (res.questions || []).map(normalizeQuestion);
       setQuestions(saved);
+      setDeletedQuestionIds([]);
       if (saved.length) setSelectedQuestionId(getQuestionSelectionId(saved[0], 0));
-      setInfo('Questions saved successfully.');
+      if (!res.blockedDeletes?.length) setInfo('Questions saved successfully.');
     } catch (err: any) {
       console.error('Error saving questions:', err);
       setError('Failed to save questions. Please try again.');
@@ -321,7 +335,6 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
           problem_type: res.problemType || 'basic_programming',
           required_concepts: res.requiredConcepts || [],
           requirements_mode: 'auto',
-          concept_threshold: 99,
           is_pattern_question: !!res.isPatternQuestion
         });
       }
@@ -343,7 +356,6 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         problem_type: 'basic_programming',
         required_concepts: [],
         requirements_mode: 'auto',
-        concept_threshold: 99,
         is_pattern_question: false,
         difficulty: 'medium'
       }),
@@ -353,9 +365,17 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
   };
 
   const handleDeleteQuestion = (index: number) => {
-    setQuestions((previous) => previous.filter((_, currentIndex) => currentIndex !== index));
-    if (getQuestionSelectionId(questions[index], index) === selectedQuestionId) {
-      setSelectedQuestionId(undefined);
+    setQuestions((previous) => {
+      const next = previous.filter((_, currentIndex) => currentIndex !== index);
+      return next;
+    });
+    const target = questions[index];
+    if (target?.question_id) {
+      setDeletedQuestionIds((previous) => Array.from(new Set([...previous, target.question_id as string])));
+    }
+    if (getQuestionSelectionId(target, index) === selectedQuestionId) {
+      const next = questions.filter((_, currentIndex) => currentIndex !== index);
+      setSelectedQuestionId(next.length ? getQuestionSelectionId(next[0], 0) : undefined);
     }
   };
 
@@ -388,9 +408,14 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         setError(res.error || 'Failed to generate test cases.');
         return;
       }
-      const generated = (res.testCases || []).map(normalizeTestCase);
+      const generated: TestCase[] = (res.testCases || []).map(normalizeTestCase);
       updateTestCasesForCurrent((previous) => [...previous, ...generated]);
-      setInfo('AI-generated test cases added. Review them, then save test cases.');
+      const missingExpected = generated.filter((tc: TestCase) => !String(tc.expected_output || '').trim()).length;
+      if (missingExpected > 0) {
+        setInfo(`AI-generated test cases added. ${missingExpected} case(s) still need expected output review before saving.`);
+      } else {
+        setInfo('AI-generated test cases added. Review them, then save test cases.');
+      }
     } catch (err: any) {
       console.error('Error generating test cases:', err);
       setError('Failed to generate test cases. You can still add them manually.');
@@ -451,6 +476,14 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
       setSaving(true);
       setError(null);
       setInfo(null);
+      const activeCases = (currentQuestion.testCases || []).filter((testCase) => !testCase._isDeleted);
+      const invalidCount = activeCases.filter(
+        (testCase) => !String(testCase.expected_output || '').trim()
+      ).length;
+      if (invalidCount > 0) {
+        setError(`Cannot save test cases: ${invalidCount} case(s) have empty expected output.`);
+        return;
+      }
       const payload = (currentQuestion.testCases || []).map((testCase) => ({
         test_case_id: testCase.test_case_id,
         name: testCase.name,
@@ -474,10 +507,13 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         setError(res.error || 'Failed to save test cases');
         return;
       }
+      if (Array.isArray(res.blockedDeletes) && res.blockedDeletes.length > 0) {
+        setError(res.blockedDeletes.map((item: any) => item.reason || 'Delete blocked').join(' '));
+      }
       handleQuestionChange(currentQuestionIndex, {
         testCases: (res.testCases || []).map(normalizeTestCase)
       });
-      setInfo('Test cases saved successfully.');
+      if (!res.blockedDeletes?.length) setInfo('Test cases saved successfully.');
     } catch (err: any) {
       console.error('Error saving test cases:', err);
       setError('Failed to save test cases. Please try again.');
@@ -530,11 +566,13 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
             </div>
           ) : (
             <ul className="cq-question-items">
-              {questions.map((question, index) => (
+              {questions.map((question, index) => {
+                const selectionId = getQuestionSelectionId(question, index);
+                return (
                 <li
                   key={question.question_id || question._tempId || index}
-                  className={`cq-question-item ${question.question_id === selectedQuestionId ? 'active' : ''}`}
-                  onClick={() => setSelectedQuestionId(question.question_id)}
+                  className={`cq-question-item ${selectionId === selectedQuestionId ? 'active' : ''}`}
+                  onClick={() => setSelectedQuestionId(selectionId)}
                 >
                   <div className="cq-question-main">
                     <input
@@ -567,7 +605,8 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                     ))}
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>
@@ -627,23 +666,6 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                     >
                       <option value="auto">Auto</option>
                       <option value="manual">Manual</option>
-                    </select>
-                  </label>
-
-                  <label className="cq-constraint-item">
-                    Concept threshold
-                    <select
-                      value={currentQuestion.concept_threshold ?? 99}
-                      onChange={(e) =>
-                        setQuestionRequirements(currentQuestionIndex, {
-                          concept_threshold: Number(e.target.value)
-                        })
-                      }
-                    >
-                      <option value={99}>99%</option>
-                      <option value={90}>90%</option>
-                      <option value={75}>75%</option>
-                      <option value={50}>50%</option>
                     </select>
                   </label>
 

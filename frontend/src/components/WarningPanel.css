@@ -1,9 +1,9 @@
 .warning-panel {
   background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
   margin: 1rem 0;
-  border: 2px solid #e74c3c;
+  border: 1px solid #fecaca;
   overflow: hidden;
   transition: all 0.3s ease;
 }
@@ -13,7 +13,7 @@
 }
 
 .warning-panel-header {
-  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
   padding: 1.5rem;
   cursor: pointer;
@@ -55,7 +55,7 @@
 
 .panel-title h3 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: 600;
 }
 
@@ -161,7 +161,7 @@
 
 .violations-summary {
   padding: 1.5rem;
-  background: #f8f9fa;
+  background: #fff7ed;
   border-bottom: 1px solid #e9ecef;
   display: flex;
   justify-content: space-between;
@@ -181,7 +181,7 @@
 }
 
 .summary-number {
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   font-weight: 700;
   color: #e74c3c;
   font-family: 'Courier New', monospace;

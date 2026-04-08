@@ -25,6 +25,7 @@ let llmTestCaseService;
 let codeEvalService;
 let monitoringController;
 let cameraMonitoringService;
+const activeCameraViolationState = new Map();
 
 // Keep a global reference of the window object
 let mainWindow;
@@ -166,6 +167,52 @@ function emitDashboardUpdate(payload) {
   }
 }
 
+function isElevatedUser(user) {
+  return !!user && user.role === 'admin';
+}
+
+function examTeacherId(exam) {
+  return exam?.teacher_id || exam?.teacherId || null;
+}
+
+function requireExamAccess(currentUser, examId) {
+  const exam = dbService.getExamById(examId);
+  if (!exam) {
+    return { ok: false, error: { success: false, error: 'Exam not found', code: 'NOT_FOUND' } };
+  }
+  if (!isElevatedUser(currentUser) && examTeacherId(exam) !== currentUser.userId) {
+    return { ok: false, error: { success: false, error: 'Forbidden exam access', code: 'NOT_OWNER' } };
+  }
+  return { ok: true, exam };
+}
+
+function requireSubmissionAccess(currentUser, submissionId, expectedExamId = null) {
+  const submission = dbService.db.prepare('SELECT * FROM exam_submissions WHERE submission_id = ?').get(submissionId);
+  if (!submission) {
+    return { ok: false, error: { success: false, error: 'Submission not found', code: 'NOT_FOUND' } };
+  }
+  if (expectedExamId && submission.exam_id !== expectedExamId) {
+    return { ok: false, error: { success: false, error: 'Submission/exam mismatch', code: 'MISMATCH' } };
+  }
+  const access = requireExamAccess(currentUser, submission.exam_id);
+  if (!access.ok) return access;
+  return { ok: true, exam: access.exam, submission };
+}
+
+function requireEvaluationAccess(currentUser, evaluationId) {
+  const evaluation = dbService.getCodeEvaluationById(evaluationId);
+  if (!evaluation) {
+    return { ok: false, error: { success: false, error: 'Evaluation not found', code: 'NOT_FOUND' } };
+  }
+  const submission = dbService.db.prepare('SELECT * FROM exam_submissions WHERE submission_id = ?').get(evaluation.submission_id);
+  if (!submission) {
+    return { ok: false, error: { success: false, error: 'Submission not found', code: 'NOT_FOUND' } };
+  }
+  const access = requireExamAccess(currentUser, submission.exam_id);
+  if (!access.ok) return access;
+  return { ok: true, exam: access.exam, submission, evaluation };
+}
+
 function getQuestionRequirementView(question) {
   const constraints =
     question && question.constraints_json && typeof question.constraints_json === 'object'
@@ -186,10 +233,6 @@ function getQuestionRequirementView(question) {
       constraints.requirements_mode === 'manual' || constraints.requirements_mode === 'auto'
         ? constraints.requirements_mode
         : 'auto',
-    concept_threshold:
-      typeof constraints.concept_threshold === 'number' && Number.isFinite(constraints.concept_threshold)
-        ? constraints.concept_threshold
-        : 99,
     is_pattern_question: !!constraints.is_pattern_question,
     difficulty:
       typeof constraints.difficulty === 'string' && constraints.difficulty.trim()
@@ -208,6 +251,8 @@ function normalizeTestCaseForTeacher(tc) {
       : tc?.name || 'Test case';
   return {
     ...tc,
+    input: normalizeMultilineForTestCase(tc?.input ?? tc?.stdin ?? ''),
+    expected_output: normalizeMultilineForTestCase(tc?.expected_output ?? tc?.expectedOutput ?? tc?.stdout ?? ''),
     metadata: {
       ...metadata,
       description
@@ -630,6 +675,97 @@ function setupCameraMonitoringEventHandlers() {
     if (mainWindow && mainWindow.webContents) {
       mainWindow.webContents.send('camera:status-update', status);
     }
+
+    // Persist camera violations for teacher-side integrity review.
+    try {
+      if (!monitoringController || !dbService) return;
+      const monitoringStatus = monitoringController.getMonitoringStatus?.();
+      if (!monitoringStatus?.isMonitoring || !monitoringStatus.examId || !monitoringStatus.studentId || !monitoringStatus.deviceId) {
+        return;
+      }
+
+      const violationFlags = status?.violations || {};
+      const trackedViolations = [
+        'phone_violation',
+        'multiple_persons',
+        'no_face_detected',
+        'not_facing_screen',
+        'not_looking_at_screen'
+      ];
+
+      const snapshotViolations = Array.isArray(status?.snapshot?.snapshot_violations)
+        ? status.snapshot.snapshot_violations
+        : [];
+      const snapshotPaths = Array.isArray(status?.snapshot?.snapshot_paths)
+        ? status.snapshot.snapshot_paths
+        : [];
+      const snapshotPathByViolation = new Map();
+      snapshotViolations.forEach((violationType, index) => {
+        const snapshotPath = snapshotPaths[index] || null;
+        if (violationType) snapshotPathByViolation.set(violationType, snapshotPath);
+      });
+
+      const statusTimestampMs = Number.isFinite(status?.timestamp) ? Number(status.timestamp) : Date.now();
+      const statusTimestampIso = new Date(statusTimestampMs).toISOString();
+      const contextKeyPrefix = `${monitoringStatus.examId}|${monitoringStatus.studentId}`;
+
+      for (const violationType of trackedViolations) {
+        const key = `${contextKeyPrefix}|${violationType}`;
+        const isActive = !!violationFlags[violationType];
+        const state = activeCameraViolationState.get(key);
+        const latestSnapshotPath = snapshotPathByViolation.get(violationType) || null;
+
+        if (isActive) {
+          if (!state) {
+            const nextState = {
+              startedAtMs: statusTimestampMs,
+              startedAtIso: statusTimestampIso,
+              snapshotPath: latestSnapshotPath
+            };
+            activeCameraViolationState.set(key, nextState);
+            dbService.logEvent({
+              examId: monitoringStatus.examId,
+              studentId: monitoringStatus.studentId,
+              deviceId: monitoringStatus.deviceId,
+              eventType: violationType,
+              windowTitle: JSON.stringify({
+                source: 'camera',
+                violationType,
+                screenshotPath: latestSnapshotPath,
+                startedAt: statusTimestampIso
+              }),
+              processName: 'camera_monitor',
+              isViolation: true
+            });
+          } else if (!state.snapshotPath && latestSnapshotPath) {
+            // Keep the best evidence path seen during this active violation window.
+            state.snapshotPath = latestSnapshotPath;
+            activeCameraViolationState.set(key, state);
+          }
+        } else if (state) {
+          const durationSeconds = Math.max(0, Math.floor((statusTimestampMs - state.startedAtMs) / 1000));
+          dbService.logEvent({
+            examId: monitoringStatus.examId,
+            studentId: monitoringStatus.studentId,
+            deviceId: monitoringStatus.deviceId,
+            eventType: `${violationType}_ended`,
+            windowTitle: JSON.stringify({
+              source: 'camera',
+              violationType,
+              startedAt: state.startedAtIso,
+              endedAt: statusTimestampIso,
+              durationSeconds,
+              screenshotPath: state.snapshotPath || latestSnapshotPath || null
+            }),
+            processName: 'camera_monitor',
+            isViolation: false
+          });
+          activeCameraViolationState.delete(key);
+        }
+      }
+    } catch (cameraPersistError) {
+      console.warn('Failed to persist camera violation status:', cameraPersistError?.message || cameraPersistError);
+    }
   });
 
   cameraMonitoringService.on('error', (error) => {
@@ -647,6 +783,41 @@ function setupCameraMonitoringEventHandlers() {
   cameraMonitoringService.on('exit', (payload) => {
     if (mainWindow && mainWindow.webContents) {
       mainWindow.webContents.send('camera:process-exit', payload);
+    }
+
+    // Finalize and cleanup stale active camera violation state for the current monitoring context.
+    try {
+      const monitoringStatus = monitoringController?.getMonitoringStatus?.();
+      if (monitoringStatus?.examId && monitoringStatus?.studentId && monitoringStatus?.deviceId) {
+        const prefix = `${monitoringStatus.examId}|${monitoringStatus.studentId}|`;
+        const endedAtMs = Date.now();
+        const endedAtIso = new Date(endedAtMs).toISOString();
+        const matchingKeys = Array.from(activeCameraViolationState.keys()).filter((key) => key.startsWith(prefix));
+        for (const key of matchingKeys) {
+          const state = activeCameraViolationState.get(key);
+          const violationType = key.slice(prefix.length);
+          const durationSeconds = state?.startedAtMs ? Math.max(0, Math.floor((endedAtMs - state.startedAtMs) / 1000)) : null;
+          dbService.logEvent({
+            examId: monitoringStatus.examId,
+            studentId: monitoringStatus.studentId,
+            deviceId: monitoringStatus.deviceId,
+            eventType: `${violationType}_ended`,
+            windowTitle: JSON.stringify({
+              source: 'camera',
+              violationType,
+              startedAt: state?.startedAtIso || null,
+              endedAt: endedAtIso,
+              durationSeconds,
+              screenshotPath: state?.snapshotPath || null
+            }),
+            processName: 'camera_monitor',
+            isViolation: false
+          });
+          activeCameraViolationState.delete(key);
+        }
+      }
+    } catch (_cleanupError) {
+      // Best effort cleanup only.
     }
   });
 }
@@ -711,6 +882,13 @@ ipcMain.handle('monitoring:start', async (event, examId, studentId, allowedApps)
       processName: null,
       isViolation: false
     });
+
+    // Apply admin snapshot settings to app-level violation screenshots
+    const appSnapshotConfig = {
+      screenshotEnabled: dbService.getSystemSetting('enable_violation_snapshots') !== false,
+      screenshotCooldownSeconds: Number(dbService.getSystemSetting('snapshot_cooldown_seconds') || 7)
+    };
+    monitoringController.updateConfiguration(appSnapshotConfig);
 
     // Start monitoring with MonitoringController
     const result = await monitoringController.startExamMonitoring(
@@ -818,7 +996,8 @@ ipcMain.handle('camera:start-test', async (event, options) => {
     // Merge options with snapshot configuration from database
     const snapshotConfig = {
       snapshotViolations: dbService.getSystemSetting('snapshot_enabled_violations') || ['phone_violation', 'multiple_persons'],
-      snapshotsEnabled: dbService.getSystemSetting('enable_violation_snapshots') !== false
+      snapshotsEnabled: dbService.getSystemSetting('enable_violation_snapshots') !== false,
+      cooldownSeconds: Number(dbService.getSystemSetting('snapshot_cooldown_seconds') || 7)
     };
 
     // Get current user for student name if available
@@ -832,7 +1011,8 @@ ipcMain.handle('camera:start-test', async (event, options) => {
     const finalOptions = {
       ...options,
       studentName: options?.studentName || studentName,
-      snapshotViolations: snapshotConfig.snapshotsEnabled ? snapshotConfig.snapshotViolations : []
+      snapshotViolations: snapshotConfig.snapshotsEnabled ? snapshotConfig.snapshotViolations : [],
+      snapshotCooldownSeconds: snapshotConfig.cooldownSeconds
     };
 
     console.log('[Camera] Starting with options:', finalOptions);
@@ -951,6 +1131,94 @@ ipcMain.handle('monitoring:get-violations', async (event, examId) => {
   }
 });
 
+// Get combined integrity review data (app + camera) for teachers
+ipcMain.handle('monitoring:get-integrity-review-data', async (event, examId) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'teacher') {
+      return {
+        success: false,
+        error: 'Unauthorized: Only teachers can view integrity review data'
+      };
+    }
+
+    const exam = dbService.getExamById(examId);
+    if (!exam) {
+      return {
+        success: false,
+        error: 'Exam not found'
+      };
+    }
+
+    if (exam.teacherId !== currentUser.userId) {
+      return {
+        success: false,
+        error: 'Unauthorized: Cannot view integrity data for another teacher\'s exam'
+      };
+    }
+
+    const data = dbService.getIntegrityReviewByExam(examId);
+    return {
+      success: true,
+      ...data
+    };
+  } catch (error) {
+    console.error('Error getting integrity review data:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
+ipcMain.handle('monitoring:update-integrity-case-review', async (event, payload) => {
+  try {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser || currentUser.role !== 'teacher') {
+      return {
+        success: false,
+        error: 'Unauthorized: Only teachers can update integrity case review state'
+      };
+    }
+
+    const examId = payload?.examId;
+    const studentId = payload?.studentId;
+    if (!examId || !studentId) {
+      return { success: false, error: 'examId and studentId are required' };
+    }
+
+    const exam = dbService.getExamById(examId);
+    if (!exam || exam.teacherId !== currentUser.userId) {
+      return { success: false, error: 'Unauthorized exam access' };
+    }
+
+    const updated = dbService.upsertIntegrityCaseReview({
+      examId,
+      studentId,
+      teacherId: currentUser.userId,
+      isReviewed: typeof payload?.isReviewed === 'boolean' ? payload.isReviewed : undefined,
+      isSuspicious: typeof payload?.isSuspicious === 'boolean' ? payload.isSuspicious : undefined,
+      notes: payload?.notes
+    });
+
+    return {
+      success: true,
+      review: {
+        examId: updated.exam_id,
+        studentId: updated.student_id,
+        isReviewed: !!updated.is_reviewed,
+        isSuspicious: !!updated.is_suspicious,
+        reviewedAt: updated.reviewed_at || null,
+        notes: updated.notes || '',
+        updatedAt: updated.updated_at || null
+      }
+    };
+  } catch (error) {
+    console.error('Error updating integrity case review status:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Get student's own violations
 ipcMain.handle('monitoring:get-student-violations', async (event, examId) => {
   try {
@@ -962,10 +1230,8 @@ ipcMain.handle('monitoring:get-student-violations', async (event, examId) => {
       };
     }
 
-    // If examId is null, get all violations for the student
-    const violations = examId
-      ? dbService.getAppViolationsByStudent(currentUser.userId, examId)
-      : dbService.getAllViolationsByStudent(currentUser.userId);
+    // Student-facing integrity incidents include app-level + camera-level signals.
+    const violations = dbService.getStudentIntegrityIncidents(currentUser.userId, examId || null);
 
     return {
       success: true,
@@ -1285,7 +1551,61 @@ ipcMain.handle('exam:submit', async (event, examId, filesData) => {
       };
     }
 
-    const submission = dbService.submitExam(examId, currentUser.userId, filesData);
+    const exam = dbService.getExamById(examId);
+    if (!exam) {
+      return {
+        success: false,
+        error: 'Exam not found'
+      };
+    }
+
+    if (exam.courseId) {
+      const enrollment = dbService.db
+        .prepare(`
+          SELECT enrollment_id
+          FROM enrollments
+          WHERE course_id = ? AND student_id = ? AND status = 'active'
+          LIMIT 1
+        `)
+        .get(exam.courseId, currentUser.userId);
+      if (!enrollment) {
+        return {
+          success: false,
+          error: 'You are not enrolled in this course'
+        };
+      }
+    }
+
+    const now = new Date();
+    const examStart = new Date(exam.startTime);
+    const examEnd = new Date(exam.endTime);
+    if (now < examStart) {
+      return { success: false, error: 'Exam has not started yet' };
+    }
+    if (now > examEnd) {
+      return { success: false, error: 'Exam has already ended' };
+    }
+
+    const normalizedFilesData = Array.isArray(filesData) ? filesData : [];
+    if (normalizedFilesData.length === 0) {
+      return { success: false, error: 'No files attached for submission' };
+    }
+    const totalBytes = normalizedFilesData.reduce((sum, file) => {
+      const size = Number(file && file.size);
+      return sum + (Number.isFinite(size) && size > 0 ? size : 0);
+    }, 0);
+    const maxSubmissionBytes = 10 * 1024 * 1024;
+    if (totalBytes > maxSubmissionBytes) {
+      return { success: false, error: 'Submission too large (max 10MB)' };
+    }
+
+    const submission = dbService.submitExam(examId, currentUser.userId, normalizedFilesData);
+    emitDashboardUpdate({
+      type: 'submissionAdded',
+      examId,
+      submissionId: submission?.submissionId || null,
+      studentId: currentUser.userId
+    });
 
     return {
       success: true,
@@ -1440,6 +1760,9 @@ ipcMain.handle('exam:generate-testcases', async (event, examId, questionId, llmP
       return { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' };
     }
 
+    const examAccess = requireExamAccess(currentUser, examId);
+    if (!examAccess.ok) return examAccess.error;
+
     const question = dbService.getExamQuestionById(questionId);
     if (!question) {
       return { success: false, error: 'Question not found', code: 'NOT_FOUND' };
@@ -1448,13 +1771,7 @@ ipcMain.handle('exam:generate-testcases', async (event, examId, questionId, llmP
       return { success: false, error: 'Question does not belong to this exam', code: 'MISMATCH' };
     }
 
-    const constraints = question.constraints_json && typeof question.constraints_json === 'object'
-      ? question.constraints_json
-      : null;
-    const constraintsHint = constraints
-      ? `\n\nTeacher constraints (use these when designing test cases, if relevant):\n${JSON.stringify(constraints, null, 2)}`
-      : '';
-    const questionText = [question.title, question.description].filter(Boolean).join('\n\n') + constraintsHint;
+    const questionText = [question.title, question.description].filter(Boolean).join('\n\n');
     if (!questionText.trim()) {
       return { success: false, error: 'Question has no text to send to the LLM', code: 'EMPTY_QUESTION' };
     }
@@ -1501,6 +1818,15 @@ ipcMain.handle('evaluation:run', async (event, examId, submissionId, questionId,
       return { success: false, error: 'Code evaluation service not initialized' };
     }
 
+    const examAccess = requireExamAccess(currentUser, examId);
+    if (!examAccess.ok) return examAccess.error;
+    const submissionAccess = requireSubmissionAccess(currentUser, submissionId, examId);
+    if (!submissionAccess.ok) return submissionAccess.error;
+    const question = dbService.getExamQuestionById(questionId);
+    if (!question || question.exam_id !== examId) {
+      return { success: false, error: 'Question not found for exam', code: 'NOT_FOUND' };
+    }
+
     const result = await codeEvalService.runEvaluation({ examId, submissionId, questionId, reRun });
     emitDashboardUpdate({
       type: 'examGraded',
@@ -1534,12 +1860,18 @@ ipcMain.handle('evaluation:run-for-submission', async (event, examId, submission
     if (!codeEvalService) {
       return { success: false, error: 'Code evaluation service not initialized' };
     }
+    const examAccess = requireExamAccess(currentUser, examId);
+    if (!examAccess.ok) return examAccess.error;
+    const submissionAccess = requireSubmissionAccess(currentUser, submissionId, examId);
+    if (!submissionAccess.ok) return submissionAccess.error;
 
     const questions = dbService.getExamQuestionsByExamId(examId);
     const runs = [];
+    let eligibleQuestions = 0;
     for (const q of questions) {
       const tcs = dbService.getQuestionTestCasesByQuestionId(q.question_id);
       if (!tcs.length) continue;
+      eligibleQuestions++;
       const result = await codeEvalService.runEvaluation({
         examId,
         submissionId,
@@ -1551,6 +1883,14 @@ ipcMain.handle('evaluation:run-for-submission', async (event, examId, submission
         evaluation: result.evaluation,
         results_count: result.results.length
       });
+    }
+
+    if (eligibleQuestions === 0) {
+      return {
+        success: false,
+        code: 'NO_TEST_CASES',
+        error: 'No saved test cases found for this exam. Generate and save test cases first.'
+      };
     }
 
     emitDashboardUpdate({
@@ -1577,17 +1917,25 @@ ipcMain.handle('evaluation:run-for-exam', async (event, examId) => {
       return { success: false, error: 'Unauthorized' };
     }
 
+    if (!codeEvalService) {
+      return { success: false, error: 'Code evaluation service not initialized' };
+    }
+    const examAccess = requireExamAccess(currentUser, examId);
+    if (!examAccess.ok) return examAccess.error;
+
     const submissions = dbService.db
       .prepare('SELECT submission_id FROM exam_submissions WHERE exam_id = ?')
       .all(examId);
 
     const questions = dbService.getExamQuestionsByExamId(examId);
     let totalEvaluations = 0;
+    let eligibleQuestions = 0;
 
     for (const sub of submissions) {
       for (const q of questions) {
         const tcs = dbService.getQuestionTestCasesByQuestionId(q.question_id);
         if (!tcs.length) continue;
+        eligibleQuestions++;
 
         await codeEvalService.runEvaluation({
           examId,
@@ -1597,6 +1945,14 @@ ipcMain.handle('evaluation:run-for-exam', async (event, examId) => {
         });
         totalEvaluations++;
       }
+    }
+
+    if (eligibleQuestions === 0 || totalEvaluations === 0) {
+      return {
+        success: false,
+        code: 'NO_EVALUATIONS',
+        error: 'No evaluations were run. Ensure submissions exist and each question has saved test cases.'
+      };
     }
 
     emitDashboardUpdate({
@@ -1622,10 +1978,9 @@ ipcMain.handle('evaluation:get-detail', async (event, evaluationId) => {
       return { success: false, error: 'Unauthorized' };
     }
 
-    const evaluation = dbService.getCodeEvaluationById(evaluationId);
-    if (!evaluation) {
-      return { success: false, error: 'Evaluation not found' };
-    }
+    const evaluationAccess = requireEvaluationAccess(currentUser, evaluationId);
+    if (!evaluationAccess.ok) return evaluationAccess.error;
+    const evaluation = evaluationAccess.evaluation;
     const results = dbService.getTestCaseResultsByEvaluationId(evaluationId).map((row) =>
       normalizeTestCaseForTeacher(row)
     );
@@ -1661,6 +2016,8 @@ ipcMain.handle('evaluation:get-by-exam', async (event, examId) => {
     if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
       return { success: false, error: 'Unauthorized' };
     }
+    const examAccess = requireExamAccess(currentUser, examId);
+    if (!examAccess.ok) return examAccess.error;
 
     // Return submissions for this exam with student identity and evaluations
     const submissions = dbService.db
@@ -1672,6 +2029,12 @@ ipcMain.handle('evaluation:get-by-exam', async (event, examId) => {
         WHERE es.exam_id = ?
       `)
       .all(examId);
+
+    const questionCountRow = dbService.db
+      .prepare('SELECT COUNT(*) as count FROM exam_questions WHERE exam_id = ?')
+      .get(examId);
+    const examQuestionCount = Number(questionCountRow?.count || 0);
+    const completedStatuses = new Set(['completed']);
 
     const data = submissions.map((sub) => {
       const evals = dbService.getCodeEvaluationsBySubmissionId(sub.submission_id);
@@ -1685,6 +2048,11 @@ ipcMain.handle('evaluation:get-by-exam', async (event, examId) => {
         latestByQuestion.set(e.question_id, e);
       }
       const latestEvals = Array.from(latestByQuestion.values());
+      const completedCount = latestEvals.filter((e) => completedStatuses.has(String(e.status || '').toLowerCase())).length;
+      const pendingQuestions = Math.max(examQuestionCount - completedCount, 0);
+      const allQuestionsEvaluated = examQuestionCount > 0 && pendingQuestions === 0;
+      const hasPendingEvalStatus = latestEvals.some((e) => !completedStatuses.has(String(e.status || '').toLowerCase()));
+      const isPending = !allQuestionsEvaluated || hasPendingEvalStatus;
 
       const totalAutoScore = latestEvals.reduce((sum, e) => sum + (e.score ?? 0), 0);
       const totalFinalScore = latestEvals.reduce((sum, e) => sum + (e.final_score ?? 0), 0);
@@ -1698,11 +2066,15 @@ ipcMain.handle('evaluation:get-by-exam', async (event, examId) => {
         submitted_at: sub.submitted_at,
         evaluations: evals,
         aggregates: {
-          last_status: lastEval ? lastEval.status : null,
+          last_status: isPending ? 'pending' : (lastEval ? lastEval.status : null),
           last_evaluated_at: lastEval ? lastEval.created_at : null,
           total_auto_score: totalAutoScore,
           total_final_score: totalFinalScore,
-          total_max_score: totalMaxScore
+          total_max_score: totalMaxScore,
+          question_count: examQuestionCount,
+          completed_questions: completedCount,
+          pending_questions: pendingQuestions,
+          is_pending: isPending
         }
       };
     });
@@ -1724,6 +2096,9 @@ ipcMain.handle('evaluation:update-manual-score', async (event, evaluationId, man
     if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
       return { success: false, error: 'Unauthorized' };
     }
+
+    const evaluationAccess = requireEvaluationAccess(currentUser, evaluationId);
+    if (!evaluationAccess.ok) return evaluationAccess.error;
 
     dbService.updateCodeEvaluationManualScore(evaluationId, manualScore);
     const evaluation = dbService.getCodeEvaluationById(evaluationId);
@@ -1767,10 +2142,12 @@ ipcMain.handle('evaluation:generate-summary', async (event, evaluationId, option
       return { success: false, error: 'Unauthorized' };
     }
 
-    const evaluation = dbService.getCodeEvaluationById(evaluationId);
-    if (!evaluation) {
-      return { success: false, error: 'Evaluation not found' };
-    }
+    const evaluationAccess = requireEvaluationAccess(currentUser, evaluationId);
+    if (!evaluationAccess.ok) return evaluationAccess.error;
+    const evaluation = evaluationAccess.evaluation;
+
+    const question = evaluation.question_id ? dbService.getExamQuestionById(evaluation.question_id) : null;
+    const requirementDefinition = question ? getQuestionRequirementView(question) : null;
 
     const evidence = {
       evaluation_id: evaluation.evaluation_id,
@@ -1779,7 +2156,8 @@ ipcMain.handle('evaluation:generate-summary', async (event, evaluationId, option
       max_score: evaluation.max_score,
       analysis_breakdown: evaluation.analysis_breakdown_json,
       requirement_checks: evaluation.requirement_checks_json,
-      hardcoding_flags: evaluation.hardcoding_flags_json
+      hardcoding_flags: evaluation.hardcoding_flags_json,
+      requirement_definition: requirementDefinition
     };
 
     const aiRes = await llmTestCaseService.generateSubmissionSummary(evidence, options);
@@ -1818,12 +2196,17 @@ function buildFallbackSummary(evidence, reason) {
   const breakdown = evidence.analysis_breakdown || {};
   const hardcoding = evidence.hardcoding_flags || {};
   const unmet = (evidence.requirement_checks && evidence.requirement_checks.unmet_requirements) || [];
+  const requirementDef = evidence.requirement_definition || {};
+  const requiredConcepts = Array.isArray(requirementDef.required_concepts)
+    ? requirementDef.required_concepts
+    : [];
   const lines = [];
   lines.push(
     `AI-assisted summary (fallback): score ${evidence.score ?? 0}/${evidence.max_score ?? 0}, status ${evidence.status || 'unknown'}.`
   );
   lines.push(`Pass rate signal: ${(breakdown.pass_rate != null ? Math.round(breakdown.pass_rate * 100) : 0)}%.`);
   lines.push(`Near-correct indicator: ${breakdown.near_correct ? 'yes' : 'no'}.`);
+  lines.push(`Configured requirements: ${requiredConcepts.length ? requiredConcepts.join(', ') : 'none'}.`);
   lines.push(`Requirement checks: ${unmet.length ? unmet.join(', ') : 'all required checks appear satisfied'}.`);
   lines.push(
     `Hardcoding suspicion: ${hardcoding.suspicion_level || 'low'}${hardcoding.reasons?.length ? ` (${hardcoding.reasons.join(', ')})` : ''}.`
@@ -1833,7 +2216,7 @@ function buildFallbackSummary(evidence, reason) {
 }
 
 // Save exam questions (Code Eval – teacher)
-ipcMain.handle('exam:save-questions', async (event, examId, questions) => {
+ipcMain.handle('exam:save-questions', async (event, examId, questions, deletedQuestionIds = []) => {
   try {
     const currentUser = authService.getCurrentUser();
     if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
@@ -1843,13 +2226,30 @@ ipcMain.handle('exam:save-questions', async (event, examId, questions) => {
     if (!Array.isArray(questions)) {
       return { success: false, error: 'Invalid questions payload' };
     }
-
-    const exam = dbService.getExamById(examId);
-    if (!exam) {
-      return { success: false, error: 'Exam not found' };
-    }
+    const examAccess = requireExamAccess(currentUser, examId);
+    if (!examAccess.ok) return examAccess.error;
 
     const savedQuestions = [];
+    const deleteIds = Array.isArray(deletedQuestionIds) ? deletedQuestionIds : [];
+    const deleted = [];
+    const blockedDeletes = [];
+
+    for (const questionId of deleteIds) {
+      const q = dbService.getExamQuestionById(questionId);
+      if (!q || q.exam_id !== examId) continue;
+      const deps = dbService.getQuestionDependencyStats
+        ? dbService.getQuestionDependencyStats(questionId)
+        : { testCaseCount: 0, evaluationCount: 0 };
+      if ((deps.evaluationCount || 0) > 0) {
+        blockedDeletes.push({
+          question_id: questionId,
+          reason: 'Question has existing evaluation history and cannot be deleted.'
+        });
+        continue;
+      }
+      dbService.deleteExamQuestion(questionId);
+      deleted.push(questionId);
+    }
     for (const q of questions) {
       const nextConstraints =
         q && q.constraints_json && typeof q.constraints_json === 'object'
@@ -1858,7 +2258,6 @@ ipcMain.handle('exam:save-questions', async (event, examId, questions) => {
       if (q && q.problem_type !== undefined) nextConstraints.problem_type = q.problem_type;
       if (q && q.required_concepts !== undefined) nextConstraints.required_concepts = q.required_concepts;
       if (q && q.requirements_mode !== undefined) nextConstraints.requirements_mode = q.requirements_mode;
-      if (q && q.concept_threshold !== undefined) nextConstraints.concept_threshold = q.concept_threshold;
       if (q && q.is_pattern_question !== undefined) nextConstraints.is_pattern_question = q.is_pattern_question;
       if (q && q.difficulty !== undefined) nextConstraints.difficulty = q.difficulty;
 
@@ -1884,7 +2283,9 @@ ipcMain.handle('exam:save-questions', async (event, examId, questions) => {
         }
       } else {
         const created = dbService.insertExamQuestion(data);
-        savedQuestions.push(getQuestionRequirementView(created));
+        if (created) {
+          savedQuestions.push(getQuestionRequirementView(created));
+        }
       }
     }
 
@@ -1894,7 +2295,7 @@ ipcMain.handle('exam:save-questions', async (event, examId, questions) => {
       count: savedQuestions.length
     });
 
-    return { success: true, questions: savedQuestions };
+    return { success: true, questions: savedQuestions, deletedQuestionIds: deleted, blockedDeletes };
   } catch (error) {
     console.error('exam:save-questions error:', error);
     return {
@@ -1920,10 +2321,13 @@ ipcMain.handle('exam:upsert-testcases', async (event, questionId, testCases) => 
     if (!question) {
       return { success: false, error: 'Question not found' };
     }
+    const examAccess = requireExamAccess(currentUser, question.exam_id);
+    if (!examAccess.ok) return examAccess.error;
 
     if (!Array.isArray(testCases)) {
       return { success: false, error: 'Invalid testCases payload' };
     }
+    const blockedDeletes = [];
 
     for (const tc of testCases) {
       if (!tc) continue;
@@ -1937,6 +2341,16 @@ ipcMain.handle('exam:upsert-testcases', async (event, questionId, testCases) => 
 
       if (op === 'delete') {
         if (testCaseId) {
+          const deps = dbService.getTestCaseDependencyStats
+            ? dbService.getTestCaseDependencyStats(testCaseId)
+            : { evalResultCount: 0 };
+          if ((deps.evalResultCount || 0) > 0) {
+            blockedDeletes.push({
+              test_case_id: testCaseId,
+              reason: 'Test case has evaluation history and cannot be deleted.'
+            });
+            continue;
+          }
           dbService.deleteQuestionTestCase(testCaseId);
         }
         continue;
@@ -1945,8 +2359,8 @@ ipcMain.handle('exam:upsert-testcases', async (event, questionId, testCases) => 
       const data = {
         question_id: questionId,
         name: tc.name || '',
-        input: tc.input ?? null,
-        expected_output: tc.expected_output ?? tc.expectedOutput ?? null,
+        input: normalizeMultilineForTestCase(tc.input ?? null),
+        expected_output: normalizeMultilineForTestCase(tc.expected_output ?? tc.expectedOutput ?? null),
         is_hidden: tc.is_hidden ?? tc.isHidden ?? false,
         is_edge_case: tc.is_edge_case ?? tc.isEdgeCase ?? false,
         is_generated: tc.is_generated ?? tc.isGenerated ?? false,
@@ -1955,6 +2369,9 @@ ipcMain.handle('exam:upsert-testcases', async (event, questionId, testCases) => 
         weight: tc.weight != null ? tc.weight : 1.0,
         metadata: {
           ...((tc.metadata && typeof tc.metadata === 'object') ? tc.metadata : {}),
+          needs_review:
+            !normalizeMultilineForTestCase(tc.expected_output ?? tc.expectedOutput ?? '').trim() ||
+            Boolean(tc.needsReview),
           description:
             typeof tc.description === 'string' && tc.description.trim()
               ? tc.description.trim()
@@ -1978,7 +2395,7 @@ ipcMain.handle('exam:upsert-testcases', async (event, questionId, testCases) => 
       questionId,
       count: saved.length
     });
-    return { success: true, testCases: saved };
+    return { success: true, testCases: saved, blockedDeletes };
   } catch (error) {
     console.error('exam:upsert-testcases error:', error);
     return {
@@ -1988,6 +2405,17 @@ ipcMain.handle('exam:upsert-testcases', async (event, questionId, testCases) => 
   }
 });
 
+function normalizeMultilineForTestCase(value) {
+  if (value == null) return value;
+  let text = String(value);
+  text = text.replace(/\r\n/g, '\n');
+  text = text.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+  if (text.includes('/n') && !text.includes('\\n')) {
+    text = text.replace(/\/n/g, '\n');
+  }
+  return text;
+}
+
 // Get exam questions with their test cases (Code Eval – teacher)
 ipcMain.handle('exam:get-questions-with-testcases', async (event, examId) => {
   try {
@@ -1996,10 +2424,8 @@ ipcMain.handle('exam:get-questions-with-testcases', async (event, examId) => {
       return { success: false, error: 'Unauthorized' };
     }
 
-    const exam = dbService.getExamById(examId);
-    if (!exam) {
-      return { success: false, error: 'Exam not found' };
-    }
+    const examAccess = requireExamAccess(currentUser, examId);
+    if (!examAccess.ok) return examAccess.error;
 
     const questions = dbService.getExamQuestionsByExamId(examId);
     const withTestCases = questions.map(q => ({
@@ -2798,11 +3224,22 @@ ipcMain.handle('screenshot:get', async (event, screenshotPath) => {
     const fs = require('fs');
     const path = require('path');
 
-    // Validate screenshot path is within allowed directories
-    const allowedDir = path.join(__dirname, '..', 'screenshots');
-    const fullPath = path.resolve(screenshotPath);
+    if (!screenshotPath || screenshotPath === 'null' || screenshotPath === 'undefined') {
+      return {
+        success: false,
+        error: 'Invalid screenshot path'
+      };
+    }
 
-    if (!fullPath.startsWith(allowedDir)) {
+    const fullPath = path.resolve(String(screenshotPath));
+    const allowedDirs = [
+      path.resolve(path.join(__dirname, '..', 'screenshots')),
+      path.resolve(path.join(__dirname, '..', '..', 'data', 'screenshots')),
+      path.resolve(path.join(__dirname, '..', 'camera_monitoring', 'violation_snapshots'))
+    ];
+
+    const isAllowed = allowedDirs.some((dir) => fullPath.startsWith(dir));
+    if (!isAllowed) {
       return {
         success: false,
         error: 'Invalid screenshot path'
@@ -2841,11 +3278,22 @@ ipcMain.handle('screenshot:download', async (event, screenshotPath) => {
     const fs = require('fs');
     const path = require('path');
 
-    // Validate screenshot path
-    const allowedDir = path.join(__dirname, '..', 'screenshots');
-    const fullPath = path.resolve(screenshotPath);
+    if (!screenshotPath || screenshotPath === 'null' || screenshotPath === 'undefined') {
+      return {
+        success: false,
+        error: 'Invalid screenshot path'
+      };
+    }
 
-    if (!fullPath.startsWith(allowedDir) || !fs.existsSync(fullPath)) {
+    const fullPath = path.resolve(String(screenshotPath));
+    const allowedDirs = [
+      path.resolve(path.join(__dirname, '..', 'screenshots')),
+      path.resolve(path.join(__dirname, '..', '..', 'data', 'screenshots')),
+      path.resolve(path.join(__dirname, '..', 'camera_monitoring', 'violation_snapshots'))
+    ];
+    const isAllowed = allowedDirs.some((dir) => fullPath.startsWith(dir));
+
+    if (!isAllowed || !fs.existsSync(fullPath)) {
       return {
         success: false,
         error: 'Screenshot file not found'
@@ -3290,7 +3738,7 @@ ipcMain.handle('dashboard:platforms', async () => {
   }
 });
 
-ipcMain.handle('dashboard:events-recent', async () => {
+ipcMain.handle('dashboard:events-recent', async (event, examId = null) => {
   try {
     const currentUser = authService.getCurrentUser();
     if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
@@ -3315,9 +3763,10 @@ ipcMain.handle('dashboard:events-recent', async () => {
         LEFT JOIN users u ON u.user_id = av.student_id
         LEFT JOIN exams e ON e.exam_id = av.exam_id
         WHERE e.teacher_id = ?
+          AND (? IS NULL OR av.exam_id = ?)
         ORDER BY av.focus_start_time DESC
         LIMIT 20
-      `).all(teacherId);
+      `).all(teacherId, examId, examId);
     } catch (error) {
       rows = dbService.db.prepare(`
         SELECT
@@ -3334,19 +3783,20 @@ ipcMain.handle('dashboard:events-recent', async () => {
         LEFT JOIN users u ON u.user_id = ev.student_id
         LEFT JOIN exams e ON e.exam_id = ev.exam_id
         WHERE e.teacher_id = ?
+          AND (? IS NULL OR ev.exam_id = ?)
         ORDER BY ev.timestamp DESC
         LIMIT 20
-      `).all(teacherId);
+      `).all(teacherId, examId, examId);
     }
 
-    return { success: true, data: rows };
+    return { success: true, data: rows, events: rows };
   } catch (error) {
     console.error('[Dashboard] dashboard:events-recent error:', error);
     return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle('dashboard:submissions-recent', async () => {
+ipcMain.handle('dashboard:submissions-recent', async (event, examId = null) => {
   try {
     const currentUser = authService.getCurrentUser();
     if (!currentUser || (currentUser.role !== 'teacher' && currentUser.role !== 'admin')) {
@@ -3387,9 +3837,10 @@ ipcMain.handle('dashboard:submissions-recent', async () => {
       JOIN exam_questions q ON q.question_id = le.question_id
       JOIN exams e ON e.exam_id = es.exam_id
       WHERE e.teacher_id = ?
+        AND (? IS NULL OR es.exam_id = ?)
       ORDER BY le.created_at DESC
       LIMIT 10
-    `).all(currentUser.userId);
+    `).all(currentUser.userId, examId, examId);
 
     const result = rows.map((row) => {
       const counts = dbService.db.prepare(`
@@ -3424,7 +3875,7 @@ ipcMain.handle('dashboard:submissions-recent', async () => {
       };
     });
 
-    return { success: true, data: result };
+    return { success: true, data: result, submissions: result };
   } catch (error) {
     console.error('[Dashboard] dashboard:submissions-recent error:', error);
     return { success: false, error: error.message };

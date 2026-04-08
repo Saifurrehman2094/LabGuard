@@ -26,6 +26,8 @@ class MonitoringController extends EventEmitter {
         // Configuration
         this.pollingInterval = 1000; // 1 second
         this.screenshotEnabled = true;
+        this.screenshotCooldownSeconds = 7;
+        this.lastScreenshotCaptureByType = new Map(); // cooldownKey -> timestamp(ms)
         this.maxRetries = 3;
         this.retryDelay = 5000; // 5 seconds
 
@@ -69,6 +71,7 @@ class MonitoringController extends EventEmitter {
             this.currentDeviceId = deviceId;
             this.monitoringStartTime = new Date();
             this.activeViolations.clear();
+            this.lastScreenshotCaptureByType.clear();
             this.errorCount = 0;
             this.restartAttempts = 0;
 
@@ -250,16 +253,22 @@ class MonitoringController extends EventEmitter {
             let screenshotCaptured = false;
 
             if (this.screenshotEnabled) {
-                const screenshotResult = await this.captureViolationScreenshot(
-                    applicationName,
-                    violationId
-                );
+                const screenshotType = this.getAppScreenshotCooldownKey(applicationName);
+                if (this.canCaptureScreenshot(screenshotType)) {
+                    const screenshotResult = await this.captureViolationScreenshot(
+                        applicationName,
+                        violationId
+                    );
 
-                if (screenshotResult.success) {
-                    screenshotPath = screenshotResult.filePath;
-                    screenshotCaptured = true;
+                    if (screenshotResult.success) {
+                        screenshotPath = screenshotResult.filePath;
+                        screenshotCaptured = true;
+                        this.recordScreenshotCapture(screenshotType);
+                    } else {
+                        console.warn(`Screenshot capture failed for violation ${violationId}:`, screenshotResult.error);
+                    }
                 } else {
-                    console.warn(`Screenshot capture failed for violation ${violationId}:`, screenshotResult.error);
+                    console.log(`Screenshot skipped due to cooldown for violation ${violationId}`);
                 }
             }
 
@@ -640,6 +649,13 @@ class MonitoringController extends EventEmitter {
             this.screenshotEnabled = config.screenshotEnabled;
         }
 
+        if (
+            config.screenshotCooldownSeconds !== undefined &&
+            Number.isFinite(config.screenshotCooldownSeconds)
+        ) {
+            this.screenshotCooldownSeconds = Math.max(1, Number(config.screenshotCooldownSeconds));
+        }
+
         if (config.maxRetries && config.maxRetries > 0) {
             this.maxRetries = config.maxRetries;
         }
@@ -649,6 +665,28 @@ class MonitoringController extends EventEmitter {
         }
 
         console.log('Monitoring configuration updated:', config);
+    }
+
+    canCaptureScreenshot(violationType) {
+        if (this.screenshotCooldownSeconds <= 0) {
+            return true;
+        }
+
+        const now = Date.now();
+        const lastCapture = this.lastScreenshotCaptureByType.get(violationType) || 0;
+        return now - lastCapture >= this.screenshotCooldownSeconds * 1000;
+    }
+
+    recordScreenshotCapture(violationType) {
+        this.lastScreenshotCaptureByType.set(violationType, Date.now());
+    }
+
+    getAppScreenshotCooldownKey(applicationName) {
+        const normalized = String(applicationName || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, ' ');
+        return normalized ? `app_violation:${normalized}` : 'app_violation:unknown';
     }
 
     /**

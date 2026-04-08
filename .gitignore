@@ -86,6 +86,7 @@ dist/
 # Local C++ testing planning docs
 cpp-testing-plan/
 .cursor/plans/
+.cursor/skills/
 
 # Iteration3Testing generated assets (scripts create these when run)
 Iteration3Testing/

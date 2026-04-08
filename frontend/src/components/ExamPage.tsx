@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import JSZip from 'jszip';
-import CameraLogWindow from './CameraLogWindow';
 import './ExamPage.css';
 
 // Configure PDF.js worker
@@ -59,9 +58,10 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
     }>({ submitted: false });
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [zipContents, setZipContents] = useState<{ [key: string]: string[] }>({});
-    const [activeTab, setActiveTab] = useState<'question' | 'violations' | 'submission'>('question');
+    const [activeTab, setActiveTab] = useState<'question' | 'submission'>('question');
 
     const isElectron = () => !!(window as any).electronAPI;
+    const hasZipSelected = submittedFiles.some((file) => file.name.toLowerCase().endsWith('.zip'));
 
     // Reload exam data when component mounts to get latest times
     useEffect(() => {
@@ -264,7 +264,7 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                         try {
                             const cameraApi = (window as any).electronAPI.camera;
                             const cameraStatus = await cameraApi.getStatus();
-                            if (cameraStatus && cameraStatus.isMonitoring) {
+                            if (cameraStatus && (cameraStatus.isMonitoring || cameraStatus.status?.isMonitoring)) {
                                 setCameraMonitoringActive(true);
                             }
                         } catch (err) {
@@ -411,7 +411,7 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                     const cameraApi = (window as any).electronAPI.camera;
                     const cameraStatus = await cameraApi.getStatus();
                     
-                    if (cameraStatus && cameraStatus.isMonitoring) {
+                    if (cameraStatus && (cameraStatus.isMonitoring || cameraStatus.status?.isMonitoring)) {
                         // Camera monitoring already active
                         setCameraMonitoringActive(true);
                         console.log('Camera monitoring already active');
@@ -478,6 +478,15 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
         try {
             // Submit exam to backend (DON'T stop monitoring yet)
             if (isElectron()) {
+                const hasDirectCpp = submittedFiles.some((f) => {
+                    const lower = typeof f.name === 'string' ? f.name.toLowerCase() : '';
+                    return lower.endsWith('.cpp') || lower.endsWith('.cc');
+                });
+                if (!hasDirectCpp) {
+                    alert('Please include at least one direct .cpp or .cc source file for code evaluation.');
+                    return;
+                }
+
                 const filesData = await Promise.all(
                     submittedFiles.map(async (f) => {
                         const base: any = {
@@ -486,13 +495,13 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                             type: f.type
                         };
 
-                        // Code evaluation needs actual source content for `.cpp` files.
+                        // Code evaluation needs actual source content for `.cpp`/`.cc` files.
                         const lower = typeof f.name === 'string' ? f.name.toLowerCase() : '';
-                        if (lower.endsWith('.cpp') || lower.endsWith('.ccp')) {
+                        if (lower.endsWith('.cpp') || lower.endsWith('.cc')) {
                             try {
                                 base.content = await f.text();
                             } catch (err) {
-                                console.error('Failed reading .cpp file as text:', err);
+                                console.error('Failed reading source file as text:', err);
                             }
                         }
 
@@ -714,18 +723,11 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                             <span className="tab-label">Question Paper</span>
                         </button>
                         <button
-                            className={`exam-tab ${activeTab === 'violations' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('violations')}
-                        >
-                            <span className="tab-icon">⚠️</span>
-                            <span className="tab-label">Violations</span>
-                        </button>
-                        <button
                             className={`exam-tab ${activeTab === 'submission' ? 'active' : ''}`}
                             onClick={() => setActiveTab('submission')}
                         >
                             <span className="tab-icon">📤</span>
-                            <span className="tab-label">Submission</span>
+                            <span className="tab-label">Submit Solution</span>
                         </button>
                     </div>
 
@@ -758,54 +760,6 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                             </div>
                         )}
 
-                        {/* Violations Tab */}
-                        {activeTab === 'violations' && (
-                            <div className="tab-panel violations-panel">
-                                <div className="violations-tab-content">
-                                    {/* Camera Monitoring Log */}
-                                    <div className="violations-section">
-                                        <h3>📹 Camera Monitoring Log</h3>
-                                        <CameraLogWindow isActive={cameraMonitoringActive} />
-                                    </div>
-
-                                    {/* Allowed Apps Info */}
-                                    <div className="violations-section">
-                                        <h3>📱 Allowed Applications</h3>
-                                        <div className="allowed-apps-card-full">
-                                            <div className="allowed-apps-list">
-                                                {(exam.allowed_apps || []).length > 0 ? (
-                                                    exam.allowed_apps.map((app, index) => (
-                                                        <div key={index} className="app-item">
-                                                            <span className="app-icon">✓</span>
-                                                            <span className="app-name">{app}</span>
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <p className="no-apps">No specific applications allowed</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Monitoring Status Info */}
-                                    <div className="violations-section">
-                                        <h3>👁️ Monitoring Status</h3>
-                                        <div className="monitoring-card-full">
-                                            <div className={`monitoring-indicator-full ${monitoringActive ? 'active' : 'inactive'}`}>
-                                                <span className="status-dot"></span>
-                                                <span>{monitoringActive ? 'Monitoring Active' : 'Monitoring Inactive'}</span>
-                                            </div>
-                                            {monitoringActive && (
-                                                <p className="monitoring-message-full">
-                                                    Your activity is being tracked for academic integrity. Please use only the allowed applications listed above.
-                                                </p>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
                         {/* Submission Tab */}
                         {activeTab === 'submission' && (
                             <div className="tab-panel submission-panel">
@@ -823,11 +777,16 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                                                 <h4>Instructions:</h4>
                                                 <ul>
                                                     <li>Select all your answer files</li>
-                                                    <li>You can upload multiple files or a ZIP archive</li>
+                                                    <li>Upload source files directly (for code grading, include at least one .cpp/.cc file)</li>
                                                     <li>Make sure all files are included before submitting</li>
                                                     <li>You can resubmit before the exam ends</li>
                                                 </ul>
                                             </div>
+                                            {hasZipSelected && (
+                                                <div className="exam-error">
+                                                    ZIP files are stored, but code auto-evaluation only reads direct .cpp/.cc uploads.
+                                                </div>
+                                            )}
                                             <button onClick={handleSubmitExam} className="submit-files-btn-large">
                                                 📁 Upload Files
                                             </button>

@@ -175,8 +175,10 @@ function normalizeTestCase(raw) {
   return {
     name: typeof raw.name === 'string' ? raw.name : (raw.name != null ? String(raw.name) : 'Unnamed'),
     description: rawDescription.trim() || 'Covers a representative execution path.',
-    input: normalizeInputForStdin(rawInput),
-    expectedOutput: typeof raw.expectedOutput === 'string' ? raw.expectedOutput : (raw.expectedOutput != null ? String(raw.expectedOutput) : ''),
+    input: normalizeMultilineText(normalizeInputForStdin(rawInput)),
+    expectedOutput: normalizeMultilineText(
+      typeof raw.expectedOutput === 'string' ? raw.expectedOutput : (raw.expectedOutput != null ? String(raw.expectedOutput) : '')
+    ),
     isHidden: Boolean(raw.isHidden),
     isEdgeCase: Boolean(raw.isEdgeCase),
     timeLimitMs: typeof raw.timeLimitMs === 'number' ? raw.timeLimitMs : (typeof raw.timeLimitMs === 'string' ? parseInt(raw.timeLimitMs, 10) : 2000),
@@ -216,7 +218,27 @@ function parseTestCasesJson(text) {
   if (testCases.length === 0) {
     return { ok: false, error: 'Parsed array contained no valid test cases' };
   }
+  const schemaValidation = validateTestCaseSchemaArray(testCases);
+  if (!schemaValidation.ok) {
+    return { ok: false, error: schemaValidation.error };
+  }
   return { ok: true, testCases };
+}
+
+function validateTestCaseSchemaArray(testCases) {
+  if (!Array.isArray(testCases) || testCases.length === 0) {
+    return { ok: false, error: 'Expected a non-empty test case array' };
+  }
+  for (const item of testCases) {
+    if (!item || typeof item !== 'object') return { ok: false, error: 'Test case item is not an object' };
+    if (!String(item.name || '').trim()) return { ok: false, error: 'Test case name is required' };
+    if (typeof item.input !== 'string') return { ok: false, error: 'Test case input must be string' };
+    if (typeof item.expectedOutput !== 'string') return { ok: false, error: 'Test case expectedOutput must be string' };
+    if (typeof item.isHidden !== 'boolean' || typeof item.isEdgeCase !== 'boolean') {
+      return { ok: false, error: 'Test case visibility fields must be boolean' };
+    }
+  }
+  return { ok: true };
 }
 
 function parseRequirementAnalysis(text) {
@@ -299,6 +321,106 @@ Respond ONLY with a valid JSON array of test case objects. No other text or mark
 
 Generate 6–12 test cases: a few sample/sanity, several edge cases (empty input, large numbers, boundaries), and 1–2 hidden. Avoid randomness; inputs and outputs must be deterministic.`;
 
+function allowsExplicitErrorOutput(questionText) {
+  const q = String(questionText || '').toLowerCase();
+  return /\b(error|invalid input|print.*error|display.*error|handle invalid|on invalid|exception)\b/.test(q);
+}
+
+function scrubErrorStyleOutputs(questionText, testCases) {
+  if (!Array.isArray(testCases) || testCases.length === 0) return [];
+  if (allowsExplicitErrorOutput(questionText)) return testCases;
+  return testCases.filter((tc) => {
+    const out = String(tc?.expectedOutput || '').trim().toLowerCase();
+    const desc = `${String(tc?.name || '')} ${String(tc?.description || '')}`.toLowerCase();
+    const looksLikeErrorOutput =
+      /^error[:\s]/i.test(out) ||
+      /\binvalid input|input format|exception|runtime error|cannot multiply|dimension mismatch\b/.test(out);
+    const looksLikeInvalidInputCase = /\binvalid|malformed|empty matrices|non[- ]?integer\b/.test(desc);
+    return !(looksLikeErrorOutput || looksLikeInvalidInputCase);
+  });
+}
+
+function isMatrixMultiplicationQuestion(questionText) {
+  const q = String(questionText || '').toLowerCase();
+  return (
+    /\bmatrix multiplication\b/.test(q) ||
+    (/(\bn\b.*\bm\b.*\bp\b)/.test(q) && /\bmatrix\b/.test(q) && /\ba\s*\*\s*b\b/.test(q))
+  );
+}
+
+function parseNumericTokens(input) {
+  const text = normalizeMultilineText(input || '').trim();
+  if (!text) return null;
+  const parts = text.split(/\s+/).filter(Boolean);
+  if (!parts.length) return null;
+  const nums = [];
+  for (const p of parts) {
+    if (!/^-?\d+$/.test(p)) return null;
+    nums.push(parseInt(p, 10));
+  }
+  return nums;
+}
+
+function computeMatrixProductExpected(input) {
+  const nums = parseNumericTokens(input);
+  if (!nums || nums.length < 3) return null;
+  let idx = 0;
+  const n = nums[idx++];
+  const m = nums[idx++];
+  const p = nums[idx++];
+  if (n <= 0 || m <= 0 || p <= 0) return null;
+  const aCount = n * m;
+  const bCount = m * p;
+  if (nums.length !== 3 + aCount + bCount) return null;
+
+  const a = [];
+  for (let i = 0; i < n; i++) {
+    const row = [];
+    for (let j = 0; j < m; j++) row.push(nums[idx++]);
+    a.push(row);
+  }
+  const b = [];
+  for (let i = 0; i < m; i++) {
+    const row = [];
+    for (let j = 0; j < p; j++) row.push(nums[idx++]);
+    b.push(row);
+  }
+
+  const c = Array.from({ length: n }, () => Array.from({ length: p }, () => 0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < p; j++) {
+      let sum = 0;
+      for (let k = 0; k < m; k++) sum += a[i][k] * b[k][j];
+      c[i][j] = sum;
+    }
+  }
+  return c.map((row) => row.join(' ')).join('\n');
+}
+
+function validateAndCorrectMatrixCases(questionText, testCases) {
+  if (!isMatrixMultiplicationQuestion(questionText) || !Array.isArray(testCases)) {
+    return testCases || [];
+  }
+  const out = [];
+  for (const tc of testCases) {
+    const computed = computeMatrixProductExpected(tc.input || '');
+    if (!computed) {
+      // Drop non-conforming cases for this strict contract question.
+      continue;
+    }
+    const existing = normalizeMultilineText(tc.expectedOutput || '').trim();
+    const next = { ...tc };
+    if (!existing || existing !== computed) {
+      next.expectedOutput = computed;
+      next.notes = next.notes
+        ? `${next.notes} [Auto-corrected using deterministic matrix oracle]`
+        : '[Auto-corrected using deterministic matrix oracle]';
+    }
+    out.push(next);
+  }
+  return out;
+}
+
 function buildUserPrompt(questionText) {
   return `Question text:\n${questionText}\n\nGenerate test cases as a JSON array. Respond with only the JSON array, no other text.`;
 }
@@ -352,13 +474,20 @@ class LLMTestCaseService {
           });
           return (chat.choices[0].message.content || '').trim();
         } catch (err) {
-          const msg = err.message || String(err);
+          const msg = this._extractProviderErrorMessage(err, 'Groq');
           const is429 = msg.includes('429') || msg.includes('rate_limit');
+          const isTransient5xx = /\b(500|502|503|504)\b/.test(msg) || /bad gateway|gateway timeout|service unavailable/i.test(msg);
           if (is429 && attempt < 2) {
             const waitMatch = msg.match(/try again in ([\d.]+)s/i);
             const waitMs = waitMatch ? Math.ceil(parseFloat(waitMatch[1]) * 1000) + 500 : 12000;
             console.log(`Groq rate limit, waiting ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1}/3)...`);
             await new Promise(r => setTimeout(r, waitMs));
+            continue;
+          }
+          if (isTransient5xx && attempt < 2) {
+            const waitMs = 1500 * (attempt + 1);
+            console.log(`Groq transient error, retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1}/3)...`);
+            await new Promise((r) => setTimeout(r, waitMs));
             continue;
           }
           console.warn('Groq call failed:', msg);
@@ -447,7 +576,23 @@ class LLMTestCaseService {
         text = await this._callAI(SYSTEM_PROMPT, buildUserPrompt(questionText), { temperature: 0.2, maxTokens: 8192 });
       }
 
-      const parsed = parseTestCasesJson(text);
+      let parsed = parseTestCasesJson(text);
+      if (!parsed.ok) {
+        console.warn('[LLM][testcases][v2] initial parse failed:', parsed.error);
+        const repairPrompt = [
+          'You previously returned invalid test-case JSON.',
+          'Return ONLY valid JSON array that matches the required schema.',
+          'Do not include markdown or explanation.'
+        ].join('\n');
+        const repaired = await this._callAI(SYSTEM_PROMPT, `${buildUserPrompt(questionText)}\n\n${repairPrompt}`, {
+          temperature: 0,
+          maxTokens: 8192
+        });
+        parsed = parseTestCasesJson(repaired);
+        if (!parsed.ok) {
+          console.warn('[LLM][testcases][v2] repair parse failed:', parsed.error);
+        }
+      }
       if (!parsed.ok) {
         return {
           success: false,
@@ -458,6 +603,8 @@ class LLMTestCaseService {
 
       // Batch fallback: fill in any test cases that have empty expectedOutput
       const enriched = await this._batchFillMissingOutputs(questionText, parsed.testCases);
+      const contractAligned = scrubErrorStyleOutputs(questionText, enriched);
+      const verifiedCases = validateAndCorrectMatrixCases(questionText, contractAligned);
       const normalized = enriched.map((tc, index) => ({
         ...tc,
         name: tc.name || `test_case_${index + 1}`,
@@ -471,6 +618,21 @@ class LLMTestCaseService {
             : 'Covers a representative execution path.'
       }));
 
+      const normalizedAligned = verifiedCases.map((tc, index) => ({
+        ...tc,
+        name: tc.name || `test_case_${index + 1}`,
+        description:
+          typeof tc.description === 'string' && tc.description.trim()
+            ? tc.description.trim()
+            : tc.isEdgeCase
+            ? 'Covers an edge or boundary condition.'
+            : tc.isHidden
+            ? 'Hidden validation case for grading coverage.'
+            : 'Covers a representative execution path.'
+      }));
+      if (normalizedAligned.length >= 4) {
+        return { success: true, testCases: normalizedAligned };
+      }
       return { success: true, testCases: normalized };
     } catch (err) {
       const msg = err.message || String(err);
@@ -615,14 +777,17 @@ ${questionText.slice(0, 3000)}
 Inputs (in order): ${inputsJson}
 
 Reply with a JSON array of the expected output strings, in the same order.`;
+      const contractNote = allowsExplicitErrorOutput(questionText)
+        ? ''
+        : '\nImportant: Do NOT return error-message outputs; return only valid deterministic stdout for standard valid-input interpretation.';
 
-      const raw = await this._callAI(sysPrompt, usrPrompt, { temperature: 0.05, maxTokens: 2048 });
+      const raw = await this._callAI(sysPrompt, `${usrPrompt}${contractNote}`, { temperature: 0.05, maxTokens: 2048 });
       const predicted = safeParseJSON(raw, null);
 
       if (Array.isArray(predicted)) {
         let filled = 0;
         missing.forEach((tc, i) => {
-          const output = predicted[i] != null ? String(predicted[i]).trim() : '';
+          const output = predicted[i] != null ? normalizeMultilineText(String(predicted[i]).trim()) : '';
           if (output) {
             tc.expectedOutput = output;
             tc.notes = tc.notes ? `${tc.notes} [AI-predicted output – needs review]` : '[AI-predicted output – needs review]';
@@ -637,7 +802,27 @@ Reply with a JSON array of the expected output strings, in the same order.`;
       console.warn('[LLM] Batch prediction failed (teacher can add outputs manually):', err.message);
     }
 
+    const stillMissing = testCases.filter((tc) => !tc.expectedOutput || !tc.expectedOutput.trim());
+    if (stillMissing.length > 0) {
+      for (const tc of stillMissing) {
+        tc.notes = tc.notes
+          ? `${tc.notes} [Missing expected output - review required]`
+          : '[Missing expected output - review required]';
+      }
+    }
+
     return testCases;
+  }
+
+  _extractProviderErrorMessage(err, providerName) {
+    if (!err) return `${providerName}: unknown error`;
+    let text = String(err.message || err);
+    // Avoid flooding logs with full HTML error pages.
+    text = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (text.length > 300) {
+      text = `${text.slice(0, 300)}...`;
+    }
+    return text;
   }
 
   async generateSubmissionSummary(evidence, options = {}) {
@@ -713,7 +898,8 @@ function compactEvidenceForSummary(evidence) {
     max_score: evidence.max_score,
     analysis_breakdown: bd,
     requirement_checks: evidence.requirement_checks,
-    hardcoding_flags: evidence.hardcoding_flags
+    hardcoding_flags: evidence.hardcoding_flags,
+    requirement_definition: evidence.requirement_definition
   };
 }
 
@@ -751,7 +937,13 @@ function finalizeSummaryLines(lines) {
         .filter(Boolean);
     }
   }
-  return out;
+  if (out.length > 6) out = out.slice(0, 6);
+  if (out.length >= 5) return out;
+  const padded = [...out];
+  while (padded.length < 5) {
+    padded.push('Evidence was limited for additional detail, so this line is intentionally conservative.');
+  }
+  return padded.slice(0, 6);
 }
 
 function truncateToLastSentenceBoundary(text) {
@@ -781,8 +973,12 @@ function buildSummaryPrompt(evidence, options = {}) {
     'Every line MUST end with a period (.), question mark (?), or exclamation (!).',
     'Never end a line with a bare number or an unfinished clause.',
     'Line 1 should state overall performance.',
+    'You MUST mention configured requirements (concepts/constraints) and clearly state which were met or unmet.',
+    'When requirement_checks.unmet_requirements is non-empty, explicitly list at least one unmet item.',
+    'When requirement_definition.required_concepts exists, mention whether each concept appears detected or not from requirement_checks.',
+    'Include concrete numeric signals (score, pass_rate, passed/failed trends) from evidence when available.',
     'Include what student did well and what needs improvement.',
-    'Mention unmet requirements only if provided.',
+    'Mention unmet requirements only if provided, and do not invent requirements that are absent from evidence.',
     'Do not assign final marks. End with one actionable next step for student.',
     `Tone mode: ${mode}`,
     '',
@@ -807,3 +1003,15 @@ module.exports.normalizeTestCase = normalizeTestCase;
 module.exports.safeParseJSON = safeParseJSON;
 module.exports.normalizeInputForStdin = normalizeInputForStdin;
 module.exports.loadConfig = loadConfig;
+
+function normalizeMultilineText(value) {
+  if (value == null) return '';
+  let text = String(value);
+  text = text.replace(/\r\n/g, '\n');
+  text = text.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+  // Some generated cases incorrectly use '/n' instead of '\n'.
+  if (text.includes('/n') && !text.includes('\\n')) {
+    text = text.replace(/\/n/g, '\n');
+  }
+  return text;
+}

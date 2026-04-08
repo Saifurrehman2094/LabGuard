@@ -24,7 +24,7 @@ interface ElectronAPI {
   extractQuestions: (examId: string) => Promise<any>;
   generateTestCases: (examId: string, questionId: string, llmProvider?: string) => Promise<any>;
   aiAnalyzeRequirements: (problemText: string) => Promise<any>;
-  saveQuestions: (examId: string, questions: any[]) => Promise<any>;
+  saveQuestions: (examId: string, questions: any[], deletedQuestionIds?: string[]) => Promise<any>;
   upsertTestCases: (questionId: string, testCases: any[]) => Promise<any>;
   getQuestionsWithTestCases: (examId: string) => Promise<any>;
 
@@ -33,6 +33,7 @@ interface ElectronAPI {
   getMonitoringStatus: () => Promise<any>;
   getMonitoringEvents: (examId: string) => Promise<any>;
   getViolations: (examId: string) => Promise<any>;
+  getIntegrityReviewData: (examId: string) => Promise<any>;
   getStudentViolations: (examId: string) => Promise<any>;
 
   uploadPDF: (filePath: string, examId: string) => Promise<any>;
@@ -96,8 +97,9 @@ interface ElectronAPI {
   getDashboardQuestions: (examId: string) => Promise<any>;
   getDashboardPipeline: () => Promise<any>;
   getDashboardPlatforms: () => Promise<any>;
-  getDashboardEventsRecent: () => Promise<any>;
-  getDashboardSubmissionsRecent: () => Promise<any>;
+  getDashboardEventsRecent: (examId?: string | null) => Promise<any>;
+  getDashboardSubmissionsRecent: (examId?: string | null) => Promise<any>;
+  updateIntegrityCaseReview: (payload: { examId: string; studentId: string; isReviewed?: boolean; isSuspicious?: boolean; notes?: string }) => Promise<any>;
   onDashboardUpdated: (callback: (...args: any[]) => void) => () => void;
 
   studentsGetAll: (teacherId: string) => Promise<any>;

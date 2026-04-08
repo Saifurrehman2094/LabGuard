@@ -44,7 +44,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   generateTestCases: (examId, questionId, llmProvider) =>
     ipcRenderer.invoke('exam:generate-testcases', examId, questionId, llmProvider),
   aiAnalyzeRequirements: (problemText) => ipcRenderer.invoke('ai:analyze-requirements', problemText),
-  saveQuestions: (examId, questions) => ipcRenderer.invoke('exam:save-questions', examId, questions),
+  saveQuestions: (examId, questions, deletedQuestionIds = []) =>
+    ipcRenderer.invoke('exam:save-questions', examId, questions, deletedQuestionIds),
   upsertTestCases: (questionId, testCases) =>
     ipcRenderer.invoke('exam:upsert-testcases', questionId, testCases),
   getQuestionsWithTestCases: (examId) =>
@@ -57,6 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMonitoringStatus: () => ipcRenderer.invoke('monitoring:get-status'),
   getMonitoringEvents: (examId) => ipcRenderer.invoke('monitoring:getEvents', examId),
   getViolations: (examId) => ipcRenderer.invoke('monitoring:get-violations', examId),
+  getIntegrityReviewData: (examId) => ipcRenderer.invoke('monitoring:get-integrity-review-data', examId),
   getStudentViolations: (examId) => ipcRenderer.invoke('monitoring:get-student-violations', examId),
 
   // Camera monitoring (Python pipeline)
@@ -160,8 +162,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDashboardQuestions: (examId) => ipcRenderer.invoke('dashboard:questions', examId),
   getDashboardPipeline: () => ipcRenderer.invoke('dashboard:pipeline'),
   getDashboardPlatforms: () => ipcRenderer.invoke('dashboard:platforms'),
-  getDashboardEventsRecent: () => ipcRenderer.invoke('dashboard:events-recent'),
-  getDashboardSubmissionsRecent: () => ipcRenderer.invoke('dashboard:submissions-recent'),
+  getDashboardEventsRecent: (examId) => ipcRenderer.invoke('dashboard:events-recent', examId),
+  getDashboardSubmissionsRecent: (examId) => ipcRenderer.invoke('dashboard:submissions-recent', examId),
+  updateIntegrityCaseReview: (payload) => ipcRenderer.invoke('monitoring:update-integrity-case-review', payload),
 
   // Student analytics
   studentsGetAll: (teacherId) => ipcRenderer.invoke('students:getAll', teacherId),

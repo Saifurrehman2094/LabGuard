@@ -15,6 +15,7 @@ class CodeAnalysisService {
 
   analyzeCppSource(sourceText, options = {}) {
     const source = String(sourceText || '');
+    const lower = source.toLowerCase();
     const loopMatches = source.match(/\b(for|while)\s*\(|\bdo\s*\{/g) || [];
     const loopMetrics = this._estimateLoopMetrics(source);
     const functionDefs = this._extractFunctionNames(source);
@@ -46,8 +47,26 @@ class CodeAnalysisService {
       recursion_detection_source: astRecursion.available ? 'clang_ast' : 'heuristic'
     };
 
+    const conceptChecks = {
+      loops: checks.loop_detected,
+      nested_loops: checks.loop_nesting_max >= 2,
+      do_while: /\bdo\s*\{/.test(source) || /\bdo\s+[^\n;]*\bwhile\s*\(/.test(source),
+      switch: /\bswitch\s*\(/.test(source),
+      conditionals: /\bif\s*\(|\belse\b/.test(source),
+      recursion: checks.recursion_detected,
+      arrays: /\[[^\]]*\]/.test(source),
+      arrays_2d: /\[[^\]]*\]\s*\[[^\]]*\]/.test(source) || /\bvector\s*<\s*vector\s*</i.test(source),
+      arrays_3d:
+        /\[[^\]]*\]\s*\[[^\]]*\]\s*\[[^\]]*\]/.test(source) ||
+        /\bvector\s*<\s*vector\s*<\s*vector\s*</i.test(source),
+      pointers: /(^|[^A-Za-z0-9_])\*+\s*[A-Za-z_]\w*|&\s*[A-Za-z_]\w*/.test(source) || /\bnullptr\b/.test(lower)
+    };
+
     const requiredLoop = options.required_loop === true;
     const requiredRecursion = options.required_recursion === true;
+    const requiredConcepts = Array.isArray(options.required_concepts)
+      ? options.required_concepts.filter((item) => typeof item === 'string' && item.trim())
+      : [];
     const maxLoopNesting =
       typeof options.max_loop_nesting === 'number' ? options.max_loop_nesting : null;
     const expectedComplexity =
@@ -63,9 +82,31 @@ class CodeAnalysisService {
     if (maxLoopNesting != null && maxLoopNesting > 0 && checks.loop_nesting_max > maxLoopNesting) {
       unmetRequirements.push('loop_nesting_exceeds_limit');
     }
+    const detectedConcepts = Object.entries(conceptChecks)
+      .filter(([, detected]) => !!detected)
+      .map(([concept]) => concept);
+    const missingRequiredConcepts = requiredConcepts.filter((concept) => !conceptChecks[concept]);
+    const detectedRequiredCount = requiredConcepts.length - missingRequiredConcepts.length;
+    const coveragePct = requiredConcepts.length
+      ? Math.round((detectedRequiredCount * 10000) / requiredConcepts.length) / 100
+      : 100;
+
+    for (const concept of missingRequiredConcepts) {
+      unmetRequirements.push(`concept_required_but_missing:${concept}`);
+    }
 
     return {
       checks,
+      concept_checks: conceptChecks,
+      detected_concepts: detectedConcepts,
+      required_concepts: requiredConcepts,
+      missing_required_concepts: missingRequiredConcepts,
+      concept_coverage: {
+        detected_count: detectedRequiredCount,
+        required_count: requiredConcepts.length,
+        coverage_pct: coveragePct,
+        pass: missingRequiredConcepts.length === 0
+      },
       unmet_requirements: unmetRequirements,
       function_names: functionDefs.slice(0, 40),
       recursion_functions: recursionHits.slice(0, 40),
@@ -180,7 +221,7 @@ class CodeAnalysisService {
     if (!enabled) {
       return { available: false, recursive_functions: [], error: 'disabled' };
     }
-    const candidates = ['clang++', 'clang'];
+    const candidates = this._getClangCandidates();
     let tmpFile = null;
     for (const bin of candidates) {
       try {
@@ -220,7 +261,7 @@ class CodeAnalysisService {
   }
 
   _probeClangBinary() {
-    const candidates = ['clang++', 'clang'];
+    const candidates = this._getClangCandidates();
     for (const bin of candidates) {
       try {
         execFileSync(bin, ['--version'], {
@@ -234,6 +275,31 @@ class CodeAnalysisService {
       }
     }
     return { available: false, error: 'clang_not_found' };
+  }
+
+  _getClangCandidates() {
+    const candidates = ['clang++', 'clang'];
+    if (os.platform() === 'win32') {
+      const pf = process.env.ProgramFiles || 'C:\\Program Files';
+      const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+      const local = process.env.LOCALAPPDATA || '';
+      const windowsCandidates = [
+        path.join(pf, 'LLVM', 'bin', 'clang++.exe'),
+        path.join(pf, 'LLVM', 'bin', 'clang.exe'),
+        path.join(pf86, 'LLVM', 'bin', 'clang++.exe'),
+        path.join(pf86, 'LLVM', 'bin', 'clang.exe'),
+        local ? path.join(local, 'Programs', 'LLVM', 'bin', 'clang++.exe') : null,
+        local ? path.join(local, 'Programs', 'LLVM', 'bin', 'clang.exe') : null
+      ].filter(Boolean);
+      for (const c of windowsCandidates) {
+        try {
+          if (fs.existsSync(c)) candidates.push(c);
+        } catch (_) {
+          // ignore fs probe failures
+        }
+      }
+    }
+    return Array.from(new Set(candidates));
   }
 
   _extractRecursiveFunctionsFromAst(astRoot) {

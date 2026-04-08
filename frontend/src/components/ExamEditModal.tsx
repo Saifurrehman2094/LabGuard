@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import './ExamEditModal.css';
-import CodeQuestionsTab from './CodeQuestionsTab';
 
 interface Exam {
   examId: string;
@@ -60,7 +59,6 @@ const ExamEditModal: React.FC<ExamEditModalProps> = ({ exam, onClose, onExamUpda
   const [errors, setErrors] = useState<FormError[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [customApp, setCustomApp] = useState('');
-  const [activeTab, setActiveTab] = useState<'settings' | 'codeQuestions'>('settings');
 
   // Check if running in Electron
   const isElectron = () => {
@@ -316,25 +314,7 @@ const ExamEditModal: React.FC<ExamEditModalProps> = ({ exam, onClose, onExamUpda
           <button onClick={onClose} className="close-btn">×</button>
         </div>
 
-        <div className="modal-tabs">
-          <button
-            type="button"
-            className={`modal-tab ${activeTab === 'settings' ? 'active' : ''}`}
-            onClick={() => setActiveTab('settings')}
-          >
-            Settings
-          </button>
-          <button
-            type="button"
-            className={`modal-tab ${activeTab === 'codeQuestions' ? 'active' : ''}`}
-            onClick={() => setActiveTab('codeQuestions')}
-          >
-            Code Questions
-          </button>
-        </div>
-
-        {activeTab === 'settings' && (
-          <form onSubmit={handleSubmit} className="modal-form">
+        <form onSubmit={handleSubmit} className="modal-form">
             {/* General error messages */}
             {getGeneralErrors().length > 0 && (
               <div className="error-messages">
@@ -554,20 +534,7 @@ const ExamEditModal: React.FC<ExamEditModalProps> = ({ exam, onClose, onExamUpda
                 )}
               </button>
             </div>
-          </form>
-        )}
-
-        {activeTab === 'codeQuestions' && (
-          <div className="modal-form">
-            <CodeQuestionsTab
-              exam={{
-                examId: exam.examId,
-                title: exam.title,
-                pdfPath: exam.pdfPath
-              }}
-            />
-          </div>
-        )}
+        </form>
       </div>
     </div>
   );

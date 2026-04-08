@@ -132,7 +132,7 @@ function App() {
   // Show loading screen while checking session
   if (isLoading) {
     return (
-      <div className="App">
+      <div className="App app-loading">
         <div className="loading-container">
           <div className="loading-spinner-large"></div>
           <p>Loading LAB-Guard...</p>
@@ -144,7 +144,7 @@ function App() {
   // Show setup wizard if needed
   if (showSetupWizard) {
     return (
-      <div className="App">
+      <div className="App app-setup">
         <SetupWizard onSetupComplete={handleSetupComplete} />
       </div>
     );
@@ -153,7 +153,7 @@ function App() {
   // Show login if no user is authenticated
   if (!user) {
     return (
-      <div className="App">
+      <div className="App app-auth">
         <Login onLoginSuccess={handleLoginSuccess} />
       </div>
     );
@@ -161,7 +161,7 @@ function App() {
 
   // Show appropriate dashboard based on user role
   return (
-    <div className="App">
+    <div className={`App app-role-${user.role}`}>
       {user.role === 'admin' ? (
         <AdminPanel currentUser={user} onLogout={handleLogout} />
       ) : user.role === 'teacher' ? (

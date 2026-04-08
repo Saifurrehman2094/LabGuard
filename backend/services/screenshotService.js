@@ -137,41 +137,72 @@ class ScreenshotService {
      */
     async captureWithPowerShell(filePath) {
         try {
-            const powershellScript = `
-        Add-Type -AssemblyName System.Windows.Forms
-        Add-Type -AssemblyName System.Drawing
-        
-        # Get the active window
-        $activeWindow = [System.Windows.Forms.Form]::ActiveForm
-        if ($null -eq $activeWindow) {
-          # Fallback to screen capture if no active form
-          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-        } else {
-          $bounds = $activeWindow.Bounds
-        }
-        
-        # Create bitmap and capture
-        $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-        $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-        
-        # Save to file
-        $bitmap.Save("${filePath}", [System.Drawing.Imaging.ImageFormat]::Png)
-        
-        # Cleanup
-        $graphics.Dispose()
-        $bitmap.Dispose()
-        
-        Write-Output "SUCCESS"
-      `;
+            // Full virtual-screen capture using Win32 GetSystemMetrics (physical pixels).
+            // Avoids DPI-scaling issues with SystemInformation.VirtualScreen + GDI+ that can crop captures.
+            const escapedPath = String(filePath).replace(/'/g, "''");
+            const csharpSource = `
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
 
-            const result = execSync(`powershell -Command "${powershellScript.replace(/"/g, '\\"')}"`, {
-                encoding: 'utf8',
-                timeout: 10000 // 10 second timeout
-            });
+public static class LabGuardFullScreenCapture {
+    [DllImport("user32.dll")]
+    static extern int GetSystemMetrics(int nIndex);
+    const int SM_XVIRTUALSCREEN = 76;
+    const int SM_YVIRTUALSCREEN = 77;
+    const int SM_CXVIRTUALSCREEN = 78;
+    const int SM_CYVIRTUALSCREEN = 79;
+
+    [DllImport("user32.dll")]
+    static extern bool SetProcessDPIAware();
+
+    public static void Capture(string path) {
+        try { SetProcessDPIAware(); } catch { }
+
+        int x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        int y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        int w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        int h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+        if (w <= 0 || h <= 0) {
+            var vs = SystemInformation.VirtualScreen;
+            x = vs.Left; y = vs.Top; w = vs.Width; h = vs.Height;
+        }
+
+        using (var bmp = new Bitmap(w, h)) {
+            using (var g = Graphics.FromImage(bmp)) {
+                g.CopyFromScreen(x, y, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
+            }
+            bmp.Save(path, ImageFormat.Png);
+        }
+    }
+}
+`.trim();
+
+            const powershellScript = `
+$ProgressPreference = 'SilentlyContinue'
+$InformationPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
+Add-Type -ReferencedAssemblies System.Drawing.dll,System.Windows.Forms.dll -TypeDefinition @'
+${csharpSource.replace(/'/g, "''")}
+'@
+[LabGuardFullScreenCapture]::Capture('${escapedPath}')
+Write-Output 'SUCCESS'
+`.trim();
+
+            const encodedScript = Buffer.from(powershellScript, 'utf16le').toString('base64');
+            const result = execSync(
+                `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encodedScript}`,
+                {
+                    encoding: 'utf8',
+                    timeout: 20000,
+                    maxBuffer: 10 * 1024 * 1024
+                }
+            );
 
             if (result.includes('SUCCESS')) {
-                // Verify file was created
                 const stats = await fs.stat(filePath);
                 if (stats.size > 0) {
                     return { success: true };

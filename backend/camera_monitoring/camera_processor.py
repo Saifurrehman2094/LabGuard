@@ -72,7 +72,8 @@ class CameraProcessor:
         enable_display: bool = False,
         enable_frame_transmission: bool = None,
         student_name: str = "unknown",
-        snapshot_violations: list = None
+        snapshot_violations: list = None,
+        snapshot_cooldown_seconds: int = None
     ):
         """
         Initialize the CameraProcessor.
@@ -83,6 +84,7 @@ class CameraProcessor:
             enable_frame_transmission: Send frames as base64 in JSON (default: from config)
             student_name: Name of the student for snapshot naming
             snapshot_violations: List of violation types that should trigger snapshots
+            snapshot_cooldown_seconds: Cooldown between snapshots per violation type
         """
         self.camera_index = camera_index if camera_index is not None else config.CAMERA_INDEX
         self.enable_display = enable_display
@@ -98,6 +100,11 @@ class CameraProcessor:
         self.snapshot_violations: Set[str] = set(
             snapshot_violations if snapshot_violations is not None 
             else config.DEFAULT_SNAPSHOT_VIOLATIONS
+        )
+        self.snapshot_cooldown_seconds = (
+            snapshot_cooldown_seconds
+            if snapshot_cooldown_seconds is not None
+            else config.SNAPSHOT_COOLDOWN_SECONDS
         )
         self.snapshot_cooldowns: Dict[str, float] = {}  # violation_type -> last_snapshot_time
         self.snapshot_count = 0
@@ -122,6 +129,7 @@ class CameraProcessor:
         
         logger.info(f"CameraProcessor created (camera_index={self.camera_index}, student={self.student_name})")
         logger.info(f"Snapshot violations enabled: {self.snapshot_violations}")
+        logger.info(f"Snapshot cooldown: {self.snapshot_cooldown_seconds}s")
     
     def _setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown."""
@@ -169,7 +177,7 @@ class CameraProcessor:
         current_time = time.time()
         last_snapshot_time = self.snapshot_cooldowns.get(violation_type, 0)
         
-        if current_time - last_snapshot_time < config.SNAPSHOT_COOLDOWN_SECONDS:
+        if current_time - last_snapshot_time < self.snapshot_cooldown_seconds:
             return False
         
         return True
@@ -782,6 +790,12 @@ def main():
         default=None,
         help='Comma-separated list of violations that trigger snapshots (e.g., "phone_violation,multiple_persons")'
     )
+    parser.add_argument(
+        '--snapshot-cooldown-seconds',
+        type=int,
+        default=None,
+        help=f'Snapshot cooldown in seconds (default: {config.SNAPSHOT_COOLDOWN_SECONDS})'
+    )
     
     args = parser.parse_args()
     
@@ -801,7 +815,8 @@ def main():
         enable_display=args.display,
         enable_frame_transmission=args.transmit_frames,
         student_name=args.student_name,
-        snapshot_violations=snapshot_violations
+        snapshot_violations=snapshot_violations,
+        snapshot_cooldown_seconds=args.snapshot_cooldown_seconds
     ) as processor:
         
         if processor.initialize():

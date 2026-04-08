@@ -4,15 +4,15 @@
 
 .teacher-dashboard {
   min-height: 100vh;
-  background: linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 100%);
+  background: #f8fafc;
 }
 
 /* ========== HEADER ========== */
 
 .dashboard-header {
-  background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
-  padding: var(--space-6) var(--space-8);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  background: #0f172a;
+  padding: var(--space-5) var(--space-8);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.16);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -27,7 +27,7 @@
 }
 
 .user-info h1 {
-  font-size: var(--text-3xl);
+  font-size: var(--text-2xl);
   font-weight: var(--font-bold);
   color: #FFFFFF;
   margin: 0 0 var(--space-2) 0;
@@ -36,8 +36,8 @@
 }
 
 .user-info p {
-  font-size: var(--text-lg);
-  color: #FFFFFF;
+  font-size: var(--text-base);
+  color: #e2e8f0;
   margin: 0 0 var(--space-2) 0;
   font-weight: var(--font-semibold);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
@@ -78,7 +78,7 @@
 
 .dashboard-nav {
   background: white;
-  padding: var(--space-2) var(--space-8);
+  padding: var(--space-2) var(--space-8) var(--space-3);
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
   display: flex;
   gap: var(--space-2);
@@ -86,6 +86,54 @@
   position: sticky;
   top: 88px;
   z-index: 90;
+}
+
+.teacher-context-bar {
+  max-width: var(--max-width-page);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-8);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--color-border-light);
+  background: #ffffff;
+}
+
+.teacher-context-bar label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-secondary);
+}
+
+.teacher-context-bar select {
+  min-width: 280px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-medium);
+  background-color: white;
+}
+
+.teacher-context-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.mini-btn {
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-md);
+  background: white;
+  color: var(--color-text-primary);
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.mini-btn.danger {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fff5f5;
 }
 
 .nav-tab {
@@ -137,36 +185,23 @@
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--space-6);
-  margin-bottom: var(--space-10);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
 }
 
 .stat-card {
   background: white;
-  border: none;
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-xl);
-  padding: var(--space-8);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  text-align: center;
-  transition: all var(--transition-base);
-  position: relative;
-  overflow: hidden;
-}
-
-.stat-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 5px;
-  background: linear-gradient(90deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+  padding: var(--space-6);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  text-align: left;
 }
 
 .stat-card:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  transform: none;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
 
 .stat-card h3 {
@@ -179,12 +214,9 @@
 }
 
 .stat-number {
-  font-size: 64px;
+  font-size: 38px;
   font-weight: var(--font-bold);
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--color-text-primary);
   margin: 0;
   line-height: 1;
 }
@@ -193,25 +225,77 @@
 
 .recent-exams {
   background: white;
-  border: none;
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-xl);
-  padding: var(--space-8);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: var(--space-6);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
 .recent-exams h2 {
-  font-size: var(--text-2xl);
+  font-size: var(--text-xl);
   font-weight: var(--font-bold);
   color: var(--color-text-primary);
   margin: 0 0 var(--space-6) 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
 }
 
-.recent-exams h2::before {
-  content: '📚';
-  font-size: var(--text-3xl);
+.overview-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-4);
+}
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.activity-item {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+}
+
+.activity-item strong {
+  font-size: var(--text-sm);
+}
+
+.activity-item span {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.empty-state.compact {
+  padding: var(--space-6);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+}
+
+.create-exam-panel {
+  background: #fff;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
 }
 
 /* ========== LOADING STATE ========== */
@@ -563,6 +647,19 @@
 
   .dashboard-content {
     padding: var(--space-4);
+  }
+
+  .teacher-context-bar {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .teacher-context-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .mini-btn {
+    flex: 1;
   }
 
   .stats-grid {

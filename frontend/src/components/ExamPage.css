@@ -256,11 +256,14 @@
 .exam-tabs {
   display: flex;
   gap: var(--space-2);
-  border-bottom: 2px solid var(--color-border-light);
+  border: 1px solid var(--color-border-light);
   margin-bottom: var(--space-6);
   background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2);
+  position: sticky;
+  top: 108px;
+  z-index: 25;
 }
 
 .exam-tab {
@@ -287,9 +290,11 @@
 }
 
 .exam-tab.active {
-  color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
+  color: #fff;
+  border-bottom-color: transparent;
   font-weight: var(--font-semibold);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+  border-radius: var(--radius-md);
 }
 
 .tab-icon {
@@ -326,6 +331,7 @@
   border-radius: var(--radius-lg);
   padding: var(--space-6);
   box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-border-light);
 }
 
 /* ========== QUESTION PANEL (Legacy - kept for compatibility) ========== */
@@ -492,6 +498,7 @@
   border-radius: var(--radius-lg);
   padding: var(--space-6);
   box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-border-light);
 }
 
 .violations-tab-content {
@@ -572,6 +579,7 @@
   border-radius: var(--radius-lg);
   padding: var(--space-6);
   box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-border-light);
 }
 
 .submission-tab-content {
@@ -1303,6 +1311,11 @@
     padding: var(--space-4);
   }
 
+  .submit-dialog {
+    padding: var(--space-5);
+    max-height: 85vh;
+  }
+
   .question-panel,
   .violations-panel,
   .submission-panel {
@@ -1331,6 +1344,10 @@
 }
 
 @media (max-width: 480px) {
+  .exam-header .back-btn {
+    width: 100%;
+  }
+
   .exam-info-bar {
     padding: var(--space-2);
   }
@@ -1356,6 +1373,10 @@
   .violations-panel,
   .submission-panel {
     padding: var(--space-3);
+  }
+
+  .submit-dialog {
+    padding: var(--space-4);
   }
 
   .violations-section h3 {

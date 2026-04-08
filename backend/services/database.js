@@ -142,6 +142,32 @@ class DatabaseService {
         console.log('Created app_violations table for monitoring system');
       }
 
+      const integrityCaseReviewsExists = this.db.prepare(`
+        SELECT name FROM sqlite_master
+        WHERE type='table' AND name='integrity_case_reviews'
+      `).get();
+
+      if (!integrityCaseReviewsExists) {
+        this.db.exec(`
+          CREATE TABLE integrity_case_reviews (
+            review_id TEXT PRIMARY KEY,
+            exam_id TEXT NOT NULL,
+            student_id TEXT NOT NULL,
+            teacher_id TEXT NOT NULL,
+            is_reviewed INTEGER DEFAULT 0,
+            is_suspicious INTEGER DEFAULT 0,
+            reviewed_at DATETIME,
+            notes TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(exam_id, student_id),
+            FOREIGN KEY (exam_id) REFERENCES exams (exam_id),
+            FOREIGN KEY (student_id) REFERENCES users (user_id),
+            FOREIGN KEY (teacher_id) REFERENCES users (user_id)
+          )
+        `);
+        console.log('Created integrity_case_reviews table');
+      }
+
       // Add missing code evaluation analysis columns (idempotent)
       const codeEvalInfo = this.db.prepare("PRAGMA table_info(code_evaluations)").all();
       if (Array.isArray(codeEvalInfo) && codeEvalInfo.length > 0) {
@@ -921,6 +947,10 @@ class DatabaseService {
         const deleteViolationsStmt = this.db.prepare('DELETE FROM app_violations WHERE exam_id = ?');
         deleteViolationsStmt.run(examId);
 
+        // Delete related integrity review decisions
+        const deleteIntegrityReviewsStmt = this.db.prepare('DELETE FROM integrity_case_reviews WHERE exam_id = ?');
+        deleteIntegrityReviewsStmt.run(examId);
+
         // Delete related events
         const deleteEventsStmt = this.db.prepare('DELETE FROM events WHERE exam_id = ?');
         deleteEventsStmt.run(examId);
@@ -1194,6 +1224,151 @@ class DatabaseService {
   }
 
   /**
+   * Get student-facing integrity incidents (app + camera), optionally scoped to one exam.
+   * This view intentionally avoids screenshot payloads/raw logs and returns clean fields only.
+   */
+  getStudentIntegrityIncidents(studentId, examId = null) {
+    try {
+      const appRows = examId
+        ? this.db.prepare(`
+            SELECT
+              av.violation_id,
+              av.exam_id,
+              e.title AS exam_title,
+              av.app_name,
+              av.focus_start_time,
+              av.focus_end_time,
+              av.duration_seconds
+            FROM app_violations av
+            JOIN exams e ON e.exam_id = av.exam_id
+            WHERE av.student_id = ? AND av.exam_id = ?
+            ORDER BY av.focus_start_time DESC
+          `).all(studentId, examId)
+        : this.db.prepare(`
+            SELECT
+              av.violation_id,
+              av.exam_id,
+              e.title AS exam_title,
+              av.app_name,
+              av.focus_start_time,
+              av.focus_end_time,
+              av.duration_seconds
+            FROM app_violations av
+            JOIN exams e ON e.exam_id = av.exam_id
+            WHERE av.student_id = ?
+            ORDER BY av.focus_start_time DESC
+          `).all(studentId);
+
+      const appIncidents = appRows.map((row) => ({
+        incident_id: row.violation_id,
+        exam_id: row.exam_id,
+        exam_title: row.exam_title,
+        source: 'app',
+        violation_type: 'UNAUTHORIZED_APP',
+        display_type: 'Unauthorized App',
+        application_name: row.app_name || '',
+        started_at: row.focus_start_time,
+        ended_at: row.focus_end_time || null,
+        duration_seconds: Number(row.duration_seconds || 0)
+      }));
+
+      const cameraRows = examId
+        ? this.db.prepare(`
+            SELECT
+              ev.event_id,
+              ev.exam_id,
+              e.title AS exam_title,
+              ev.timestamp,
+              ev.event_type,
+              ev.window_title
+            FROM events ev
+            JOIN exams e ON e.exam_id = ev.exam_id
+            WHERE ev.student_id = ?
+              AND ev.exam_id = ?
+              AND (
+                ev.event_type IN ('phone_violation', 'multiple_persons', 'phone_violation_ended', 'multiple_persons_ended')
+              )
+            ORDER BY ev.timestamp ASC
+          `).all(studentId, examId)
+        : this.db.prepare(`
+            SELECT
+              ev.event_id,
+              ev.exam_id,
+              e.title AS exam_title,
+              ev.timestamp,
+              ev.event_type,
+              ev.window_title
+            FROM events ev
+            JOIN exams e ON e.exam_id = ev.exam_id
+            WHERE ev.student_id = ?
+              AND (
+                ev.event_type IN ('phone_violation', 'multiple_persons', 'phone_violation_ended', 'multiple_persons_ended')
+              )
+            ORDER BY ev.timestamp ASC
+          `).all(studentId);
+
+      const parseJsonFromText = (value) => {
+        if (typeof value !== 'string') return null;
+        const text = value.trim();
+        if (!text) return null;
+        if (!((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']')))) return null;
+        try {
+          return JSON.parse(text);
+        } catch (_error) {
+          return null;
+        }
+      };
+
+      const openByKey = new Map();
+      const cameraIncidents = [];
+      for (const row of cameraRows) {
+        const normalizedType = String(row.event_type || '').replace(/_ended$/, '');
+        const key = `${row.exam_id}|${normalizedType}`;
+        const parsed = parseJsonFromText(row.window_title);
+        const durationFromEnded =
+          parsed && typeof parsed === 'object' && Number.isFinite(parsed.durationSeconds)
+            ? Number(parsed.durationSeconds)
+            : null;
+
+        if (String(row.event_type || '').endsWith('_ended')) {
+          const started = openByKey.get(key);
+          if (started) {
+            started.ended_at = row.timestamp;
+            if (durationFromEnded != null) started.duration_seconds = durationFromEnded;
+            cameraIncidents.push(started);
+            openByKey.delete(key);
+          }
+          continue;
+        }
+
+        openByKey.set(key, {
+          incident_id: row.event_id,
+          exam_id: row.exam_id,
+          exam_title: row.exam_title,
+          source: 'camera',
+          violation_type: normalizedType,
+          display_type: normalizedType === 'phone_violation' ? 'Phone' : 'Multiple Faces',
+          application_name: null,
+          started_at: row.timestamp,
+          ended_at: null,
+          duration_seconds: 0
+        });
+      }
+
+      for (const pending of openByKey.values()) {
+        cameraIncidents.push(pending);
+      }
+
+      return [...appIncidents, ...cameraIncidents].sort(
+        (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
+      );
+    } catch (error) {
+      console.error('Error getting student integrity incidents:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get app violations by student and exam
    */
   getAppViolationsByStudent(studentId, examId) {
@@ -1322,6 +1497,334 @@ class DatabaseService {
       console.error('Error getting violation stats by exam:', error);
       throw error;
     }
+  }
+
+  /**
+   * Get teacher-facing integrity review data by exam.
+   * Combines app-level violations and camera-oriented violations inferred from events.
+   */
+  getIntegrityReviewByExam(examId) {
+    try {
+      const appViolations = this.getAppViolationsByExam(examId);
+      const snapshotEnabled = this.getSystemSetting('snapshot_enabled_violations');
+      const enabledCameraTypesRaw = Array.isArray(snapshotEnabled) && snapshotEnabled.length > 0
+        ? snapshotEnabled
+        : ['phone_violation', 'multiple_persons'];
+      const enabledCameraTypes = new Set(
+        enabledCameraTypesRaw
+          .map((t) => (typeof t === 'string' ? t.trim() : ''))
+          .filter(Boolean)
+      );
+      const snapshotCooldownSecondsRaw = this.getSystemSetting('snapshot_cooldown_seconds');
+      const snapshotCooldownSeconds =
+        typeof snapshotCooldownSecondsRaw === 'number' && Number.isFinite(snapshotCooldownSecondsRaw) && snapshotCooldownSecondsRaw > 0
+          ? snapshotCooldownSecondsRaw
+          : 7;
+
+      const cameraEventRows = this.db.prepare(`
+        SELECT
+          e.event_id,
+          e.exam_id,
+          e.student_id,
+          u.full_name AS student_name,
+          u.username,
+          e.timestamp,
+          e.event_type,
+          e.window_title,
+          e.process_name
+        FROM events e
+        JOIN users u ON u.user_id = e.student_id
+        WHERE e.exam_id = ?
+          AND (
+            e.event_type IN ('phone_violation', 'multiple_persons', 'no_face_detected', 'not_facing_screen', 'not_looking_at_screen')
+            OR e.event_type IN ('phone_violation_ended', 'multiple_persons_ended', 'no_face_detected_ended', 'not_facing_screen_ended', 'not_looking_at_screen_ended')
+            OR e.event_type LIKE 'camera_%'
+          )
+        ORDER BY e.timestamp ASC
+      `).all(examId);
+
+      const extractScreenshotPath = (rawWindowTitle, rawProcessName) => {
+        const candidates = [rawWindowTitle, rawProcessName].filter((v) => typeof v === 'string' && v.trim());
+        for (const candidate of candidates) {
+          try {
+            if ((candidate.startsWith('{') && candidate.endsWith('}')) || (candidate.startsWith('[') && candidate.endsWith(']'))) {
+              const parsed = JSON.parse(candidate);
+              if (parsed && typeof parsed === 'object') {
+                const keys = ['screenshotPath', 'snapshotPath', 'path'];
+                for (const key of keys) {
+                  if (typeof parsed[key] === 'string' && parsed[key]) return parsed[key];
+                }
+              }
+            }
+          } catch (_parseError) {
+            // Fall through to regex parsing
+          }
+
+          const pathMatch = candidate.match(/[A-Za-z]:\\[^\s"']+\.(png|jpg|jpeg|webp)/i) || candidate.match(/\/[^\s"']+\.(png|jpg|jpeg|webp)/i);
+          if (pathMatch && pathMatch[0]) {
+            return pathMatch[0];
+          }
+        }
+        return null;
+      };
+
+      const parseJsonFromText = (value) => {
+        if (typeof value !== 'string') return null;
+        const text = value.trim();
+        if (!text) return null;
+        if (!((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']')))) {
+          return null;
+        }
+        try {
+          return JSON.parse(text);
+        } catch (_error) {
+          return null;
+        }
+      };
+
+      const toIsoOrNull = (value) => {
+        if (typeof value !== 'string' || !value.trim()) return null;
+        const d = new Date(value);
+        return Number.isNaN(d.getTime()) ? null : d.toISOString();
+      };
+
+      const openCameraViolations = new Map();
+      const cameraViolations = [];
+
+      for (const row of cameraEventRows) {
+        const jsonWindow = parseJsonFromText(row.window_title);
+        const jsonProcess = parseJsonFromText(row.process_name);
+        const normalizedType = String(row.event_type || '').replace(/_ended$/, '');
+        const key = `${row.student_id}|${normalizedType}`;
+
+        // Only keep camera violation types that admin has enabled (clean teacher UI).
+        // This matches snapshot capture config (e.g. phone_violation, multiple_persons).
+        if (normalizedType && !enabledCameraTypes.has(normalizedType)) {
+          // If this is an *_ended event for a type we filtered out, ensure we don't keep a dangling open entry.
+          if (String(row.event_type || '').endsWith('_ended')) {
+            openCameraViolations.delete(key);
+          }
+          continue;
+        }
+
+        const screenshotPath =
+          extractScreenshotPath(row.window_title, row.process_name) ||
+          (jsonWindow && typeof jsonWindow.screenshotPath === 'string' ? jsonWindow.screenshotPath : null) ||
+          (jsonProcess && typeof jsonProcess.screenshotPath === 'string' ? jsonProcess.screenshotPath : null);
+
+        if (String(row.event_type || '').endsWith('_ended')) {
+          const started = openCameraViolations.get(key);
+          const endedMeta = jsonWindow && typeof jsonWindow === 'object' ? jsonWindow : {};
+          const durationSecondsFromEnded =
+            Number.isFinite(endedMeta.durationSeconds) ? Number(endedMeta.durationSeconds) : null;
+          if (started) {
+            started.durationSeconds = durationSecondsFromEnded;
+            started.endedAt = row.timestamp;
+            if (!started.screenshotPath && screenshotPath) started.screenshotPath = screenshotPath;
+            cameraViolations.push(started);
+            openCameraViolations.delete(key);
+          }
+          continue;
+        }
+
+        const startMeta = jsonWindow && typeof jsonWindow === 'object' ? jsonWindow : {};
+        const startedAt = toIsoOrNull(startMeta.startedAt) || row.timestamp;
+        openCameraViolations.set(key, {
+          cameraViolationId: row.event_id,
+          examId: row.exam_id,
+          studentId: row.student_id,
+          studentName: row.student_name,
+          username: row.username,
+          violationType: normalizedType,
+          timestamp: startedAt,
+          details: row.window_title || row.process_name || '',
+          durationSeconds: null,
+          screenshotPath: screenshotPath || null
+        });
+      }
+
+      // Add still-open camera violations (no end event yet).
+      for (const pending of openCameraViolations.values()) {
+        cameraViolations.push(pending);
+      }
+
+      // De-dupe camera violations to avoid flooding the UI with repeated events.
+      // Keep at most one event per (student,type) per cooldown window; prefer entries that include a screenshot.
+      const dedupedCameraViolations = [];
+      const lastKeptByKey = new Map(); // key -> { tsMs, idx }
+      for (const v of cameraViolations) {
+        const type = String(v.violationType || '').trim();
+        const studentId = String(v.studentId || '').trim();
+        if (!type || !studentId) continue;
+        const ts = new Date(v.timestamp).getTime();
+        if (!Number.isFinite(ts)) {
+          dedupedCameraViolations.push(v);
+          continue;
+        }
+        const dk = `${studentId}|${type}`;
+        const last = lastKeptByKey.get(dk);
+        if (!last) {
+          lastKeptByKey.set(dk, { tsMs: ts, idx: dedupedCameraViolations.length });
+          dedupedCameraViolations.push(v);
+          continue;
+        }
+        const withinWindow = Math.abs(ts - last.tsMs) < snapshotCooldownSeconds * 1000;
+        if (!withinWindow) {
+          lastKeptByKey.set(dk, { tsMs: ts, idx: dedupedCameraViolations.length });
+          dedupedCameraViolations.push(v);
+          continue;
+        }
+
+        const existing = dedupedCameraViolations[last.idx];
+        const existingHasShot = !!existing?.screenshotPath;
+        const currentHasShot = !!v.screenshotPath;
+        const existingDuration = typeof existing?.durationSeconds === 'number' ? existing.durationSeconds : null;
+        const currentDuration = typeof v.durationSeconds === 'number' ? v.durationSeconds : null;
+
+        // Replace if current provides better evidence (screenshot) or longer duration.
+        const shouldReplace =
+          (!existingHasShot && currentHasShot) ||
+          (existingHasShot === currentHasShot &&
+            currentDuration != null &&
+            (existingDuration == null || currentDuration > existingDuration));
+
+        if (shouldReplace) {
+          dedupedCameraViolations[last.idx] = v;
+          lastKeptByKey.set(dk, { tsMs: ts, idx: last.idx });
+        }
+      }
+
+      const reviewRows = this.db.prepare(`
+        SELECT student_id, is_reviewed, is_suspicious, reviewed_at, notes, updated_at
+        FROM integrity_case_reviews
+        WHERE exam_id = ?
+      `).all(examId);
+      const reviewByStudent = new Map(
+        reviewRows.map((row) => [
+          row.student_id,
+          {
+            isReviewed: !!row.is_reviewed,
+            isSuspicious: !!row.is_suspicious,
+            reviewedAt: row.reviewed_at || null,
+            reviewNotes: row.notes || '',
+            reviewUpdatedAt: row.updated_at || null
+          }
+        ])
+      );
+
+      const perStudent = new Map();
+      const ensureStudent = (studentId, studentName, username) => {
+        if (!perStudent.has(studentId)) {
+          const reviewState = reviewByStudent.get(studentId) || {
+            isReviewed: false,
+            isSuspicious: false,
+            reviewedAt: null,
+            reviewNotes: '',
+            reviewUpdatedAt: null
+          };
+          perStudent.set(studentId, {
+            studentId,
+            studentName,
+            username,
+            appViolationCount: 0,
+            cameraViolationCount: 0,
+            ...reviewState
+          });
+        }
+        return perStudent.get(studentId);
+      };
+
+      for (const violation of appViolations) {
+        const row = ensureStudent(violation.studentId, violation.studentName, violation.username);
+        row.appViolationCount += 1;
+      }
+      for (const violation of dedupedCameraViolations) {
+        const row = ensureStudent(violation.studentId, violation.studentName, violation.username);
+        row.cameraViolationCount += 1;
+      }
+
+      const students = Array.from(perStudent.values())
+        .map((row) => {
+          const total = row.appViolationCount + row.cameraViolationCount;
+          let riskLevel = 'low';
+          if (total >= 8 || row.cameraViolationCount >= 4) riskLevel = 'high';
+          else if (total >= 3 || row.cameraViolationCount >= 1) riskLevel = 'medium';
+          return {
+            ...row,
+            totalViolationCount: total,
+            riskLevel
+          };
+        })
+        .sort((a, b) => {
+          if (a.isReviewed !== b.isReviewed) return a.isReviewed ? 1 : -1;
+          if (a.isSuspicious !== b.isSuspicious) return a.isSuspicious ? -1 : 1;
+          return b.totalViolationCount - a.totalViolationCount;
+        });
+
+      return {
+        students,
+        appViolations,
+        cameraViolations: dedupedCameraViolations
+      };
+    } catch (error) {
+      console.error('Error getting integrity review data by exam:', error);
+      throw error;
+    }
+  }
+
+  getIntegrityCaseReview(examId, studentId) {
+    return this.db.prepare(`
+      SELECT review_id, exam_id, student_id, teacher_id, is_reviewed, is_suspicious, reviewed_at, notes, updated_at
+      FROM integrity_case_reviews
+      WHERE exam_id = ? AND student_id = ?
+      LIMIT 1
+    `).get(examId, studentId);
+  }
+
+  upsertIntegrityCaseReview({ examId, studentId, teacherId, isReviewed, isSuspicious, notes }) {
+    const existing = this.getIntegrityCaseReview(examId, studentId);
+    const resolvedReviewed = typeof isReviewed === 'boolean' ? isReviewed : !!existing?.is_reviewed;
+    const resolvedSuspicious = typeof isSuspicious === 'boolean' ? isSuspicious : !!existing?.is_suspicious;
+    const resolvedNotes = notes != null ? String(notes) : (existing?.notes || null);
+    const reviewedAt = resolvedReviewed ? new Date().toISOString() : null;
+
+    if (!existing) {
+      this.db.prepare(`
+        INSERT INTO integrity_case_reviews (
+          review_id, exam_id, student_id, teacher_id, is_reviewed, is_suspicious, reviewed_at, notes, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).run(
+        uuidv4(),
+        examId,
+        studentId,
+        teacherId,
+        resolvedReviewed ? 1 : 0,
+        resolvedSuspicious ? 1 : 0,
+        reviewedAt,
+        resolvedNotes
+      );
+    } else {
+      this.db.prepare(`
+        UPDATE integrity_case_reviews
+        SET teacher_id = ?,
+            is_reviewed = ?,
+            is_suspicious = ?,
+            reviewed_at = ?,
+            notes = ?,
+            updated_at = datetime('now')
+        WHERE exam_id = ? AND student_id = ?
+      `).run(
+        teacherId,
+        resolvedReviewed ? 1 : 0,
+        resolvedSuspicious ? 1 : 0,
+        reviewedAt,
+        resolvedNotes,
+        examId,
+        studentId
+      );
+    }
+
+    return this.getIntegrityCaseReview(examId, studentId);
   }
 
   /**
@@ -1934,6 +2437,19 @@ class DatabaseService {
     return result.changes > 0;
   }
 
+  getQuestionDependencyStats(questionId) {
+    const testCaseCount = this.db
+      .prepare('SELECT COUNT(*) AS count FROM question_test_cases WHERE question_id = ?')
+      .get(questionId);
+    const evaluationCount = this.db
+      .prepare('SELECT COUNT(*) AS count FROM code_evaluations WHERE question_id = ?')
+      .get(questionId);
+    return {
+      testCaseCount: Number(testCaseCount?.count || 0),
+      evaluationCount: Number(evaluationCount?.count || 0)
+    };
+  }
+
   _rowToExamQuestion(row) {
     return {
       question_id: row.question_id,
@@ -2026,6 +2542,15 @@ class DatabaseService {
   deleteQuestionTestCase(testCaseId) {
     const result = this.db.prepare('DELETE FROM question_test_cases WHERE test_case_id = ?').run(testCaseId);
     return result.changes > 0;
+  }
+
+  getTestCaseDependencyStats(testCaseId) {
+    const evalResultCount = this.db
+      .prepare('SELECT COUNT(*) AS count FROM test_case_results WHERE test_case_id = ?')
+      .get(testCaseId);
+    return {
+      evalResultCount: Number(evalResultCount?.count || 0)
+    };
   }
 
   _rowToQuestionTestCase(row) {
@@ -2336,10 +2861,6 @@ class DatabaseService {
       required_concepts: Array.isArray(c.required_concepts)
         ? c.required_concepts.filter((item) => typeof item === 'string' && item.trim())
         : [],
-      concept_threshold:
-        typeof c.concept_threshold === 'number' && Number.isFinite(c.concept_threshold)
-          ? c.concept_threshold
-          : 99,
       requirements_mode:
         c.requirements_mode === 'manual' || c.requirements_mode === 'auto'
           ? c.requirements_mode

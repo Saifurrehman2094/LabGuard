@@ -1,5 +1,10 @@
 .App {
-  text-align: center;
+  min-height: 100vh;
+  color: #0f172a;
+}
+
+.App.app-role-student {
+  background: #f8fafc;
 }
 
 .App-header {

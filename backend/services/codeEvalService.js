@@ -1,9 +1,9 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
 const CodeAnalysisService = require('./codeAnalysisService');
+const SandboxRunner = require('./sandboxRunner');
 
 class CodeEvalService {
   /**
@@ -23,6 +23,16 @@ class CodeEvalService {
     this.maxOutputBytes = options.maxOutputBytes || 256 * 1024;
     this.compiler = options.compiler || 'g++';
     this.analysisService = options.analysisService || new CodeAnalysisService();
+    this.sandboxRunner = options.sandboxRunner || new SandboxRunner({
+      maxOutputBytes: this.maxOutputBytes,
+      defaultTimeoutMs: this.defaultTimeoutMs,
+      defaultMemoryMb: Number(options.sandboxMemoryMb) || 256,
+      defaultCpuSeconds: Number(options.sandboxCpuSeconds) || 5
+    });
+    this.maxTestcaseTimeoutMs = Number(options.maxTestcaseTimeoutMs) || 15000;
+    this.minTestcaseTimeoutMs = Number(options.minTestcaseTimeoutMs) || 200;
+    this.maxTestcaseMemoryKb = Number(options.maxTestcaseMemoryKb) || (512 * 1024);
+    this.minTestcaseMemoryKb = Number(options.minTestcaseMemoryKb) || (32 * 1024);
   }
 
   /**
@@ -46,39 +56,39 @@ class CodeEvalService {
       crypto.randomBytes(4).toString('hex')
     );
     fs.mkdirSync(baseDir, { recursive: true });
+    try {
+      const submission = this.db.getExamSubmissionById
+        ? this.db.getExamSubmissionById(submissionId)
+        : this._getExamSubmissionFallback(submissionId);
+      if (!submission) {
+        throw new Error('Submission not found');
+      }
 
-    const submission = this.db.getExamSubmissionById
-      ? this.db.getExamSubmissionById(submissionId)
-      : this._getExamSubmissionFallback(submissionId);
-    if (!submission) {
-      throw new Error('Submission not found');
-    }
-
-    const filesData = safeParseJson(submission.files_data) || [];
+      const filesData = safeParseJson(submission.files_data) || [];
 
     // Students submit via frontend: sometimes we only get { name, size, type }
     // and we (later) need { content } for compilation. Support both shapes.
-    const cppFile = filesData.find((f) => {
-      const name = (f && typeof f.name === 'string') ? f.name : null;
-      const p = (f && typeof f.path === 'string') ? f.path : null;
-      const fileName = (f && typeof f.fileName === 'string') ? f.fileName : null;
-      const target = name || p || fileName || '';
-      const lower = typeof target === 'string' ? target.toLowerCase() : '';
-      return lower.endsWith('.cpp') || lower.endsWith('.ccp');
-    });
+      const cppFile = filesData.find((f) => {
+        const name = (f && typeof f.name === 'string') ? f.name : null;
+        const p = (f && typeof f.path === 'string') ? f.path : null;
+        const fileName = (f && typeof f.fileName === 'string') ? f.fileName : null;
+        const target = name || p || fileName || '';
+        const lower = typeof target === 'string' ? target.toLowerCase() : '';
+        return lower.endsWith('.cpp') || lower.endsWith('.cc');
+      });
 
-    const cppSource = cppFile && (cppFile.content ?? cppFile.source ?? cppFile.data ?? null);
+      const cppSource = cppFile && (cppFile.content ?? cppFile.source ?? cppFile.data ?? null);
 
     // Create evaluation row early, so UI can display failure even if submission is invalid.
-    const evaluation = this.db.insertCodeEvaluation({
-      submission_id: submissionId,
-      question_id: questionId,
-      score: 0,
-      max_score: 0,
-      status: 'pending'
-    });
+      const evaluation = this.db.insertCodeEvaluation({
+        submission_id: submissionId,
+        question_id: questionId,
+        score: 0,
+        max_score: 0,
+        status: 'pending'
+      });
 
-    if (!cppFile || !cppSource) {
+      if (!cppFile || !cppSource) {
       const fileHints = filesData
         .map((f) => {
           if (!f) return null;
@@ -94,7 +104,7 @@ class CodeEvalService {
         (f) => f && typeof f.content === 'string' && f.content.trim().length > 0
       );
 
-      const msg = `No C++ source file (.cpp/.ccp) found in submission (missing name/content). Files: [${fileHints || 'none'}], hasContent: ${hasContent}`;
+      const msg = `No C++ source file (.cpp/.cc) found in submission (missing name/content). Files: [${fileHints || 'none'}], hasContent: ${hasContent}`;
 
       console.error('[CodeEvalService] ' + msg);
       this.db.updateCodeEvaluation(evaluation.evaluation_id, {
@@ -105,72 +115,73 @@ class CodeEvalService {
         error_summary: msg
       });
 
-      return {
-        evaluation: this.db.getCodeEvaluationById(evaluation.evaluation_id),
-        results: []
-      };
-    }
+        return {
+          evaluation: this.db.getCodeEvaluationById(evaluation.evaluation_id),
+          results: []
+        };
+      }
 
-    const mainCppPath = path.join(baseDir, 'main.cpp');
-    fs.writeFileSync(mainCppPath, String(cppSource), 'utf8');
+      const mainCppPath = path.join(baseDir, 'main.cpp');
+      fs.writeFileSync(mainCppPath, String(cppSource), 'utf8');
 
-    let compileResult;
-    try {
-      compileResult = await this._compile(mainCppPath, baseDir);
-    } catch (err) {
+      let compileResult;
+      try {
+        compileResult = await this._compile(mainCppPath, baseDir);
+      } catch (err) {
+        this.db.updateCodeEvaluation(evaluation.evaluation_id, {
+          status: 'failed_compile',
+          compile_exit_code: err.exitCode ?? null,
+          compile_stdout: err.stdout || '',
+          compile_stderr: err.stderr || String(err.message || err)
+        });
+        const failedEval = this.db.getCodeEvaluationById(evaluation.evaluation_id);
+        return {
+          evaluation: failedEval,
+          results: []
+        };
+      }
+
       this.db.updateCodeEvaluation(evaluation.evaluation_id, {
-        status: 'failed_compile',
-        compile_exit_code: err.exitCode ?? null,
-        compile_stdout: err.stdout || '',
-        compile_stderr: err.stderr || String(err.message || err)
+        status: 'compiled',
+        compile_exit_code: compileResult.exitCode,
+        compile_stdout: compileResult.stdout,
+        compile_stderr: compileResult.stderr
       });
-      const failedEval = this.db.getCodeEvaluationById(evaluation.evaluation_id);
-      return {
-        evaluation: failedEval,
-        results: []
-      };
-    }
 
-    this.db.updateCodeEvaluation(evaluation.evaluation_id, {
-      status: 'compiled',
-      compile_exit_code: compileResult.exitCode,
-      compile_stdout: compileResult.stdout,
-      compile_stderr: compileResult.stderr
-    });
+      const testCases = this.db.getQuestionTestCasesByQuestionId(questionId);
+      if (!testCases.length) {
+        this.db.updateCodeEvaluation(evaluation.evaluation_id, {
+          status: 'completed',
+          score: 0,
+          max_score: 0
+        });
+        const evalRow = this.db.getCodeEvaluationById(evaluation.evaluation_id);
+        return {
+          evaluation: evalRow,
+          results: []
+        };
+      }
 
-    const testCases = this.db.getQuestionTestCasesByQuestionId(questionId);
-    if (!testCases.length) {
-      const evalNoTests = this.db.updateCodeEvaluation(evaluation.evaluation_id, {
-        status: 'completed',
-        score: 0,
-        max_score: 0
-      });
-      const evalRow = this.db.getCodeEvaluationById(evaluation.evaluation_id);
-      return {
-        evaluation: evalRow,
-        results: []
-      };
-    }
+      const exePath = compileResult.exePath;
+      let totalScore = 0;
+      let maxScore = 0;
+      const results = [];
+      let aborted = false;
+      const categoryStats = {};
+      const failedExamples = [];
+      const runtimeSamples = [];
+      let timeoutCount = 0;
+      const compareOptions = this._buildCompareOptions(questionId, testCases);
 
-    const exePath = compileResult.exePath;
-    let totalScore = 0;
-    let maxScore = 0;
-    const results = [];
-    let aborted = false;
-    const categoryStats = {};
-    const failedExamples = [];
-    const runtimeSamples = [];
-    let timeoutCount = 0;
-    const compareOptions = this._buildCompareOptions(questionId, testCases);
-
-    for (const tc of testCases) {
+      for (const tc of testCases) {
       if (aborted) break;
       const weight = typeof tc.weight === 'number' ? tc.weight : 1.0;
       maxScore += weight;
 
-      const runTimeoutMs = tc.time_limit_ms || this.defaultTimeoutMs;
-      const input = tc.input || '';
-      const expected = (tc.expected_output || '').replace(/\r\n/g, '\n').trimEnd();
+        const runTimeoutMs = this._normalizeTimeoutMs(tc.time_limit_ms);
+        const runMemoryMb = this._memoryLimitToMb(tc.memory_limit_kb);
+        const input = this._normalizeMultiline(tc.input || '');
+        const expected = this._normalizeMultiline(tc.expected_output || '').trimEnd();
       const category = this._getTestCaseCategory(tc);
       if (!categoryStats[category]) {
         categoryStats[category] = { passed: 0, total: 0 };
@@ -178,8 +189,8 @@ class CodeEvalService {
       categoryStats[category].total += 1;
 
       try {
-        const runRes = await this._runProgram(exePath, input, runTimeoutMs);
-        const normalizedStdout = (runRes.stdout || '').replace(/\r\n/g, '\n').trimEnd();
+          const runRes = await this._runProgram(exePath, input, runTimeoutMs, runMemoryMb);
+        const normalizedStdout = this._normalizeMultiline(runRes.stdout || '').trimEnd();
         const compareResult = this._compareOutput(normalizedStdout, expected, compareOptions);
         const passed = runRes.exitCode === 0 && compareResult.passed;
 
@@ -202,7 +213,7 @@ class CodeEvalService {
           test_case_id: tc.test_case_id,
           passed,
           execution_time_ms: runRes.durationMs,
-          memory_kb: null,
+          memory_kb: tc.memory_limit_kb ?? null,
           exit_code: runRes.exitCode,
           stdout: runRes.stdout,
           stderr: runRes.stderr
@@ -215,7 +226,7 @@ class CodeEvalService {
           test_case_id: tc.test_case_id,
           passed: false,
           execution_time_ms: err.durationMs || runTimeoutMs,
-          memory_kb: null,
+          memory_kb: tc.memory_limit_kb ?? null,
           exit_code: null,
           stdout: err.stdout || '',
           stderr: err.stderr || (isTimeout ? 'TIMEOUT' : String(err.message || err))
@@ -229,46 +240,49 @@ class CodeEvalService {
       }
     }
 
-    const status =
+      const status =
       aborted && totalScore > 0
         ? 'partial'
         : aborted
         ? 'partial'
         : 'completed';
 
-    const requirementOptions = this._extractRequirementOptions(questionId, testCases);
-    const staticAnalysis = this.analysisService.analyzeCppSource(cppSource, requirementOptions);
-    const variantAnalysis = this._runVariantChecks(testCases, exePath);
-    const hardcodingFlags = this._buildHardcodingFlags(staticAnalysis, categoryStats, variantAnalysis);
-    const analysisBreakdown = this._buildAnalysisBreakdown({
-      score: totalScore,
-      maxScore,
-      categoryStats,
-      timeoutCount,
-      runtimeSamples,
-      failedExamples,
-      staticAnalysis,
-      variantAnalysis,
-      status
-    });
+      const requirementOptions = this._extractRequirementOptions(questionId, testCases);
+      const staticAnalysis = this.analysisService.analyzeCppSource(cppSource, requirementOptions);
+      const variantAnalysis = this._runVariantChecks(testCases, exePath);
+      const hardcodingFlags = this._buildHardcodingFlags(staticAnalysis, categoryStats, variantAnalysis);
+      const analysisBreakdown = this._buildAnalysisBreakdown({
+        score: totalScore,
+        maxScore,
+        categoryStats,
+        timeoutCount,
+        runtimeSamples,
+        failedExamples,
+        staticAnalysis,
+        variantAnalysis,
+        status
+      });
 
-    this.db.updateCodeEvaluation(evaluation.evaluation_id, {
-      status,
-      score: totalScore,
-      max_score: maxScore,
-      analysis_breakdown_json: analysisBreakdown,
-      requirement_checks_json: staticAnalysis,
-      hardcoding_flags_json: hardcodingFlags,
-      ai_summary_text: null,
-      ai_summary_confidence: null,
-      ai_summary_updated_at: null
-    });
+      this.db.updateCodeEvaluation(evaluation.evaluation_id, {
+        status,
+        score: totalScore,
+        max_score: maxScore,
+        analysis_breakdown_json: analysisBreakdown,
+        requirement_checks_json: staticAnalysis,
+        hardcoding_flags_json: hardcodingFlags,
+        ai_summary_text: null,
+        ai_summary_confidence: null,
+        ai_summary_updated_at: null
+      });
 
-    const finalEval = this.db.getCodeEvaluationById(evaluation.evaluation_id);
-    return {
-      evaluation: finalEval,
-      results
-    };
+      const finalEval = this.db.getCodeEvaluationById(evaluation.evaluation_id);
+      return {
+        evaluation: finalEval,
+        results
+      };
+    } finally {
+      this._cleanupWorkdir(baseDir);
+    }
   }
 
   _getExamSubmissionFallback(submissionId) {
@@ -278,128 +292,55 @@ class CodeEvalService {
     return row || null;
   }
 
-  _compile(sourcePath, baseDir) {
-    return new Promise((resolve, reject) => {
-      const exeName = os.platform() === 'win32' ? 'main.exe' : 'main';
-      const exePath = path.join(baseDir, exeName);
-
-      const args = ['-std=c++17', sourcePath, '-o', exePath];
-      const child = spawn(this.compiler, args, {
-        cwd: baseDir,
-        stdio: ['ignore', 'pipe', 'pipe']
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-        if (Buffer.byteLength(stdout, 'utf8') > this.maxOutputBytes) {
-          stdout = stdout.slice(-this.maxOutputBytes);
-        }
-      });
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-        if (Buffer.byteLength(stderr, 'utf8') > this.maxOutputBytes) {
-          stderr = stderr.slice(-this.maxOutputBytes);
-        }
-      });
-
-      child.on('error', (err) => {
-        reject(err);
-      });
-
-      child.on('close', (code) => {
-        if (code !== 0) {
-          const error = new Error('Compile failed');
-          error.exitCode = code;
-          error.stdout = stdout;
-          error.stderr = stderr;
-          return reject(error);
-        }
-        resolve({
-          exitCode: code,
-          stdout,
-          stderr,
-          exePath
-        });
-      });
+  async _compile(sourcePath, baseDir) {
+    const exeName = os.platform() === 'win32' ? 'main.exe' : 'main';
+    const exePath = path.join(baseDir, exeName);
+    const args = ['-std=c++17', sourcePath, '-o', exePath];
+    const result = await this.sandboxRunner.runCommand({
+      command: this.compiler,
+      args,
+      cwd: baseDir,
+      timeoutMs: Math.max(this.defaultTimeoutMs * 3, 8000),
+      memoryMb: 512,
+      cpuSeconds: 15
     });
+    if (result.exitCode !== 0) {
+      const error = new Error('Compile failed');
+      error.exitCode = result.exitCode;
+      error.stdout = result.stdout || '';
+      error.stderr = result.stderr || '';
+      throw error;
+    }
+    return {
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exePath
+    };
   }
 
-  _runProgram(exePath, input, timeoutMs) {
-    return new Promise((resolve, reject) => {
-      const start = Date.now();
-
-      const child = spawn(exePath, [], {
-        stdio: ['pipe', 'pipe', 'pipe']
+  _runProgram(exePath, input, timeoutMs, memoryMb) {
+    const start = Date.now();
+    return this.sandboxRunner
+      .runCommand({
+        command: exePath,
+        args: [],
+        cwd: path.dirname(exePath),
+        stdin: input || '',
+        timeoutMs,
+        memoryMb,
+        cpuSeconds: Math.max(1, Math.ceil(timeoutMs / 1000))
+      })
+      .then((res) => ({
+        exitCode: res.exitCode,
+        stdout: res.stdout,
+        stderr: res.stderr,
+        durationMs: Date.now() - start
+      }))
+      .catch((err) => {
+        err.durationMs = err.durationMs || Date.now() - start;
+        throw err;
       });
-
-      let stdout = '';
-      let stderr = '';
-      let finished = false;
-
-      const killChild = () => {
-        if (!finished) {
-          finished = true;
-          try {
-            child.kill('SIGKILL');
-          } catch (e) {
-            // ignore
-          }
-        }
-      };
-
-      const timeout = setTimeout(() => {
-        killChild();
-        const durationMs = Date.now() - start;
-        const err = new Error('Execution timed out');
-        err.code = 'TIMEOUT';
-        err.durationMs = durationMs;
-        err.stdout = stdout;
-        err.stderr = stderr;
-        reject(err);
-      }, timeoutMs);
-
-      if (input) {
-        child.stdin.write(input);
-      }
-      child.stdin.end();
-
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-        if (Buffer.byteLength(stdout, 'utf8') > this.maxOutputBytes) {
-          stdout = stdout.slice(-this.maxOutputBytes);
-        }
-      });
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-        if (Buffer.byteLength(stderr, 'utf8') > this.maxOutputBytes) {
-          stderr = stderr.slice(-this.maxOutputBytes);
-        }
-      });
-
-      child.on('error', (err) => {
-        clearTimeout(timeout);
-        if (!finished) {
-          finished = true;
-          reject(err);
-        }
-      });
-
-      child.on('close', (code) => {
-        clearTimeout(timeout);
-        if (finished) return;
-        finished = true;
-        const durationMs = Date.now() - start;
-        resolve({
-          exitCode: code,
-          stdout,
-          stderr,
-          durationMs
-        });
-      });
-    });
   }
 
   _getTestCaseCategory(testCase) {
@@ -433,7 +374,7 @@ class CodeEvalService {
   }
 
   _compareOutput(actual, expected, options) {
-    const normalize = (v) => String(v || '').replace(/\r\n/g, '\n').trimEnd();
+    const normalize = (v) => this._normalizeMultiline(v).trimEnd();
     const a = normalize(actual);
     const e = normalize(expected);
     if (a === e) return { passed: true, reason: 'exact_match' };
@@ -489,6 +430,13 @@ class CodeEvalService {
       }
     }
     return {
+      required_concepts: Array.isArray(fromMeta.required_concepts)
+        ? fromMeta.required_concepts
+        : Array.isArray(fromQuestionConstraints.required_concepts)
+        ? fromQuestionConstraints.required_concepts
+        : Array.isArray(fromQuestionLegacy.required_concepts)
+        ? fromQuestionLegacy.required_concepts
+        : [],
       required_loop: Boolean(fromMeta.required_loop || fromQuestionConstraints.required_loop || fromQuestionLegacy.required_loop),
       required_recursion: Boolean(
         fromMeta.required_recursion ||
@@ -510,7 +458,15 @@ class CodeEvalService {
           ? fromQuestionConstraints.expected_complexity
           : typeof fromQuestionLegacy.expected_complexity === 'string'
           ? fromQuestionLegacy.expected_complexity
-          : null
+          : null,
+      requirements_mode:
+        fromMeta.requirements_mode === 'manual' || fromMeta.requirements_mode === 'auto'
+          ? fromMeta.requirements_mode
+          : fromQuestionConstraints.requirements_mode === 'manual' || fromQuestionConstraints.requirements_mode === 'auto'
+          ? fromQuestionConstraints.requirements_mode
+          : fromQuestionLegacy.requirements_mode === 'manual' || fromQuestionLegacy.requirements_mode === 'auto'
+          ? fromQuestionLegacy.requirements_mode
+          : 'auto'
     };
   }
 
@@ -601,6 +557,40 @@ class CodeEvalService {
       requirement_summary: staticAnalysis ? staticAnalysis.unmet_requirements : [],
       variant_summary: variantAnalysis
     };
+  }
+
+  _normalizeTimeoutMs(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return this.defaultTimeoutMs;
+    return Math.min(this.maxTestcaseTimeoutMs, Math.max(this.minTestcaseTimeoutMs, Math.floor(numeric)));
+  }
+
+  _memoryLimitToMb(memoryLimitKb) {
+    const numericKb = Number(memoryLimitKb);
+    const boundedKb = Number.isFinite(numericKb)
+      ? Math.min(this.maxTestcaseMemoryKb, Math.max(this.minTestcaseMemoryKb, Math.floor(numericKb)))
+      : 256 * 1024;
+    return Math.max(32, Math.floor(boundedKb / 1024));
+  }
+
+  _cleanupWorkdir(baseDir) {
+    try {
+      if (baseDir && fs.existsSync(baseDir)) {
+        fs.rmSync(baseDir, { recursive: true, force: true });
+      }
+    } catch (err) {
+      console.warn('[CodeEvalService] cleanup failed:', err && err.message ? err.message : err);
+    }
+  }
+
+  _normalizeMultiline(value) {
+    let text = String(value == null ? '' : value);
+    text = text.replace(/\r\n/g, '\n');
+    text = text.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+    if (text.includes('/n') && !text.includes('\\n')) {
+      text = text.replace(/\/n/g, '\n');
+    }
+    return text;
   }
 
   getAnalysisCapabilities() {

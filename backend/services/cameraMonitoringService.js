@@ -69,6 +69,7 @@ class CameraMonitoringService extends EventEmitter {
    * @param {boolean} options.debug - Enable debug logging
    * @param {string} options.studentName - Student name for snapshot naming
    * @param {string[]} options.snapshotViolations - List of violations that trigger snapshots
+   * @param {number} options.snapshotCooldownSeconds - Cooldown for snapshots per violation type
    * @returns {Object} Result object with success status, pid, and args
    */
   startMonitoring(options = {}) {
@@ -105,6 +106,9 @@ class CameraMonitoringService extends EventEmitter {
       // Add snapshot violations configuration
       if (options.snapshotViolations && options.snapshotViolations.length > 0) {
         args.push('--snapshot-violations', options.snapshotViolations.join(','));
+      }
+      if (Number.isFinite(options.snapshotCooldownSeconds) && options.snapshotCooldownSeconds > 0) {
+        args.push('--snapshot-cooldown-seconds', String(Math.floor(options.snapshotCooldownSeconds)));
       }
 
       console.log('[CameraMonitoringService] Starting Python process:', {

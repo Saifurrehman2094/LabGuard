@@ -293,7 +293,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             </svg>
           </div>
           <h1>LAB-Guard</h1>
-          <p>Exam Monitoring System</p>
+          <p className="login-subtitle">Secure exam workspace for enrolled students</p>
           {deviceId && (
             <div className="device-info">
               <small>Device ID: {deviceId.substring(0, 8)}...</small>
@@ -364,6 +364,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               </>
             ) : (
               'Login'
+              
             )}
           </button>
 

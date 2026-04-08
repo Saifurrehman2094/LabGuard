@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import ExamCreationForm from './ExamCreationForm';
 import ExamList from './ExamList';
 import ViolationReport from './ViolationReport';
 import CodeEvaluationTab from './CodeEvaluationTab';
-import AnalyticsDashboard from './AnalyticsDashboard';
-import StudentsHub from './StudentsHub';
+import CodeQuestionsTab from './CodeQuestionsTab';
 import WebStorageService from '../services/webStorage';
 import './TeacherDashboard.css';
 
@@ -35,11 +34,65 @@ interface TeacherDashboardProps {
 }
 
 const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'create' | 'manage' | 'monitoring' | 'codeEval' | 'analytics' | 'students'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'exams' | 'testCaseStudio' | 'submissions' | 'integrity'>('overview');
   const [exams, setExams] = useState<Exam[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedExamForMonitoring, setSelectedExamForMonitoring] = useState<string>('');
+  const [selectedExamId, setSelectedExamId] = useState<string>('');
+  const [showCreateExamForm, setShowCreateExamForm] = useState(false);
+  const [pendingEvaluations, setPendingEvaluations] = useState(0);
+  const [flaggedIntegrityCases, setFlaggedIntegrityCases] = useState(0);
+  const [recentSubmissions, setRecentSubmissions] = useState<any[]>([]);
+  const [recentFlaggedEvents, setRecentFlaggedEvents] = useState<any[]>([]);
+  const loadTeacherOverviewMetrics = useCallback(async () => {
+    if (!isElectron() || !selectedExamId) {
+      setPendingEvaluations(0);
+      setFlaggedIntegrityCases(0);
+      setRecentSubmissions([]);
+      setRecentFlaggedEvents([]);
+      return;
+    }
+
+    try {
+      const [evaluationsRes, integrityRes, recentSubmissionsRes, recentEventsRes] = await Promise.all([
+        (window as any).electronAPI.getEvaluationsByExam(selectedExamId),
+        (window as any).electronAPI.getIntegrityReviewData?.(selectedExamId),
+        (window as any).electronAPI.getDashboardSubmissionsRecent?.(selectedExamId),
+        (window as any).electronAPI.getDashboardEventsRecent?.(selectedExamId)
+      ]);
+
+      const evaluationRows = evaluationsRes?.success ? evaluationsRes.data || [] : [];
+      const pendingCount = evaluationRows.filter((row: any) => {
+        if (row?.aggregates?.is_pending === true) return true;
+        const pendingQuestions = Number(row?.aggregates?.pending_questions ?? 0);
+        if (pendingQuestions > 0) return true;
+        const status = String(row?.aggregates?.last_status || '').toLowerCase();
+        return !status || status === 'not_evaluated' || status === 'pending' || status === 'partial';
+      }).length;
+      setPendingEvaluations(pendingCount);
+
+      const studentsWithIncidents = integrityRes?.success ? (integrityRes.students || []) : [];
+      const flaggedCount = studentsWithIncidents.filter((s: any) => !s?.isReviewed).length;
+      setFlaggedIntegrityCases(flaggedCount);
+
+      const recentSubs = recentSubmissionsRes?.success
+        ? (recentSubmissionsRes.submissions || recentSubmissionsRes.data || []).slice(0, 5)
+        : [];
+      const recentEvents = recentEventsRes?.success
+        ? (recentEventsRes.events || recentEventsRes.data || []).slice(0, 5)
+        : [];
+
+      setRecentSubmissions(recentSubs);
+      setRecentFlaggedEvents(recentEvents);
+    } catch (metricsError) {
+      console.warn('Failed loading teacher overview metrics:', metricsError);
+      setPendingEvaluations(0);
+      setFlaggedIntegrityCases(0);
+      setRecentSubmissions([]);
+      setRecentFlaggedEvents([]);
+    }
+  }, [selectedExamId]);
+
 
   // Check if running in Electron
   const isElectron = () => {
@@ -82,10 +135,40 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
     loadExams();
   }, [user.userId]);
 
+  useEffect(() => {
+    if (!selectedExamId && exams.length > 0) {
+      setSelectedExamId(exams[0].examId);
+    }
+  }, [exams, selectedExamId]);
+
+  useEffect(() => {
+    loadTeacherOverviewMetrics();
+  }, [loadTeacherOverviewMetrics]);
+
+  useEffect(() => {
+    if (!isElectron() || !(window as any).electronAPI?.onDashboardUpdated) return;
+    const unsubscribe = (window as any).electronAPI.onDashboardUpdated(() => {
+      loadTeacherOverviewMetrics();
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [loadTeacherOverviewMetrics]);
+
+  useEffect(() => {
+    if (!isElectron() || !selectedExamId) return;
+    const intervalId = window.setInterval(() => {
+      loadTeacherOverviewMetrics();
+    }, 10000);
+    return () => window.clearInterval(intervalId);
+  }, [selectedExamId, loadTeacherOverviewMetrics]);
+
   // Handle exam creation success
   const handleExamCreated = (newExam: Exam) => {
     setExams(prev => [newExam, ...prev]);
-    setActiveTab('manage');
+    setSelectedExamId(newExam.examId);
+    setActiveTab('exams');
+    setShowCreateExamForm(false);
   };
 
   // Handle exam update
@@ -98,6 +181,9 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
   // Handle exam deletion
   const handleExamDeleted = (examId: string) => {
     setExams(prev => prev.filter(exam => exam.examId !== examId));
+    if (selectedExamId === examId) {
+      setSelectedExamId('');
+    }
   };
 
   // Get exam statistics
@@ -113,15 +199,17 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
   };
 
   const stats = getExamStats();
+  const selectedExam = exams.find(exam => exam.examId === selectedExamId);
+  const completedExams = exams.filter(exam => new Date(exam.endTime) <= new Date());
+  const formatDateTime = (value: string) => new Date(value).toLocaleString();
 
   return (
     <div className="teacher-dashboard">
-      {/* Header */}
       <div className="dashboard-header">
         <div className="header-content">
           <div className="user-info">
             <h1>Teacher Dashboard</h1>
-            <p>Welcome back, {user.fullName}</p>
+            <p>Welcome back, {user.fullName}. Focus on grading and integrity review.</p>
           </div>
           <button onClick={onLogout} className="logout-btn">
             Logout
@@ -129,7 +217,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
         </div>
       </div>
 
-      {/* Navigation Tabs */}
       <div className="dashboard-nav">
         <button
           className={`nav-tab ${activeTab === 'overview' ? 'active' : ''}`}
@@ -138,57 +225,59 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
           Overview
         </button>
         <button
-          className={`nav-tab ${activeTab === 'create' ? 'active' : ''}`}
-          onClick={() => setActiveTab('create')}
+          className={`nav-tab ${activeTab === 'exams' ? 'active' : ''}`}
+          onClick={() => setActiveTab('exams')}
         >
-          Create Exam
+          Exams
         </button>
         <button
-          className={`nav-tab ${activeTab === 'manage' ? 'active' : ''}`}
-          onClick={() => setActiveTab('manage')}
+          className={`nav-tab ${activeTab === 'testCaseStudio' ? 'active' : ''}`}
+          onClick={() => setActiveTab('testCaseStudio')}
         >
-          Manage Exams
+          Test Case Studio
         </button>
         <button
-          className={`nav-tab ${activeTab === 'monitoring' ? 'active' : ''}`}
-          onClick={() => setActiveTab('monitoring')}
+          className={`nav-tab ${activeTab === 'submissions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('submissions')}
         >
-          Monitoring Reports
+          Submissions & Evaluation
         </button>
         <button
-          className={`nav-tab ${activeTab === 'codeEval' ? 'active' : ''}`}
-          onClick={() => setActiveTab('codeEval')}
+          className={`nav-tab ${activeTab === 'integrity' ? 'active' : ''}`}
+          onClick={() => setActiveTab('integrity')}
         >
-          Code Evaluation
-        </button>
-        <button
-          className={`nav-tab ${activeTab === 'analytics' ? 'active' : ''}`}
-          onClick={() => setActiveTab('analytics')}
-        >
-          Analytics
-        </button>
-        <button
-          className={`nav-tab ${activeTab === 'students' ? 'active' : ''}`}
-          onClick={() => setActiveTab('students')}
-        >
-          Students
+          Integrity Review
         </button>
       </div>
 
-      {activeTab === 'analytics' && (
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <AnalyticsDashboard user={{ userId: user.userId, role: user.role, fullName: user.fullName }} />
+      <div className="teacher-context-bar">
+        <label htmlFor="teacher-exam-select">Exam</label>
+        <select
+          id="teacher-exam-select"
+          value={selectedExamId}
+          onChange={(e) => setSelectedExamId(e.target.value)}
+        >
+          <option value="">Select an exam</option>
+          {exams.map((exam) => (
+            <option key={exam.examId} value={exam.examId}>
+              {exam.title} ({new Date(exam.startTime).toLocaleDateString()})
+            </option>
+          ))}
+        </select>
+        <div className="teacher-context-actions">
+          <button type="button" className="mini-btn" onClick={() => setActiveTab('exams')}>
+            Create exam
+          </button>
+          <button type="button" className="mini-btn" onClick={() => setActiveTab('submissions')}>
+            Continue grading
+          </button>
+          <button type="button" className="mini-btn danger" onClick={() => setActiveTab('integrity')}>
+            Review flagged cases
+          </button>
         </div>
-      )}
+      </div>
 
-      {activeTab === 'students' && (
-        <div className="dashboard-content">
-          <StudentsHub teacherId={user.userId} exams={exams} />
-        </div>
-      )}
-
-      {/* Content Area */}
-      <div className="dashboard-content" style={{ display: activeTab === 'analytics' || activeTab === 'students' ? 'none' : undefined }}>
+      <div className="dashboard-content">
         {activeTab === 'overview' && (
           <div className="overview-tab">
             <div className="stats-grid">
@@ -197,75 +286,75 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
                 <div className="stat-number">{stats.total}</div>
               </div>
               <div className="stat-card">
-                <h3>Upcoming</h3>
-                <div className="stat-number">{stats.upcoming}</div>
-              </div>
-              <div className="stat-card">
-                <h3>Active</h3>
+                <h3>Active Exams</h3>
                 <div className="stat-number">{stats.active}</div>
               </div>
               <div className="stat-card">
-                <h3>Completed</h3>
-                <div className="stat-number">{stats.completed}</div>
+                <h3>Pending Evaluations</h3>
+                <div className="stat-number">{pendingEvaluations}</div>
+              </div>
+              <div className="stat-card">
+                <h3>Flagged Integrity Cases</h3>
+                <div className="stat-number">{flaggedIntegrityCases}</div>
               </div>
             </div>
 
-            <div className="recent-exams">
-              <h2>Recent Exams</h2>
-              {isLoading ? (
-                <div className="loading">Loading exams...</div>
-              ) : error ? (
-                <div className="error-message">
-                  {error}
-                  <button onClick={loadExams} className="retry-btn">Retry</button>
-                </div>
-              ) : exams.length === 0 ? (
-                <div className="empty-state">
-                  <p>No exams created yet.</p>
-                  <button
-                    onClick={() => setActiveTab('create')}
-                    className="create-first-exam-btn"
-                  >
-                    Create Your First Exam
-                  </button>
-                </div>
-              ) : (
-                <div className="exam-preview-list">
-                  {exams.slice(0, 3).map(exam => (
-                    <div key={exam.examId} className="exam-preview-card">
-                      <h3>{exam.title}</h3>
-                      <p>Start: {new Date(exam.startTime).toLocaleString()}</p>
-                      <p>Duration: {Math.round((new Date(exam.endTime).getTime() - new Date(exam.startTime).getTime()) / (1000 * 60))} minutes</p>
-                      <p>Allowed Apps: {exam.allowedApps.length} applications</p>
-                    </div>
-                  ))}
-                  {exams.length > 3 && (
-                    <button
-                      onClick={() => setActiveTab('manage')}
-                      className="view-all-btn"
-                    >
-                      View All Exams ({exams.length})
-                    </button>
-                  )}
-                </div>
-              )}
+            <div className="overview-panels">
+              <div className="recent-exams">
+                <h2>Recent submissions</h2>
+                {recentSubmissions.length === 0 ? (
+                  <div className="empty-state compact">
+                    <p>No recent submissions available.</p>
+                  </div>
+                ) : (
+                  <div className="activity-list">
+                    {recentSubmissions.map((submission, idx) => (
+                      <div className="activity-item" key={submission.submission_id || idx}>
+                        <strong>{submission.full_name || submission.student_name || 'Student submission'}</strong>
+                        <span>{formatDateTime(submission.submitted_at || submission.created_at || new Date().toISOString())}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="recent-exams">
+                <h2>Recent flagged incidents</h2>
+                {recentFlaggedEvents.length === 0 ? (
+                  <div className="empty-state compact">
+                    <p>No recent incidents.</p>
+                  </div>
+                ) : (
+                  <div className="activity-list">
+                    {recentFlaggedEvents.map((event, idx) => (
+                      <div className="activity-item" key={event.event_id || idx}>
+                        <strong>{event.event_type || event.type || event.violation_type || 'Integrity event'}</strong>
+                        <span>{formatDateTime(event.created_at || event.timestamp || new Date().toISOString())}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        {activeTab === 'create' && (
-          <div className="create-tab">
-            <h2>Create New Exam</h2>
-            <ExamCreationForm
-              user={user}
-              onExamCreated={handleExamCreated}
-            />
-          </div>
-        )}
-
-        {activeTab === 'manage' && (
+        {activeTab === 'exams' && (
           <div className="manage-tab">
-            <h2>Manage Exams</h2>
+            <div className="section-header">
+              <h2>Exams</h2>
+              <button className="btn-primary" onClick={() => setShowCreateExamForm((prev) => !prev)}>
+                {showCreateExamForm ? 'Hide create form' : 'Create exam'}
+              </button>
+            </div>
+            {showCreateExamForm && (
+              <div className="create-exam-panel">
+                <ExamCreationForm
+                  user={user}
+                  onExamCreated={handleExamCreated}
+                />
+              </div>
+            )}
             {isLoading ? (
               <div className="loading">Loading exams...</div>
             ) : error ? (
@@ -284,52 +373,51 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, onLogout }) =
           </div>
         )}
 
-        {activeTab === 'monitoring' && (
+        {activeTab === 'testCaseStudio' && (
           <div className="monitoring-tab">
-            <div className="monitoring-header">
-              <h2>Monitoring Reports</h2>
-              <div className="exam-selector">
-                <label htmlFor="exam-select">Select Exam:</label>
-                <select
-                  id="exam-select"
-                  value={selectedExamForMonitoring}
-                  onChange={(e) => setSelectedExamForMonitoring(e.target.value)}
-                >
-                  <option value="">Choose an exam to view monitoring results</option>
-                  {exams
-                    .filter(exam => new Date(exam.endTime) <= new Date()) // Only show completed exams
-                    .map(exam => (
-                      <option key={exam.examId} value={exam.examId}>
-                        {exam.title} - {new Date(exam.startTime).toLocaleDateString()}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
-
-            {selectedExamForMonitoring ? (
-              <ViolationReport
-                examId={selectedExamForMonitoring}
-                examTitle={exams.find(e => e.examId === selectedExamForMonitoring)?.title || 'Unknown Exam'}
-              />
-            ) : (
+            <h2>Test Case Studio</h2>
+            {!selectedExam ? (
               <div className="no-exam-selected">
                 <div className="placeholder-content">
-                  <div className="placeholder-icon">📊</div>
-                  <h3>Select an Exam to View Monitoring Results</h3>
-                  <p>Choose a completed exam from the dropdown above to view detailed violation reports and monitoring statistics.</p>
-                  {exams.filter(exam => new Date(exam.endTime) <= new Date()).length === 0 && (
-                    <p className="no-completed-exams">No completed exams available for monitoring reports.</p>
-                  )}
+                  <h3>Select an exam to build requirements and test cases</h3>
+                  <p>Pick an exam from the selector above to open the studio.</p>
                 </div>
               </div>
+            ) : (
+              <CodeQuestionsTab exam={{ examId: selectedExam.examId, title: selectedExam.title, pdfPath: selectedExam.pdfPath }} />
             )}
           </div>
         )}
 
-        {activeTab === 'codeEval' && (
+        {activeTab === 'submissions' && (
           <div className="code-eval-tab-wrapper">
-            <CodeEvaluationTab exams={exams} />
+            <CodeEvaluationTab exams={exams} initialExamId={selectedExamId} />
+          </div>
+        )}
+
+        {activeTab === 'integrity' && (
+          <div className="monitoring-tab">
+            <h2>Integrity Review</h2>
+            {completedExams.length === 0 ? (
+              <div className="no-exam-selected">
+                <div className="placeholder-content">
+                  <h3>No completed exams available</h3>
+                  <p>Integrity review is available after an exam ends.</p>
+                </div>
+              </div>
+            ) : !selectedExamId ? (
+              <div className="no-exam-selected">
+                <div className="placeholder-content">
+                  <h3>Select an exam to review flagged incidents</h3>
+                  <p>Choose an exam from the selector above.</p>
+                </div>
+              </div>
+            ) : (
+              <ViolationReport
+                examId={selectedExamId}
+                examTitle={selectedExam?.title || 'Selected exam'}
+              />
+            )}
           </div>
         )}
       </div>

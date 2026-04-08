@@ -177,7 +177,7 @@ const FaceAuth: React.FC<FaceAuthProps> = ({
     };
 
     return (
-        <div className="face-auth">
+        <div className={`face-auth face-auth--${authState.status}`}>
             <div className="face-auth__header">
                 <h2 className="face-auth__title">Face Authentication</h2>
                 <p className="face-auth__subtitle">

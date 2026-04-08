@@ -34,9 +34,10 @@ interface SubmissionRow {
 
 interface CodeEvaluationTabProps {
   exams: Exam[];
+  initialExamId?: string;
 }
 
-const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
+const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams, initialExamId }) => {
   const [selectedExamId, setSelectedExamId] = useState('');
   const [submissions, setSubmissions] = useState<SubmissionRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -69,13 +70,18 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
   };
 
   useEffect(() => {
+    if (initialExamId && initialExamId !== selectedExamId) {
+      setSelectedExamId(initialExamId);
+      loadData(initialExamId);
+      return;
+    }
     if (!selectedExamId && exams.length > 0) {
       const completed = exams.filter((exam) => new Date(exam.endTime) <= new Date());
       const initialExamId = (completed[0] || exams[0]).examId;
       setSelectedExamId(initialExamId);
       loadData(initialExamId);
     }
-  }, [exams, selectedExamId]);
+  }, [exams, selectedExamId, initialExamId]);
 
   useEffect(() => {
     const api = (window as any).electronAPI;
@@ -109,7 +115,11 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
     try {
       setRunningAll(true);
       setError(null);
-      await (window as any).electronAPI.runEvaluationForExam(selectedExamId);
+      const result = await (window as any).electronAPI.runEvaluationForExam(selectedExamId);
+      if (!result?.success) {
+        setError(result?.error || 'Failed to run evaluation for all submissions.');
+        return;
+      }
       await loadData(selectedExamId);
     } catch (err: any) {
       console.error('Error running evaluation for exam:', err);
@@ -124,7 +134,11 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
     try {
       setRunningSubmissionId(submissionId);
       setError(null);
-      await (window as any).electronAPI.runEvaluationForSubmission(selectedExamId, submissionId);
+      const result = await (window as any).electronAPI.runEvaluationForSubmission(selectedExamId, submissionId);
+      if (!result?.success) {
+        setError(result?.error || 'Failed to run evaluation for this submission.');
+        return;
+      }
       await loadData(selectedExamId);
     } catch (err: any) {
       console.error('Error running evaluation for submission:', err);
@@ -152,9 +166,9 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams }) => {
     <div className="code-eval-tab">
       <div className="ce-header">
         <div>
-          <h2>Code Evaluation</h2>
+          <h2>Submissions & Evaluation</h2>
           <p className="ce-subtitle">
-            Review student submissions, re-run grading, and inspect a full evidence trail for each evaluation.
+            Filter by exam, review submissions, and finalize scores quickly.
           </p>
         </div>
         <div className="ce-exam-select">

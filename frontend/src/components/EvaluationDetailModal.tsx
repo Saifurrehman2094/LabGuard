@@ -27,6 +27,7 @@ const formatScore = (value?: number | null) => {
 };
 
 const formatRequirement = (value: string) => REQUIREMENT_LABELS[value] || value.replace(/_/g, ' ');
+const formatConcept = (value: string) => value.replace(/_/g, ' ');
 
 const getConfidenceBadgeClass = (confidence?: string | null) => {
   const value = String(confidence || '').toLowerCase();
@@ -128,6 +129,10 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
     ? evaluation.requirement_checks_json.unmet_requirements
     : [];
   const requiredConcepts = Array.isArray(question?.required_concepts) ? question.required_concepts : [];
+  const missingConcepts = unmetRequirements
+    .filter((item: string) => item.startsWith('concept_required_but_missing:'))
+    .map((item: string) => item.split(':')[1])
+    .filter(Boolean);
 
   const handleSaveManualScore = async () => {
     const raw = manualScoreInput.trim();
@@ -272,6 +277,18 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
                 <h4>Requirements & Complexity</h4>
                 <div className="ce-category-list">
                   <div className="ce-category-row">
+                    <span className="ce-category-name">Configured problem type</span>
+                    <span className="ce-pill ce-pill-muted">{question?.problem_type || 'basic_programming'}</span>
+                  </div>
+                  <div className="ce-category-row">
+                    <span className="ce-category-name">Configured difficulty</span>
+                    <span className="ce-pill ce-pill-muted">{question?.difficulty || 'medium'}</span>
+                  </div>
+                  <div className="ce-category-row">
+                    <span className="ce-category-name">Scoring model</span>
+                    <span className="ce-pill ce-pill-muted">Weighted test-case total</span>
+                  </div>
+                  <div className="ce-category-row">
                     <span className="ce-category-name">Detected loop usage</span>
                     <span
                       className={`ce-pill ${
@@ -325,13 +342,30 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
                         : 'N/A'}
                     </span>
                   </div>
+                  <div className="ce-category-row">
+                    <span className="ce-category-name">Requirement match</span>
+                    <span
+                      className={`ce-pill ${
+                        evaluation.requirement_checks_json?.concept_coverage?.pass ? 'ce-pill-good' : 'ce-pill-warn'
+                      }`}
+                    >
+                      {evaluation.requirement_checks_json?.concept_coverage?.required_count
+                        ? `${evaluation.requirement_checks_json?.concept_coverage?.detected_count ?? 0}/${
+                            evaluation.requirement_checks_json?.concept_coverage?.required_count ?? 0
+                          } concepts matched`
+                        : 'N/A'}
+                    </span>
+                  </div>
                 </div>
 
                 {requiredConcepts.length > 0 && (
                   <div className="ce-tags-wrap edm-tags-top">
                     {requiredConcepts.map((concept: string) => (
-                      <span key={concept} className="ce-pill ce-pill-muted">
-                        {concept.replace(/_/g, ' ')}
+                      <span
+                        key={concept}
+                        className={`ce-pill ${missingConcepts.includes(concept) ? 'ce-pill-bad' : 'ce-pill-good'}`}
+                      >
+                        {formatConcept(concept)} {missingConcepts.includes(concept) ? '(not detected)' : '(detected)'}
                       </span>
                     ))}
                   </div>
@@ -342,7 +376,11 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
                     <strong>Unmet requirements</strong>
                     <ul>
                       {unmetRequirements.map((item: string) => (
-                        <li key={item}>{formatRequirement(item)}</li>
+                        <li key={item}>
+                          {item.startsWith('concept_required_but_missing:')
+                            ? `Required concept not detected: ${formatConcept(item.split(':')[1] || '')}`
+                            : formatRequirement(item)}
+                        </li>
                       ))}
                     </ul>
                   </div>

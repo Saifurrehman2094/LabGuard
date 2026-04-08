@@ -1,295 +1,185 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import './ViolationsTab.css';
 
 interface User {
-    userId: string;
-    username: string;
-    role: string;
-    fullName: string;
+  userId: string;
+  username: string;
+  role: string;
+  fullName: string;
 }
 
-interface Violation {
-    violation_id: string;
-    exam_id: string;
-    exam_title: string;
-    violation_type: string;
-    application_name: string;
-    start_time: string;
-    end_time: string | null;
-    duration: number;
-    screenshot_path: string | null;
+interface IntegrityIncident {
+  incident_id: string;
+  exam_id: string;
+  exam_title: string;
+  source: 'app' | 'camera' | string;
+  violation_type: string;
+  display_type: string;
+  application_name: string | null;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number;
 }
 
 interface ViolationsTabProps {
-    user: User;
+  user: User;
 }
 
+const formatDate = (value?: string | null) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+};
+
+const formatDuration = (seconds?: number) => {
+  const safe = Number(seconds || 0);
+  if (safe <= 0) return '< 1s';
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+};
+
 const ViolationsTab: React.FC<ViolationsTabProps> = ({ user }) => {
-    const [violations, setViolations] = useState<Violation[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [selectedExam, setSelectedExam] = useState<string>('all');
-    const [exams, setExams] = useState<{ exam_id: string; title: string }[]>([]);
-    const [showDetailedLogs, setShowDetailedLogs] = useState(false);
+  const [incidents, setIncidents] = useState<IntegrityIncident[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedExam, setSelectedExam] = useState<string>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'app' | 'camera'>('all');
 
-    const isElectron = () => !!(window as any).electronAPI;
+  const isElectron = () => !!(window as any).electronAPI;
 
-    useEffect(() => {
-        loadViolations();
-    }, [user.userId]);
-
+  useEffect(() => {
     const loadViolations = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-
-            if (!isElectron()) {
-                setViolations([]);
-                setLoading(false);
-                return;
-            }
-
-            const result = await (window as any).electronAPI.getStudentViolations(null);
-
-            if (result.success) {
-                setViolations(result.violations || []);
-
-                // Extract unique exams
-                const uniqueExams = Array.from(
-                    new Map(
-                        result.violations.map((v: Violation) => [v.exam_id, { exam_id: v.exam_id, title: v.exam_title }])
-                    ).values()
-                );
-                setExams(uniqueExams as { exam_id: string; title: string }[]);
-            } else {
-                setError(result.error || 'Failed to load violations');
-            }
-        } catch (err) {
-            console.error('Error loading violations:', err);
-            setError('Failed to load violations');
-        } finally {
-            setLoading(false);
+      try {
+        setLoading(true);
+        setError(null);
+        if (!isElectron()) {
+          setIncidents([]);
+          return;
         }
+        const result = await (window as any).electronAPI.getStudentViolations(null);
+        if (result.success) {
+          setIncidents(result.violations || []);
+        } else {
+          setError(result.error || 'Failed to load violations');
+        }
+      } catch (err) {
+        console.error('Error loading violations:', err);
+        setError('Failed to load violations');
+      } finally {
+        setLoading(false);
+      }
     };
+    loadViolations();
+  }, [user.userId]);
 
-    const filteredViolations = useMemo(() => {
-        return selectedExam === 'all'
-            ? violations
-            : violations.filter(v => v.exam_id === selectedExam);
-    }, [violations, selectedExam]);
-
-    // Calculate statistics
-    const stats = useMemo(() => {
-        const total = filteredViolations.length;
-
-        const byExam = filteredViolations.reduce((acc, v) => {
-            acc[v.exam_id] = (acc[v.exam_id] || 0) + 1;
-            return acc;
-        }, {} as Record<string, number>);
-
-        const totalDuration = filteredViolations.reduce((sum, v) => sum + (v.duration || 0), 0);
-        const avgDuration = total > 0 ? Math.round(totalDuration / total) : 0;
-
-        // Get exam names for chart
-        const examData = Object.entries(byExam).map(([examId, count]) => {
-            const exam = exams.find(e => e.exam_id === examId);
-            return {
-                examId,
-                examName: exam?.title || 'Unknown Exam',
-                count
-            };
-        }).sort((a, b) => b.count - a.count);
-
-        return {
-            total,
-            byExam: examData,
-            totalDuration,
-            avgDuration
-        };
-    }, [filteredViolations, exams]);
-
-    const formatDuration = (seconds: number): string => {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins}m ${secs}s`;
-    };
-
-    const formatDateTime = (dateString: string): string => {
-        return new Date(dateString).toLocaleString();
-    };
-
-    const getViolationIcon = (): string => {
-        return '🚫';
-    };
-
-    const getViolationColor = (): string => {
-        return 'red';
-    };
-
-    const getViolationTypeLabel = (type: string): string => {
-        return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    };
-
-    // Calculate max count for chart scaling
-    const maxCount = stats.byExam.length > 0 
-        ? Math.max(...stats.byExam.map(e => e.count))
-        : 1;
-
-    if (loading) {
-        return (
-            <div className="violations-tab">
-                <div className="loading-container">
-                    <div className="loading-spinner"></div>
-                    <p>Loading violations...</p>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="violations-tab">
-            <div className="violations-header">
-                <h2>📋 My Violations</h2>
-                <p>Review any violations detected during your exams</p>
-            </div>
-
-            {error && (
-                <div className="error-message">
-                    ⚠️ {error}
-                </div>
-            )}
-
-            {filteredViolations.length === 0 ? (
-                <div className="no-violations">
-                    <div className="no-violations-icon">✅</div>
-                    <h3>No Violations Found</h3>
-                    <p>You have a clean record! Keep up the good work.</p>
-                </div>
-            ) : (
-                <>
-                    {/* Statistics Overview */}
-                    <div className="violations-overview">
-                        <div className="overview-cards">
-                            <div className="overview-card">
-                                <div className="card-icon">📊</div>
-                                <div className="card-content">
-                                    <div className="card-value">{stats.total}</div>
-                                    <div className="card-label">Total Violations</div>
-                                </div>
-                            </div>
-                            <div className="overview-card">
-                                <div className="card-icon">⏱️</div>
-                                <div className="card-content">
-                                    <div className="card-value">{formatDuration(stats.avgDuration)}</div>
-                                    <div className="card-label">Avg Duration</div>
-                                </div>
-                            </div>
-                            <div className="overview-card">
-                                <div className="card-icon">📱</div>
-                                <div className="card-content">
-                                    <div className="card-value">
-                                        {new Set(filteredViolations.map(v => v.application_name)).size}
-                                    </div>
-                                    <div className="card-label">Unique Apps</div>
-                                </div>
-                            </div>
-                            <div className="overview-card">
-                                <div className="card-icon">📝</div>
-                                <div className="card-content">
-                                    <div className="card-value">{stats.byExam.length}</div>
-                                    <div className="card-label">Exams Affected</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Charts Section */}
-                        {stats.byExam.length > 0 && (
-                            <div className="charts-section">
-                                <div className="chart-container chart-container-full">
-                                    <h3>📊 Violations by Exam</h3>
-                                    <div className="chart-content">
-                                        {stats.byExam.map(({ examId, examName, count }) => {
-                                            const percentage = (count / maxCount) * 100;
-                                            return (
-                                                <div key={examId} className="chart-item">
-                                                    <div className="chart-item-header">
-                                                        <span className="chart-item-label" title={examName}>
-                                                            {examName.length > 40 ? `${examName.substring(0, 40)}...` : examName}
-                                                        </span>
-                                                        <span className="chart-item-value">{count}</span>
-                                                    </div>
-                                                    <div className="chart-bar-container">
-                                                        <div 
-                                                            className="chart-bar blue"
-                                                            style={{ width: `${percentage}%` }}
-                                                        >
-                                                            <span className="chart-bar-percentage">{count} violation{count !== 1 ? 's' : ''}</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Filter and Toggle */}
-                    <div className="violations-controls">
-                        {exams.length > 0 && (
-                            <div className="violations-filter">
-                                <label>Filter by Exam:</label>
-                                <select value={selectedExam} onChange={(e) => setSelectedExam(e.target.value)}>
-                                    <option value="all">All Exams</option>
-                                    {exams.map(exam => (
-                                        <option key={exam.exam_id} value={exam.exam_id}>
-                                            {exam.title}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-                        <button 
-                            className="toggle-logs-btn"
-                            onClick={() => setShowDetailedLogs(!showDetailedLogs)}
-                        >
-                            {showDetailedLogs ? '📋 Hide Detailed Logs' : '📋 View Detailed Logs'}
-                        </button>
-                    </div>
-
-                    {/* Detailed Logs (Collapsible) */}
-                    {showDetailedLogs && (
-                        <div className="violations-list">
-                            {filteredViolations.map((violation) => (
-                                <div
-                                    key={violation.violation_id}
-                                    className={`violation-card ${getViolationColor()}`}
-                                >
-                                    <div className="violation-icon">
-                                        {getViolationIcon()}
-                                    </div>
-                                    <div className="violation-details">
-                                        <div className="violation-header-row">
-                                            <h3>{violation.exam_title}</h3>
-                                            <span className="violation-type">
-                                                {getViolationTypeLabel(violation.violation_type)}
-                                            </span>
-                                        </div>
-                                        <div className="violation-info">
-                                            <p><strong>Application:</strong> {violation.application_name}</p>
-                                            <p><strong>Time:</strong> {formatDateTime(violation.start_time)}</p>
-                                            <p><strong>Duration:</strong> {formatDuration(violation.duration)}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </>
-            )}
-        </div>
+  const exams = useMemo(() => {
+    return Array.from(
+      new Map(incidents.map((v) => [v.exam_id, { exam_id: v.exam_id, title: v.exam_title }])).values()
     );
+  }, [incidents]);
+
+  const filtered = useMemo(() => {
+    let rows = selectedExam === 'all' ? incidents : incidents.filter((v) => v.exam_id === selectedExam);
+    if (sourceFilter !== 'all') rows = rows.filter((row) => row.source === sourceFilter);
+    return rows;
+  }, [incidents, selectedExam, sourceFilter]);
+
+  const summary = useMemo(() => {
+    const total = filtered.length;
+    const appCount = filtered.filter((v) => v.source === 'app').length;
+    const cameraCount = filtered.filter((v) => v.source === 'camera').length;
+    const byType = filtered.reduce((acc, row) => {
+      const key = row.display_type || row.violation_type || 'Other';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    const topTypes = Object.entries(byType).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    return { total, appCount, cameraCount, topTypes };
+  }, [filtered]);
+
+  if (loading) {
+    return (
+      <div className="violations-tab"><div className="loading-container"><div className="loading-spinner"></div><p>Loading violations...</p></div></div>
+    );
+  }
+
+  return (
+    <div className="violations-tab">
+      <div className="violations-header">
+        <h2>My Integrity Activity</h2>
+        <p>Review app and camera incidents by exam. Screenshots are hidden on student view.</p>
+      </div>
+
+      {error && <div className="error-message">⚠️ {error}</div>}
+
+      <div className="violations-controls">
+        <div className="violations-filter">
+          <label>Exam</label>
+          <select value={selectedExam} onChange={(e) => setSelectedExam(e.target.value)}>
+            <option value="all">All Exams</option>
+            {exams.map((exam) => <option key={exam.exam_id} value={exam.exam_id}>{exam.title}</option>)}
+          </select>
+        </div>
+        <div className="violations-filter">
+          <label>Source</label>
+          <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value as 'all' | 'app' | 'camera')}>
+            <option value="all">All sources</option>
+            <option value="app">App only</option>
+            <option value="camera">Camera only</option>
+          </select>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="no-violations">
+          <div className="no-violations-icon">✅</div>
+          <h3>No Incidents</h3>
+          <p>No violations were recorded for the selected scope.</p>
+        </div>
+      ) : (
+        <>
+          <div className="overview-cards">
+            <div className="overview-card"><div className="card-content"><div className="card-value">{summary.total}</div><div className="card-label">Total incidents</div></div></div>
+            <div className="overview-card"><div className="card-content"><div className="card-value">{summary.appCount}</div><div className="card-label">App incidents</div></div></div>
+            <div className="overview-card"><div className="card-content"><div className="card-value">{summary.cameraCount}</div><div className="card-label">Camera incidents</div></div></div>
+          </div>
+
+          {summary.topTypes.length > 0 && (
+            <div className="type-summary-strip">
+              {summary.topTypes.map(([label, count]) => (
+                <span className="type-summary-chip" key={label}>
+                  {label}: {count}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="violations-list clean">
+            {filtered.map((incident) => (
+              <article key={incident.incident_id} className={`violation-card ${incident.source === 'camera' ? 'orange' : 'red'}`}>
+                <div className="violation-details">
+                  <div className="violation-header-row">
+                    <h3>{incident.exam_title}</h3>
+                    <span className="violation-type">{incident.display_type}</span>
+                  </div>
+                  <div className="violation-info">
+                    <p><strong>Source:</strong> {incident.source === 'camera' ? 'Camera' : 'Application monitoring'}</p>
+                    <p><strong>Started:</strong> {formatDate(incident.started_at)}</p>
+                    <p><strong>Ended:</strong> {formatDate(incident.ended_at)}</p>
+                    <p><strong>Duration:</strong> {formatDuration(incident.duration_seconds)}</p>
+                    {incident.application_name ? (
+                      <p><strong>Application:</strong> {incident.application_name}</p>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 };
 
 export default ViolationsTab;
