@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ModelManager from '../services/modelManager';
+import './ModelDiagnostics.css';
 
 interface ModelDiagnosticsProps {
     onClose?: () => void;
@@ -20,6 +21,40 @@ interface DiagnosticResult {
     allLoaded: boolean;
     errors: string[];
 }
+
+const IconCheck = () => (
+    <svg
+        className="model-diagnostics__icon"
+        width={18}
+        height={18}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+    >
+        <path d="M20 6L9 17l-5-5" />
+    </svg>
+);
+
+const IconX = () => (
+    <svg
+        className="model-diagnostics__icon"
+        width={18}
+        height={18}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+    >
+        <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+);
 
 const ModelDiagnostics: React.FC<ModelDiagnosticsProps> = ({ onClose }) => {
     const [result, setResult] = useState<DiagnosticResult | null>(null);
@@ -67,111 +102,155 @@ const ModelDiagnostics: React.FC<ModelDiagnosticsProps> = ({ onClose }) => {
     };
 
     return (
-        <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10000
-        }}>
-            <div style={{
-                backgroundColor: 'white',
-                padding: '20px',
-                borderRadius: '8px',
-                maxWidth: '600px',
-                maxHeight: '80vh',
-                overflow: 'auto',
-                fontFamily: 'monospace',
-                fontSize: '12px'
-            }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h2 style={{ margin: 0, fontFamily: 'sans-serif' }}>Face-API Model Diagnostics</h2>
-                    {onClose && (
-                        <button onClick={onClose} style={{ padding: '5px 10px' }}>Close</button>
-                    )}
-                </div>
+        <div
+            className="model-diagnostics-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="model-diagnostics-title"
+        >
+            <div className="model-diagnostics">
+                <h2 id="model-diagnostics-title" className="model-diagnostics__title">
+                    Face-API model diagnostics
+                </h2>
 
                 {isLoading && (
-                    <div style={{ textAlign: 'center', padding: '20px' }}>
-                        <div>Loading models and running diagnostics...</div>
+                    <div className="model-diagnostics__loading">
+                        <p className="model-diagnostics__loading-text">
+                            Loading models and running diagnostics…
+                        </p>
+                        {onClose && (
+                            <div className="model-diagnostics__footer model-diagnostics__footer--inline">
+                                <button
+                                    type="button"
+                                    className="model-diagnostics__button model-diagnostics__button--secondary"
+                                    onClick={onClose}
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
 
                 {error && (
-                    <div style={{ color: 'red', padding: '10px', backgroundColor: '#ffebee', borderRadius: '4px' }}>
-                        <strong>Error:</strong> {error}
+                    <div className="model-diagnostics__error-wrap">
+                        <div className="model-diagnostics__error-banner" role="alert">
+                            <strong>Error:</strong> {error}
+                        </div>
+                        {onClose && (
+                            <div className="model-diagnostics__footer model-diagnostics__footer--inline">
+                                <button
+                                    type="button"
+                                    className="model-diagnostics__button model-diagnostics__button--secondary"
+                                    onClick={onClose}
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
 
                 {result && (
                     <div>
-                        <div style={{ marginBottom: '20px' }}>
-                            <h3 style={{ margin: '0 0 10px 0', fontFamily: 'sans-serif' }}>Environment</h3>
-                            <div><strong>Timestamp:</strong> {result.timestamp}</div>
-                            <div><strong>Protocol:</strong> {result.protocol}</div>
-                            <div><strong>Origin:</strong> {result.origin}</div>
-                            <div><strong>Model Path:</strong> {result.modelPath}</div>
-                        </div>
+                        <section className="model-diagnostics__stack" aria-label="Environment">
+                            <h3 className="model-diagnostics__section-title">Environment</h3>
+                            <div className="model-diagnostics__mono-block">
+                                <p className="model-diagnostics__kv">
+                                    <strong>Timestamp:</strong> {result.timestamp}
+                                </p>
+                                <p className="model-diagnostics__kv">
+                                    <strong>Protocol:</strong> {result.protocol}
+                                </p>
+                                <p className="model-diagnostics__kv">
+                                    <strong>Origin:</strong> {result.origin}
+                                </p>
+                                <p className="model-diagnostics__kv">
+                                    <strong>Model path:</strong> {result.modelPath}
+                                </p>
+                            </div>
+                        </section>
 
-                        <div style={{ marginBottom: '20px' }}>
-                            <h3 style={{ margin: '0 0 10px 0', fontFamily: 'sans-serif' }}>
-                                Overall Status: {result.allLoaded ? '✅ SUCCESS' : '❌ FAILED'}
-                            </h3>
-                            <div><strong>Total Size:</strong> {formatSize(result.totalSize)}</div>
-                            <div><strong>Models Loaded:</strong> {result.models.filter(m => m.loaded).length}/{result.models.length}</div>
-                        </div>
+                        <section className="model-diagnostics__stack" aria-label="Overall status">
+                            <h3 className="model-diagnostics__section-title">Overall status</h3>
+                            <div
+                                className={
+                                    result.allLoaded
+                                        ? 'model-diagnostics__status-pill model-diagnostics__status-pill--ok'
+                                        : 'model-diagnostics__status-pill model-diagnostics__status-pill--fail'
+                                }
+                            >
+                                {result.allLoaded ? <IconCheck /> : <IconX />}
+                                <span>{result.allLoaded ? 'All models loaded' : 'One or more models failed'}</span>
+                            </div>
+                            <p className="model-diagnostics__kv">
+                                <strong>Total size:</strong> {formatSize(result.totalSize)}
+                            </p>
+                            <p className="model-diagnostics__kv">
+                                <strong>Models loaded:</strong>{' '}
+                                {result.models.filter(m => m.loaded).length}/{result.models.length}
+                            </p>
+                        </section>
 
-                        <div style={{ marginBottom: '20px' }}>
-                            <h3 style={{ margin: '0 0 10px 0', fontFamily: 'sans-serif' }}>Model Details</h3>
+                        <section className="model-diagnostics__stack" aria-label="Model details">
+                            <h3 className="model-diagnostics__section-title">Model details</h3>
                             {result.models.map((model, index) => (
-                                <div key={index} style={{
-                                    padding: '10px',
-                                    margin: '5px 0',
-                                    backgroundColor: model.loaded ? '#e8f5e8' : '#ffebee',
-                                    borderRadius: '4px',
-                                    border: `1px solid ${model.loaded ? '#4caf50' : '#f44336'}`
-                                }}>
-                                    <div style={{ fontWeight: 'bold' }}>
-                                        {model.loaded ? '✅' : '❌'} {model.name}
+                                <div
+                                    key={index}
+                                    className={
+                                        model.loaded
+                                            ? 'model-diagnostics__model-row model-diagnostics__model-row--ok'
+                                            : 'model-diagnostics__model-row model-diagnostics__model-row--fail'
+                                    }
+                                >
+                                    <div className="model-diagnostics__model-name">
+                                        <span className="model-diagnostics-sr-only">
+                                            {model.loaded ? 'Loaded: ' : 'Not loaded: '}
+                                        </span>
+                                        {model.loaded ? <IconCheck /> : <IconX />}
+                                        <span>{model.name}</span>
                                     </div>
-                                    {model.size && (
-                                        <div><strong>Size:</strong> {formatSize(model.size)}</div>
+                                    {model.size !== undefined && (
+                                        <p className="model-diagnostics__model-meta">
+                                            <strong>Size:</strong> {formatSize(model.size)}
+                                        </p>
                                     )}
                                     {model.error && (
-                                        <div style={{ color: 'red' }}><strong>Error:</strong> {model.error}</div>
+                                        <p className="model-diagnostics__model-err">
+                                            <strong>Error:</strong> {model.error}
+                                        </p>
                                     )}
                                 </div>
                             ))}
-                        </div>
+                        </section>
 
                         {result.errors.length > 0 && (
-                            <div>
-                                <h3 style={{ margin: '0 0 10px 0', fontFamily: 'sans-serif', color: 'red' }}>Errors</h3>
-                                {result.errors.map((error, index) => (
-                                    <div key={index} style={{
-                                        padding: '10px',
-                                        margin: '5px 0',
-                                        backgroundColor: '#ffebee',
-                                        borderRadius: '4px',
-                                        color: 'red'
-                                    }}>
-                                        {error}
+                            <section className="model-diagnostics__stack" aria-label="Errors">
+                                <h3 className="model-diagnostics__section-title model-diagnostics__section-title--error">
+                                    Errors
+                                </h3>
+                                {result.errors.map((errLine, index) => (
+                                    <div key={index} className="model-diagnostics__error-item">
+                                        {errLine}
                                     </div>
                                 ))}
-                            </div>
+                            </section>
                         )}
 
-                        <div style={{ marginTop: '20px', textAlign: 'center' }}>
-                            <button onClick={runDiagnostics} style={{ padding: '10px 20px', marginRight: '10px' }}>
-                                Run Again
+                        <div className="model-diagnostics__footer">
+                            <button
+                                type="button"
+                                className="model-diagnostics__button model-diagnostics__button--primary"
+                                onClick={runDiagnostics}
+                            >
+                                Run again
                             </button>
                             {onClose && (
-                                <button onClick={onClose} style={{ padding: '10px 20px' }}>
+                                <button
+                                    type="button"
+                                    className="model-diagnostics__button model-diagnostics__button--secondary"
+                                    onClick={onClose}
+                                >
                                     Close
                                 </button>
                             )}

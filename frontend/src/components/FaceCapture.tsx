@@ -56,7 +56,6 @@ const FaceCapture: React.FC<FaceCaptureProps> = ({
             if (result.allLoaded) {
                 setIsModelLoaded(true);
                 setStatus('Models loaded successfully');
-                console.log('Face-API models loaded successfully');
             } else {
                 const errorMsg = `Failed to load some models: ${result.errors.join(', ')}`;
                 console.error(errorMsg);
@@ -323,6 +322,7 @@ const FaceCapture: React.FC<FaceCaptureProps> = ({
 
                 <div className="face-capture__controls">
                     <button
+                        type="button"
                         onClick={captureNow}
                         disabled={!currentDetection || currentDetection.confidence < 0.7}
                         className="face-capture__button face-capture__button--capture"
@@ -332,6 +332,7 @@ const FaceCapture: React.FC<FaceCaptureProps> = ({
 
                     {captureMultiple && (
                         <button
+                            type="button"
                             onClick={resetCaptures}
                             className="face-capture__button face-capture__button--reset"
                         >
@@ -340,6 +341,7 @@ const FaceCapture: React.FC<FaceCaptureProps> = ({
                     )}
 
                     <button
+                        type="button"
                         onClick={cleanup}
                         className="face-capture__button face-capture__button--stop"
                     >
@@ -347,9 +349,9 @@ const FaceCapture: React.FC<FaceCaptureProps> = ({
                     </button>
 
                     <button
+                        type="button"
                         onClick={() => setShowDiagnostics(true)}
-                        className="face-capture__button"
-                        style={{ backgroundColor: '#666', fontSize: '12px' }}
+                        className="face-capture__button face-capture__button--debug"
                     >
                         Debug Models
                     </button>

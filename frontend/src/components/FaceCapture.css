@@ -1,13 +1,16 @@
+/* Face capture — design-system tokens, aligned with FaceAuth panels & buttons */
+
 .face-capture {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px;
-  background: #f5f5f5;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   max-width: 800px;
   margin: 0 auto;
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--color-primary-light) 16%, var(--color-border-light));
+  background: color-mix(in srgb, var(--color-info-light) 35%, var(--color-bg-secondary));
+  box-shadow: var(--shadow-md);
 }
 
 .face-capture__container {
@@ -15,15 +18,17 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .face-capture__video-container {
   position: relative;
-  border-radius: 8px;
+  width: 100%;
+  max-width: 640px;
+  border-radius: var(--radius-md);
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  background: #000;
+  background: var(--color-text-primary);
+  box-shadow: var(--shadow-lg);
 }
 
 .face-capture__video {
@@ -46,15 +51,12 @@
 
 .face-capture__overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  background: color-mix(in srgb, var(--color-text-primary) 82%, transparent);
+  color: var(--color-on-primary);
 }
 
 .face-capture__loading {
@@ -62,193 +64,249 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
+}
+
+.face-capture__loading p {
+  margin: 0;
+  font-family: var(--font-primary);
+  font-size: var(--text-md);
+  font-weight: var(--font-medium);
+  line-height: var(--leading-normal);
+  color: var(--color-on-primary);
 }
 
 .face-capture__spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid rgba(255, 255, 255, 0.3);
-  border-top: 4px solid #fff;
-  border-radius: 50%;
-  animation: face-capture-spin 1s linear infinite;
+  border: 3px solid color-mix(in srgb, var(--color-on-primary) 32%, transparent);
+  border-top-color: var(--color-on-primary);
+  border-radius: var(--radius-full);
+  animation: face-capture-spin 0.85s linear infinite;
 }
 
 @keyframes face-capture-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
+/* Status panel — matches FaceAuth status rhythm */
 .face-capture__status {
+  width: 100%;
+  max-width: 420px;
+  min-width: min(100%, 300px);
   text-align: center;
-  padding: 16px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  min-width: 300px;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--color-primary-light) 14%, var(--color-border-light));
+  background: color-mix(in srgb, var(--color-bg-secondary) 92%, var(--color-info-light));
+  box-shadow: var(--shadow-sm);
 }
 
 .face-capture__status-text {
-  font-size: 16px;
-  font-weight: 500;
-  margin: 0 0 8px 0;
-  color: #333;
+  margin: 0 0 var(--space-2) 0;
+  font-family: var(--font-primary);
+  font-size: var(--text-md);
+  font-weight: var(--font-medium);
+  line-height: var(--leading-normal);
+  color: var(--color-text-primary);
 }
 
 .face-capture__detection-info {
   display: flex;
   justify-content: space-between;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #eee;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-light);
 }
 
 .face-capture__detection-info p {
   margin: 0;
-  font-size: 14px;
-  color: #666;
+  font-family: var(--font-primary);
+  font-size: var(--text-base);
+  color: var(--color-text-secondary);
 }
 
 .face-capture__progress {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #eee;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-light);
 }
 
 .face-capture__progress p {
-  margin: 0 0 8px 0;
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
+  margin: 0 0 var(--space-2) 0;
+  font-family: var(--font-primary);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
 }
 
 .face-capture__progress-bar {
   width: 100%;
   height: 8px;
-  background: #e0e0e0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--color-border-light);
 }
 
 .face-capture__progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #4CAF50, #45a049);
-  border-radius: 4px;
-  transition: width 0.3s ease;
+  border-radius: var(--radius-sm);
+  background: var(--color-secondary);
+  transition: width var(--transition-slow) cubic-bezier(0.33, 1, 0.68, 1);
 }
 
 .face-capture__controls {
   display: flex;
-  gap: 12px;
   flex-wrap: wrap;
+  gap: var(--space-3);
   justify-content: center;
+  width: 100%;
 }
 
 .face-capture__button {
-  padding: 12px 24px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  min-height: 44px;
   min-width: 120px;
+  padding: var(--space-3) var(--space-5);
+  font-family: var(--font-primary);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  line-height: var(--leading-snug);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition:
+    background-color var(--transition-base) cubic-bezier(0.33, 1, 0.68, 1),
+    box-shadow var(--transition-base) cubic-bezier(0.33, 1, 0.68, 1),
+    transform var(--transition-base) cubic-bezier(0.33, 1, 0.68, 1),
+    opacity var(--transition-base) cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.face-capture__button:focus {
+  outline: none;
+}
+
+.face-capture__button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus), var(--shadow-sm);
+}
+
+.face-capture__button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.face-capture__button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
 }
 
 .face-capture__button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .face-capture__button--capture {
-  background: #4CAF50;
-  color: white;
+  background: var(--color-secondary);
+  color: var(--color-on-primary);
 }
 
 .face-capture__button--capture:hover:not(:disabled) {
-  background: #45a049;
-  transform: translateY(-1px);
+  background: var(--color-secondary-dark);
 }
 
 .face-capture__button--capture:disabled {
-  background: #cccccc;
+  background: color-mix(in srgb, var(--color-text-tertiary) 35%, var(--color-bg-tertiary));
+  color: var(--color-text-secondary);
 }
 
 .face-capture__button--reset {
-  background: #ff9800;
-  color: white;
+  background: var(--color-warning);
+  color: var(--color-text-primary);
 }
 
-.face-capture__button--reset:hover {
-  background: #f57c00;
-  transform: translateY(-1px);
+.face-capture__button--reset:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-warning) 88%, var(--color-text-primary));
 }
 
 .face-capture__button--stop {
-  background: #f44336;
-  color: white;
+  background: var(--color-error);
+  color: var(--color-on-primary);
 }
 
-.face-capture__button--stop:hover {
-  background: #d32f2f;
-  transform: translateY(-1px);
+.face-capture__button--stop:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-error) 82%, var(--color-text-primary));
 }
 
-/* Responsive design */
+.face-capture__button--debug {
+  min-width: auto;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-medium);
+  box-shadow: none;
+}
+
+.face-capture__button--debug:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-border-light) 40%, var(--color-bg-tertiary));
+}
+
+.face-capture__button--debug:focus-visible {
+  box-shadow: var(--shadow-focus);
+}
+
 @media (max-width: 768px) {
   .face-capture {
-    padding: 16px;
-    margin: 16px;
+    padding: var(--space-4);
+    margin: var(--space-4);
   }
-  
+
   .face-capture__video {
     width: 100%;
     height: auto;
     max-width: 480px;
   }
-  
+
   .face-capture__controls {
     flex-direction: column;
-    width: 100%;
   }
-  
+
   .face-capture__button {
     width: 100%;
+    min-width: 0;
   }
-  
+
   .face-capture__status {
-    min-width: auto;
-    width: 100%;
+    min-width: 0;
+    max-width: none;
   }
 }
 
-/* Animation for successful capture */
-.face-capture--success .face-capture__video-container {
-  animation: face-capture-success 0.5s ease;
-}
+@media (prefers-reduced-motion: reduce) {
+  .face-capture__spinner {
+    animation: none;
+    border-color: color-mix(in srgb, var(--color-on-primary) 45%, transparent);
+    border-top-color: var(--color-on-primary);
+    opacity: 0.92;
+  }
 
-@keyframes face-capture-success {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.02); box-shadow: 0 0 20px rgba(76, 175, 80, 0.5); }
-  100% { transform: scale(1); }
-}
+  .face-capture__button {
+    transition: none;
+  }
 
-/* Error state */
-.face-capture--error .face-capture__status {
-  background: #ffebee;
-  border-left: 4px solid #f44336;
-}
+  .face-capture__button:hover:not(:disabled),
+  .face-capture__button:active:not(:disabled) {
+    transform: none;
+  }
 
-.face-capture--error .face-capture__status-text {
-  color: #c62828;
-}
-
-/* Loading state */
-.face-capture--loading .face-capture__video-container {
-  opacity: 0.7;
-}
-
-/* High confidence detection highlight */
-.face-capture__canvas[data-high-confidence="true"] {
-  filter: drop-shadow(0 0 8px rgba(76, 175, 80, 0.6));
+  .face-capture__progress-fill {
+    transition: none;
+  }
 }

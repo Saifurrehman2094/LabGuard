@@ -15,11 +15,13 @@
     "@vladmandic/face-api": "^1.7.15",
     "ajv": "^8.18.0",
     "jszip": "^3.10.1",
+    "lucide-react": "^1.8.0",
     "pdfjs-dist": "^3.11.174",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-pdf": "^7.7.0",
     "react-scripts": "^5.0.1",
+    "recharts": "^3.8.1",
     "tesseract.js": "^6.0.1",
     "typescript": "^5.9.3"
   },

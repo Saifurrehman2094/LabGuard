@@ -17,6 +17,54 @@ interface AuthState {
     maxAttempts: number;
 }
 
+const glyphSvgProps = {
+    width: 22,
+    height: 22,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const
+};
+
+function FaceAuthStatusGlyph({ status }: { status: AuthState['status'] }) {
+    switch (status) {
+        case 'success':
+            return (
+                <svg {...glyphSvgProps} aria-hidden>
+                    <path d="M20 6L9 17l-5-5" />
+                </svg>
+            );
+        case 'failed':
+            return (
+                <svg {...glyphSvgProps} aria-hidden>
+                    <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+            );
+        case 'verifying':
+            return (
+                <svg {...glyphSvgProps} aria-hidden>
+                    <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36M20.49 15a9 9 0 01-14.85 3.36" />
+                </svg>
+            );
+        case 'capturing':
+            return (
+                <svg {...glyphSvgProps} aria-hidden>
+                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                    <circle cx="12" cy="14" r="3.5" />
+                </svg>
+            );
+        default:
+            return (
+                <svg {...glyphSvgProps} aria-hidden>
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 16v-4M12 8h.01" />
+                </svg>
+            );
+    }
+}
+
 const FaceAuth: React.FC<FaceAuthProps> = ({
     sessionId,
     username,
@@ -92,9 +140,7 @@ const FaceAuth: React.FC<FaceAuthProps> = ({
                     }));
                 }
             }
-        } catch (error) {
-            console.error('Face verification error:', error);
-
+        } catch {
             const newAttempts = authState.attempts + 1;
 
             if (newAttempts >= authState.maxAttempts) {
@@ -121,7 +167,6 @@ const FaceAuth: React.FC<FaceAuthProps> = ({
 
     // Handle capture errors
     const handleCaptureError = useCallback((error: string) => {
-        console.error('Face capture error:', error);
         setAuthState(prev => ({
             ...prev,
             status: 'failed',
@@ -145,37 +190,6 @@ const FaceAuth: React.FC<FaceAuthProps> = ({
         }
     }, [authState.status]);
 
-    // Get status color based on current state
-    const getStatusColor = () => {
-        switch (authState.status) {
-            case 'success':
-                return '#4CAF50';
-            case 'failed':
-                return '#f44336';
-            case 'verifying':
-            case 'capturing':
-                return '#ff9800';
-            default:
-                return '#2196F3';
-        }
-    };
-
-    // Get status icon
-    const getStatusIcon = () => {
-        switch (authState.status) {
-            case 'success':
-                return '✓';
-            case 'failed':
-                return '✗';
-            case 'verifying':
-                return '⟳';
-            case 'capturing':
-                return '📷';
-            default:
-                return 'ℹ';
-        }
-    };
-
     return (
         <div className={`face-auth face-auth--${authState.status}`}>
             <div className="face-auth__header">
@@ -187,11 +201,8 @@ const FaceAuth: React.FC<FaceAuthProps> = ({
 
             <div className="face-auth__content">
                 <div className="face-auth__status">
-                    <div
-                        className="face-auth__status-icon"
-                        style={{ backgroundColor: getStatusColor() }}
-                    >
-                        {getStatusIcon()}
+                    <div className="face-auth__status-icon" aria-hidden="true">
+                        <FaceAuthStatusGlyph status={authState.status} />
                     </div>
                     <p className="face-auth__status-message">{authState.message}</p>
 
@@ -200,10 +211,9 @@ const FaceAuth: React.FC<FaceAuthProps> = ({
                             <p>Attempts: {authState.attempts}/{authState.maxAttempts}</p>
                             <div className="face-auth__attempts-bar">
                                 <div
-                                    className="face-auth__attempts-fill"
+                                    className={`face-auth__attempts-fill${authState.attempts >= authState.maxAttempts ? ' face-auth__attempts-fill--at-limit' : ''}`}
                                     style={{
-                                        width: `${(authState.attempts / authState.maxAttempts) * 100}%`,
-                                        backgroundColor: authState.attempts >= authState.maxAttempts ? '#f44336' : '#ff9800'
+                                        width: `${(authState.attempts / authState.maxAttempts) * 100}%`
                                     }}
                                 ></div>
                             </div>
@@ -225,6 +235,7 @@ const FaceAuth: React.FC<FaceAuthProps> = ({
                 <div className="face-auth__controls">
                     {authState.status === 'ready' && (
                         <button
+                            type="button"
                             onClick={startVerification}
                             className="face-auth__button face-auth__button--verify"
                         >
@@ -234,6 +245,7 @@ const FaceAuth: React.FC<FaceAuthProps> = ({
 
                     {authState.status === 'capturing' && (
                         <button
+                            type="button"
                             onClick={() => {
                                 setIsCapturing(false);
                                 setAuthState(prev => ({
@@ -250,6 +262,7 @@ const FaceAuth: React.FC<FaceAuthProps> = ({
 
                     {(authState.status === 'ready' || authState.status === 'failed') && (
                         <button
+                            type="button"
                             onClick={onCancel}
                             className="face-auth__button face-auth__button--cancel"
                         >

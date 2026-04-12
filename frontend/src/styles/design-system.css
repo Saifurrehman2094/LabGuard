@@ -37,6 +37,7 @@
   --color-error-light: #FEE2E2;
   --color-info: #3B82F6;
   --color-info-light: #DBEAFE;
+  --color-on-primary: #ffffff;
   
   /* Border Colors */
   --color-border-light: #E5E7EB;
@@ -98,6 +99,8 @@
   --shadow-lg: 0 4px 6px rgba(0, 0, 0, 0.1);
   --shadow-xl: 0 10px 15px rgba(0, 0, 0, 0.1);
   --shadow-focus: 0 0 0 3px rgba(30, 64, 175, 0.2);
+  --shadow-login-card: 0 16px 48px rgba(14, 116, 179, 0.1);
+  --shadow-login-card-inset: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
   
   /* ========== TRANSITIONS ========== */
   --transition-fast: 150ms ease;
@@ -109,6 +112,14 @@
   --sidebar-width: 280px;
   --sidebar-collapsed: 80px;
   --navbar-height: 64px;
+
+  /* Sky / neon-tinged light atmosphere (login, splash) */
+  --atmosphere-sky-base: #e0f2fe;
+  --atmosphere-sky-mid: #f0f9ff;
+  --atmosphere-cyan-mist: #ecfeff;
+  --atmosphere-glow-sky: rgba(56, 189, 248, 0.42);
+  --atmosphere-glow-cyan: rgba(34, 211, 238, 0.32);
+  --atmosphere-glow-blue: rgba(14, 165, 233, 0.18);
 }
 
 /* ========== BASE STYLES ========== */
