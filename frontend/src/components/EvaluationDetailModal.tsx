@@ -495,44 +495,44 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
               )}
             </div>
 
-            <div className="edm-two-col">
-              <div className="ce-section">
-                <h4>Compile & Debug Logs</h4>
-                <div className="ce-log-grid">
-                  <div>
-                    <h5>stdout</h5>
-                    <pre>{evaluation.compile_stdout || '(empty)'}</pre>
-                  </div>
-                  <div>
-                    <h5>stderr</h5>
-                    <pre>{evaluation.compile_stderr || '(empty)'}</pre>
-                  </div>
+            <div className="ce-section">
+              <h4>Compile & Debug Logs</h4>
+              <div className="ce-log-grid">
+                <div>
+                  <h5>stdout</h5>
+                  <pre>{evaluation.compile_stdout || '(empty)'}</pre>
                 </div>
-                {evaluation.error_summary && (
-                  <div className="edm-alert-box edm-alert-bad">
-                    <strong>Error summary</strong>
-                    <pre className="ce-pre-small">{evaluation.error_summary}</pre>
-                  </div>
-                )}
+                <div>
+                  <h5>stderr</h5>
+                  <pre>{evaluation.compile_stderr || '(empty)'}</pre>
+                </div>
               </div>
+              {evaluation.error_summary && (
+                <div className="edm-alert-box edm-alert-bad">
+                  <strong>Error summary</strong>
+                  <pre className="ce-pre-small">{evaluation.error_summary}</pre>
+                </div>
+              )}
+            </div>
 
-              <div className="ce-section">
-                <h4>AI-Assisted Summary</h4>
-                <p className="ce-subtitle">
-                  Teacher assist only. Final marks remain teacher-decided.
-                </p>
-                <button className="ce-primary-btn" onClick={handleGenerateSummary} disabled={generatingSummary}>
-                  {generatingSummary ? 'Generating summary…' : 'Generate summary'}
-                </button>
-                <div className="edm-ai-box">
-                  <pre className="ce-pre-small">{evaluation.ai_summary_text || 'No summary generated yet.'}</pre>
-                  <div className="ce-muted">
-                    Confidence:{' '}
-                    <span className={getConfidenceBadgeClass(evaluation.ai_summary_confidence)}>
-                      {evaluation.ai_summary_confidence || 'low'}
-                    </span>{' '}
-                    | Updated {formatDateTime(evaluation.ai_summary_updated_at || null)}
-                  </div>
+            <div className="ce-section edm-summary-full-width">
+              <h4>AI-Assisted Summary</h4>
+              <p className="ce-subtitle">
+                Teacher assist only. Final marks remain teacher-decided.
+              </p>
+              <button className="ce-primary-btn" onClick={handleGenerateSummary} disabled={generatingSummary}>
+                {generatingSummary ? 'Generating summary…' : 'Generate summary'}
+              </button>
+              <div className="edm-ai-box">
+                <pre className="ce-pre-small edm-ai-summary-text">
+                  {evaluation.ai_summary_text || 'No summary generated yet.'}
+                </pre>
+                <div className="ce-muted">
+                  Confidence:{' '}
+                  <span className={getConfidenceBadgeClass(evaluation.ai_summary_confidence)}>
+                    {evaluation.ai_summary_confidence || 'low'}
+                  </span>{' '}
+                  | Updated {formatDateTime(evaluation.ai_summary_updated_at || null)}
                 </div>
               </div>
             </div>

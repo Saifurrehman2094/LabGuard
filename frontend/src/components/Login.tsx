@@ -227,7 +227,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   // Render face authentication if needed
   if (authState.step === 'face-auth' && authState.sessionId && authState.user) {
     return (
-      <div className="login-container">
+      <div className="login-container lg-atmosphere-bg">
         <FaceAuth
           sessionId={authState.sessionId}
           username={authState.user.username}
@@ -240,7 +240,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   }
 
   return (
-    <div className="login-container">
+    <div className="login-container lg-atmosphere-bg">
       <div className="login-card">
         <div className="login-header">
           <div className="login-icon" aria-hidden="true">

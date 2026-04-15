@@ -1,79 +1,64 @@
-/* ============================================
-   CourseManagement - Professional Design
-   ============================================ */
+/* Course management — tokens + layout; primary buttons use .btn from AdminDashboard.css */
 
 .course-management {
   width: 100%;
 }
 
-/* ========== HEADER ========== */
+.course-management > .success-banner,
+.course-management > .error-banner {
+  margin: 0 0 var(--space-5) 0;
+}
 
 .course-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: var(--space-6);
+  flex-wrap: wrap;
+  gap: var(--space-3);
 }
 
 .course-header h2 {
   font-size: var(--text-2xl);
-  font-weight: var(--font-semibold);
+  font-weight: var(--font-bold);
   color: var(--color-text-primary);
   margin: 0;
-}
-
-.btn-primary {
-  padding: var(--space-3) var(--space-6);
-  font-size: var(--text-base);
-  font-weight: var(--font-semibold);
-  background-color: var(--color-primary);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  box-shadow: var(--shadow-md);
-}
-
-.btn-primary:hover {
-  background-color: var(--color-primary-dark);
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-1px);
 }
 
 /* ========== COURSES GRID ========== */
 
 .courses-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--space-5);
 }
 
 .course-card {
   background-color: var(--color-bg-secondary);
   border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   padding: var(--space-6);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: all var(--transition-base);
-  position: relative;
-  overflow: hidden;
-}
-
-.course-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 4px;
-  height: 100%;
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+  transition:
+    box-shadow var(--transition-base),
+    border-color var(--transition-base);
+  text-align: left;
 }
 
 .course-card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-border-medium);
+}
+
+.course-card:focus {
+  outline: none;
+}
+
+.course-card:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-color: var(--color-primary);
 }
 
 .course-card h3 {
@@ -94,11 +79,21 @@
   margin-bottom: var(--space-3);
 }
 
+.teacher-name {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-2) 0;
+}
+
 .course-description {
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
   margin: 0 0 var(--space-4) 0;
   line-height: var(--leading-relaxed);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .course-footer {
@@ -112,14 +107,30 @@
   color: var(--color-text-secondary);
 }
 
+.course-management-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  min-height: 200px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.course-management-loading p {
+  margin: 0;
+}
+
 /* ========== NO COURSES ========== */
 
 .no-courses {
   text-align: center;
-  padding: var(--space-16) var(--space-8);
+  padding: var(--space-12) var(--space-8);
   background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-lg);
+  border: 1px dashed var(--color-border-medium);
+  border-radius: var(--radius-xl);
+  grid-column: 1 / -1;
 }
 
 .no-courses p {
@@ -132,11 +143,8 @@
 
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  background-color: rgba(17, 24, 39, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -146,22 +154,28 @@
 
 .modal-content {
   background-color: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   padding: var(--space-8);
   max-width: 500px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--color-border-light);
 }
 
 .modal-content.large {
   max-width: 700px;
 }
 
+/* Course detail: separate footer Close from enrolled list (avoid overlap with last student row) */
+.modal-content.large > button:last-child {
+  margin-top: var(--space-8);
+}
+
 .modal-content h3 {
-  font-size: var(--text-2xl);
-  font-weight: var(--font-semibold);
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
   color: var(--color-text-primary);
   margin: 0 0 var(--space-5) 0;
 }
@@ -182,27 +196,29 @@
 .form-group label {
   display: block;
   margin-bottom: var(--space-2);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: var(--color-text-primary);
 }
 
 .form-group input,
-.form-group textarea {
+.form-group textarea,
+.form-group select {
   width: 100%;
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-base);
   font-family: var(--font-primary);
   color: var(--color-text-primary);
   background-color: var(--color-bg-secondary);
-  border: 2px solid var(--color-border-medium);
+  border: 1px solid var(--color-border-medium);
   border-radius: var(--radius-md);
-  transition: all var(--transition-base);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
   box-sizing: border-box;
 }
 
 .form-group input:focus,
-.form-group textarea:focus {
+.form-group textarea:focus,
+.form-group select:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: var(--shadow-focus);
@@ -217,24 +233,7 @@
   display: flex;
   gap: var(--space-3);
   margin-top: var(--space-6);
-}
-
-.btn-secondary {
-  padding: var(--space-3) var(--space-6);
-  font-size: var(--text-base);
-  font-weight: var(--font-medium);
-  background-color: transparent;
-  color: var(--color-text-secondary);
-  border: 2px solid var(--color-border-medium);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-base);
-}
-
-.btn-secondary:hover {
-  background-color: var(--color-bg-tertiary);
-  border-color: var(--color-border-dark);
-  color: var(--color-text-primary);
+  flex-wrap: wrap;
 }
 
 /* ========== ENROLLED STUDENTS ========== */
@@ -242,6 +241,7 @@
 .enrolled-students-section {
   margin-top: var(--space-6);
   padding-top: var(--space-6);
+  padding-bottom: var(--space-2);
   border-top: 1px solid var(--color-border-light);
 }
 
@@ -250,6 +250,8 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+  gap: var(--space-3);
 }
 
 .students-list {
@@ -258,6 +260,8 @@
   gap: var(--space-3);
   max-height: 400px;
   overflow-y: auto;
+  padding-bottom: var(--space-4);
+  box-sizing: border-box;
 }
 
 .student-item {
@@ -268,12 +272,11 @@
   background-color: var(--color-bg-tertiary);
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-md);
-  transition: all var(--transition-base);
+  transition: background-color var(--transition-base);
 }
 
 .student-item:hover {
   background-color: var(--color-bg-secondary);
-  box-shadow: var(--shadow-sm);
 }
 
 .student-info {
@@ -301,27 +304,36 @@
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all var(--transition-base);
+  transition: background-color var(--transition-base);
+  min-height: 36px;
 }
 
 .btn-danger-small {
   background-color: var(--color-error);
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .btn-danger-small:hover {
-  background-color: #DC2626;
-  box-shadow: var(--shadow-sm);
+  background-color: #dc2626;
+}
+
+.btn-danger-small:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 .btn-primary-small {
   background-color: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .btn-primary-small:hover {
   background-color: var(--color-primary-dark);
-  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary-small:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 .no-data {
@@ -343,18 +355,27 @@
 
 .close-modal-button {
   position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
+  top: var(--space-2);
+  right: 0;
   background: transparent;
   border: none;
-  font-size: 22px;
+  font-size: var(--text-xl);
+  line-height: 1;
   cursor: pointer;
   color: var(--color-text-secondary);
-  transition: color var(--transition-base);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  transition: color var(--transition-base), background-color var(--transition-base);
 }
 
 .close-modal-button:hover {
   color: var(--color-text-primary);
+  background-color: var(--color-bg-tertiary);
+}
+
+.close-modal-button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 /* ========== RESPONSIVE ========== */
@@ -363,10 +384,9 @@
   .course-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: var(--space-3);
   }
 
-  .btn-primary {
+  .course-header .btn {
     width: 100%;
   }
 
@@ -382,17 +402,16 @@
     flex-direction: column;
   }
 
-  .btn-secondary {
+  .form-actions .btn {
     width: 100%;
   }
 
   .section-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: var(--space-3);
   }
 
-  .section-header .btn-primary {
+  .section-header .btn {
     width: 100%;
   }
 

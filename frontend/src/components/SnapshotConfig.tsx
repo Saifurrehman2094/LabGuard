@@ -221,26 +221,31 @@ const SnapshotConfig: React.FC<SnapshotConfigProps> = ({ onError }) => {
                     High severity violations are recommended for proof collection.
                 </p>
                 
-                <div className="violations-grid">
+                <div className="violations-grid" role="group" aria-label="Violation types for snapshots">
                     {AVAILABLE_VIOLATIONS.map(violation => {
                         const isEnabled = settings.enabled_violations.includes(violation.id);
+                        const disabled = !settings.snapshots_enabled;
                         return (
-                            <div 
+                            <button
                                 key={violation.id}
-                                className={`violation-card ${isEnabled ? 'enabled' : ''} ${!settings.snapshots_enabled ? 'disabled' : ''}`}
-                                onClick={() => settings.snapshots_enabled && toggleViolation(violation.id)}
+                                type="button"
+                                className={`violation-card ${isEnabled ? 'enabled' : ''} ${disabled ? 'disabled' : ''}`}
+                                onClick={() => !disabled && toggleViolation(violation.id)}
+                                disabled={disabled}
+                                aria-pressed={isEnabled}
+                                aria-label={`${violation.name}. ${isEnabled ? 'On' : 'Off'}. ${violation.description}`}
                             >
                                 <div className="violation-header">
                                     <span className={`severity-badge ${getSeverityClass(violation.severity)}`}>
                                         {violation.severity}
                                     </span>
-                                    <div className="checkbox-indicator">
+                                    <span className="checkbox-indicator" aria-hidden="true">
                                         {isEnabled ? '✓' : ''}
-                                    </div>
+                                    </span>
                                 </div>
-                                <h5>{violation.name}</h5>
+                                <span className="violation-card__title">{violation.name}</span>
                                 <p>{violation.description}</p>
-                            </div>
+                            </button>
                         );
                     })}
                 </div>

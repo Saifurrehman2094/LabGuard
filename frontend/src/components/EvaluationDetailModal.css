@@ -167,6 +167,18 @@
   margin-top: 12px;
 }
 
+.edm-summary-full-width {
+  width: 100%;
+}
+
+.edm-ai-summary-text {
+  min-height: 150px;
+  max-height: none;
+  overflow: visible;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 900px) {
   .edm-section-head,
   .edm-result-top {

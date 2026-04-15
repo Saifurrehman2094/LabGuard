@@ -33,8 +33,11 @@
   --color-success-light: #D1FAE5;
   --color-warning: #F59E0B;
   --color-warning-light: #FEF3C7;
+  --color-warning-text: #92400e;
   --color-error: #EF4444;
   --color-error-light: #FEE2E2;
+  --color-error-text: #991b1b;
+  --color-success-text: #065f46;
   --color-info: #3B82F6;
   --color-info-light: #DBEAFE;
   --color-on-primary: #ffffff;
@@ -120,6 +123,33 @@
   --atmosphere-glow-sky: rgba(56, 189, 248, 0.42);
   --atmosphere-glow-cyan: rgba(34, 211, 238, 0.32);
   --atmosphere-glow-blue: rgba(14, 165, 233, 0.18);
+}
+
+/* Shared sky atmosphere — login, admin dashboard */
+.lg-atmosphere-bg {
+  background-color: var(--atmosphere-sky-base);
+  background-image:
+    radial-gradient(
+      ellipse 130% 95% at 50% -40%,
+      var(--atmosphere-glow-sky) 0%,
+      transparent 58%
+    ),
+    radial-gradient(
+      ellipse 90% 70% at 105% 15%,
+      var(--atmosphere-glow-blue) 0%,
+      transparent 52%
+    ),
+    radial-gradient(
+      ellipse 85% 75% at -10% 90%,
+      var(--atmosphere-glow-cyan) 0%,
+      transparent 55%
+    ),
+    linear-gradient(
+      168deg,
+      var(--atmosphere-sky-base) 0%,
+      var(--atmosphere-sky-mid) 42%,
+      var(--atmosphere-cyan-mist) 100%
+    );
 }
 
 /* ========== BASE STYLES ========== */
