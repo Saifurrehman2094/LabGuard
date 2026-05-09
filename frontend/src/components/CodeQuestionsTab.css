@@ -184,6 +184,25 @@
   font-size: var(--text-sm);
 }
 
+.cq-disclosure {
+  margin-top: var(--space-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  padding: var(--space-2) var(--space-3);
+}
+
+.cq-disclosure summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+}
+
+.cq-disclosure > .cq-subtitle {
+  margin-top: var(--space-2);
+}
+
 .cq-section-head {
   display: flex;
   justify-content: space-between;
@@ -263,6 +282,10 @@
   width: 100%;
   border-collapse: collapse;
   font-size: var(--text-sm);
+}
+
+.cq-testcases-scroll {
+  overflow-x: auto;
 }
 
 .cq-testcases-table th,

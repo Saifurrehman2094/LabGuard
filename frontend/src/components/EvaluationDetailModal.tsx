@@ -228,7 +228,7 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
 
             <div className="ce-manual-score edm-manual-score">
               <label>
-                Manual score override:
+                Manual score override (teacher decision):
                 <input
                   type="number"
                   step={0.1}
@@ -238,7 +238,7 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
                 />
               </label>
               <button className="ce-primary-btn" onClick={handleSaveManualScore} disabled={loading}>
-                Save manual score
+                Save teacher score
               </button>
             </div>
 
@@ -408,19 +408,19 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
                 </div>
                 <div className="edm-divider" />
                 <div className="ce-category-row">
-                  <span className="ce-category-name">AST recursion mode</span>
+                  <span className="ce-category-name">Recursion detector mode</span>
                   <span
                     className={`ce-pill ${
                       analysisCapabilities?.recursion_ast_available ? 'ce-pill-good' : 'ce-pill-warn'
                     }`}
                   >
-                    {analysisCapabilities?.recursion_ast_available ? 'Available' : 'Fallback only'}
+                    {analysisCapabilities?.recursion_ast_available ? 'AST available' : 'Heuristic fallback'}
                   </span>
                 </div>
                 <div className="ce-muted">
                   {analysisCapabilities?.recursion_ast_available
-                    ? `Using ${analysisCapabilities?.clang_binary || 'clang'} for recursion detection.`
-                    : 'Clang AST is unavailable, so recursion detection uses the heuristic fallback.'}
+                    ? `Using ${analysisCapabilities?.clang_binary || 'clang'} AST analysis for recursion detection.`
+                    : 'AST parsing is unavailable, so recursion checks use heuristic fallback rules.'}
                 </div>
               </div>
             </div>
@@ -518,7 +518,7 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
             <div className="ce-section edm-summary-full-width">
               <h4>AI-Assisted Summary</h4>
               <p className="ce-subtitle">
-                Teacher assist only. Final marks remain teacher-decided.
+                Guidance only. Final grading decisions remain with the teacher.
               </p>
               <button className="ce-primary-btn" onClick={handleGenerateSummary} disabled={generatingSummary}>
                 {generatingSummary ? 'Generating summary…' : 'Generate summary'}

@@ -45,6 +45,8 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams, initialExa
   const [runningAll, setRunningAll] = useState(false);
   const [runningSubmissionId, setRunningSubmissionId] = useState<string | null>(null);
   const [detailEvaluationId, setDetailEvaluationId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed' | 'partial' | 'failed_compile'>('pending');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const isElectron = () => !!(window as any).electronAPI;
 
@@ -161,6 +163,34 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams, initialExa
   };
 
   const selectedExam = exams.find((exam) => exam.examId === selectedExamId) || null;
+  const getStatusGroup = (status?: string | null) => {
+    const normalized = String(status || '').toLowerCase();
+    if (!normalized || normalized === 'not_evaluated' || normalized === 'pending') return 'pending';
+    if (normalized === 'failed_compile') return 'failed_compile';
+    if (normalized === 'partial') return 'partial';
+    if (normalized === 'completed') return 'completed';
+    return 'pending';
+  };
+  const summary = submissions.reduce(
+    (acc, submission) => {
+      const group = getStatusGroup(submission.aggregates?.last_status);
+      acc.total += 1;
+      acc[group] += 1;
+      return acc;
+    },
+    { total: 0, pending: 0, completed: 0, partial: 0, failed_compile: 0 }
+  );
+  const filteredSubmissions = submissions.filter((submission) => {
+    const statusMatches =
+      statusFilter === 'all' ? true : getStatusGroup(submission.aggregates?.last_status) === statusFilter;
+    if (!statusMatches) return false;
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      submission.full_name?.toLowerCase().includes(query) ||
+      submission.username?.toLowerCase().includes(query)
+    );
+  });
 
   return (
     <div className="code-eval-tab">
@@ -209,10 +239,43 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams, initialExa
         </div>
       ) : (
         <div className="ce-table-wrapper">
-          <div className="ce-table-header-actions">
-            <button className="ce-primary-btn" onClick={runAllEvaluations} disabled={runningAll}>
-              {runningAll ? 'Running evaluations...' : 'Run evaluation for all submissions'}
-            </button>
+          <div className="ce-summary-row" role="group" aria-label="Evaluation summary">
+            <span className="ce-summary-pill">Total {summary.total}</span>
+            <span className="ce-summary-pill">Pending {summary.pending}</span>
+            <span className="ce-summary-pill">Completed {summary.completed}</span>
+            <span className="ce-summary-pill">Partial {summary.partial}</span>
+            <span className="ce-summary-pill">Compile failed {summary.failed_compile}</span>
+          </div>
+          <div className="ce-toolbar">
+            <div className="ce-filter-chip-row">
+              <button type="button" className={`ce-filter-chip ${statusFilter === 'pending' ? 'active' : ''}`} onClick={() => setStatusFilter('pending')}>
+                Pending
+              </button>
+              <button type="button" className={`ce-filter-chip ${statusFilter === 'partial' ? 'active' : ''}`} onClick={() => setStatusFilter('partial')}>
+                Partial
+              </button>
+              <button type="button" className={`ce-filter-chip ${statusFilter === 'completed' ? 'active' : ''}`} onClick={() => setStatusFilter('completed')}>
+                Completed
+              </button>
+              <button type="button" className={`ce-filter-chip ${statusFilter === 'failed_compile' ? 'active' : ''}`} onClick={() => setStatusFilter('failed_compile')}>
+                Compile Failed
+              </button>
+              <button type="button" className={`ce-filter-chip ${statusFilter === 'all' ? 'active' : ''}`} onClick={() => setStatusFilter('all')}>
+                All
+              </button>
+            </div>
+            <div className="ce-toolbar-actions">
+              <input
+                type="text"
+                className="ce-search-input"
+                placeholder="Search student"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <button className="ce-primary-btn" onClick={runAllEvaluations} disabled={runningAll}>
+                {runningAll ? 'Running…' : `Run all (${summary.pending} pending)`}
+              </button>
+            </div>
           </div>
           <table className="ce-table">
             <thead>
@@ -226,7 +289,7 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams, initialExa
               </tr>
             </thead>
             <tbody>
-              {submissions.map((submission) => {
+              {filteredSubmissions.map((submission) => {
                 const aggregates = submission.aggregates;
                 const latestEvaluation = submission.evaluations.length
                   ? submission.evaluations[submission.evaluations.length - 1]
@@ -286,6 +349,11 @@ const CodeEvaluationTab: React.FC<CodeEvaluationTabProps> = ({ exams, initialExa
               })}
             </tbody>
           </table>
+          {filteredSubmissions.length === 0 && (
+            <div className="ce-empty ce-inline-empty">
+              <p>No submissions match this filter.</p>
+            </div>
+          )}
         </div>
       )}
 

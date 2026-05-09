@@ -143,6 +143,8 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [deletedQuestionIds, setDeletedQuestionIds] = useState<string[]>([]);
+  const [showAdvancedRequirements, setShowAdvancedRequirements] = useState(false);
+  const [showTeacherConstraints, setShowTeacherConstraints] = useState(false);
 
   const loadQuestions = async () => {
     if (!api?.getQuestionsWithTestCases) return;
@@ -529,9 +531,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
       <div className="cq-header">
         <div className="cq-header-text">
           <h3>Code Questions for: {exam.title}</h3>
-          <p className="cq-subtitle">
-            Extract questions from the exam PDF, review AI-suggested requirements, and manage teacher-facing test cases.
-          </p>
+          <p className="cq-subtitle">Step 1: build questions. Step 2: review requirements. Step 3: save test cases.</p>
         </div>
         <div className="cq-header-actions">
           <button className="btn-secondary" onClick={handleExtractFromPdf} disabled={extracting || loading}>
@@ -684,39 +684,47 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                   </label>
                 </div>
 
-                <label className="cq-pattern-toggle">
-                  <input
-                    type="checkbox"
-                    checked={!!currentQuestion.is_pattern_question}
-                    onChange={(e) =>
-                      setQuestionRequirements(currentQuestionIndex, {
-                        is_pattern_question: e.target.checked
-                      })
-                    }
-                  />
-                  Treat this as a pattern-printing question
-                </label>
+                <details
+                  className="cq-disclosure"
+                  open={showAdvancedRequirements}
+                  onToggle={(e) => setShowAdvancedRequirements((e.target as HTMLDetailsElement).open)}
+                >
+                  <summary>Advanced requirement options</summary>
+                  <p className="cq-subtitle">Use this only when default suggestions are not enough.</p>
+                  <label className="cq-pattern-toggle">
+                    <input
+                      type="checkbox"
+                      checked={!!currentQuestion.is_pattern_question}
+                      onChange={(e) =>
+                        setQuestionRequirements(currentQuestionIndex, {
+                          is_pattern_question: e.target.checked
+                        })
+                      }
+                    />
+                    Treat this as a pattern-printing question
+                  </label>
 
-                <div className="cq-concepts-wrap">
-                  {REQUIREMENT_OPTIONS.map((option) => (
-                    <label key={option.value} className="cq-concept-check">
-                      <input
-                        type="checkbox"
-                        checked={(currentQuestion.required_concepts || []).includes(option.value)}
-                        disabled={currentQuestion.requirements_mode !== 'manual'}
-                        onChange={() => {
-                          const current = new Set(currentQuestion.required_concepts || []);
-                          if (current.has(option.value)) current.delete(option.value);
-                          else current.add(option.value);
-                          setQuestionRequirements(currentQuestionIndex, {
-                            required_concepts: Array.from(current)
-                          });
-                        }}
-                      />
-                      {option.label}
-                    </label>
-                  ))}
-                </div>
+                  <div className="cq-concepts-wrap">
+                    {REQUIREMENT_OPTIONS.map((option) => (
+                      <label key={option.value} className="cq-concept-check">
+                        <input
+                          type="checkbox"
+                          checked={(currentQuestion.required_concepts || []).includes(option.value)}
+                          disabled={currentQuestion.requirements_mode !== 'manual'}
+                          onChange={() => {
+                            const current = new Set(currentQuestion.required_concepts || []);
+                            if (current.has(option.value)) current.delete(option.value);
+                            else current.add(option.value);
+                            setQuestionRequirements(currentQuestionIndex, {
+                              required_concepts: Array.from(current)
+                            });
+                          }}
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </details>
               </div>
 
               <div className="cq-question-detail">
@@ -724,6 +732,13 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                 <p className="cq-subtitle">
                   These remain teacher-side evaluation signals and can coexist with the suggested requirements above.
                 </p>
+                <details
+                  className="cq-disclosure"
+                  open={showTeacherConstraints}
+                  onToggle={(e) => setShowTeacherConstraints((e.target as HTMLDetailsElement).open)}
+                >
+                  <summary>Open constraints panel</summary>
+                  <p className="cq-subtitle">Only enable constraints you plan to evaluate.</p>
                 {(() => {
                   const constraints = ensureConstraints(currentQuestion);
                   const requiredLoop = !!constraints.required_loop;
@@ -795,6 +810,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                     </div>
                   );
                 })()}
+                </details>
               </div>
               <div className="cq-testcases-header">
                 <div>
@@ -822,6 +838,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                   <p>Use AI generation or add them manually.</p>
                 </div>
               ) : (
+                <div className="cq-testcases-scroll">
                 <table className="cq-testcases-table">
                   <thead>
                     <tr>
@@ -898,6 +915,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </>
           ) : (

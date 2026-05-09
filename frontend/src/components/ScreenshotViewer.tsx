@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import './ScreenshotViewer.css';
 
 interface ScreenshotViewerProps {
@@ -16,6 +16,30 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string>('');
     const [isZoomed, setIsZoomed] = useState(false);
+    const evidenceMeta = useMemo(() => {
+        const fileName = screenshotPath.split(/[\\/]/).pop() || '';
+        const shortViolationId = violationId ? violationId.slice(0, 8).toUpperCase() : '';
+        const timestampMatch = fileName.match(/violation-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)/i);
+        const sourceMatch = fileName.match(/violation-[^-]+-([^-]+)-violation_/i);
+
+        let capturedAt: string | null = null;
+        if (timestampMatch?.[1]) {
+            const isoLike = timestampMatch[1].replace(
+                /T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/,
+                'T$1:$2:$3.$4Z'
+            );
+            const dt = new Date(isoLike);
+            if (!Number.isNaN(dt.getTime())) {
+                capturedAt = dt.toLocaleString();
+            }
+        }
+
+        return {
+            shortViolationId,
+            capturedAt,
+            sourceLabel: sourceMatch?.[1] || null
+        };
+    }, [screenshotPath, violationId]);
 
     useEffect(() => {
         loadScreenshot();
@@ -81,21 +105,24 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         <div className="screenshot-viewer-overlay" onClick={handleBackdropClick}>
             <div className="screenshot-viewer">
                 <div className="viewer-header">
-                    <h3>Violation Evidence</h3>
+                    <div className="viewer-title-group">
+                        <h3>Violation Evidence</h3>
+                        <span className="viewer-subtitle">Focused evidence preview for review decisions</span>
+                    </div>
                     <div className="viewer-actions">
                         <button
                             className="zoom-btn"
                             onClick={() => setIsZoomed(!isZoomed)}
                             disabled={isLoading || !!error}
                         >
-                            {isZoomed ? '🔍-' : '🔍+'}
+                            {isZoomed ? 'Zoom out' : 'Zoom in'}
                         </button>
                         <button
                             className="download-btn"
                             onClick={downloadScreenshot}
                             disabled={isLoading || !!error}
                         >
-                            📥 Download
+                            Download
                         </button>
                         <button className="close-btn" onClick={onClose}>
                             ✕
@@ -135,12 +162,19 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
                 </div>
 
                 <div className="viewer-footer">
-                    <div className="screenshot-info">
-                        <span className="info-label">File:</span>
-                        <span className="info-value">{screenshotPath.split('/').pop() || screenshotPath}</span>
+                    <div className="screenshot-info" aria-label="Evidence metadata">
+                        {evidenceMeta.shortViolationId && (
+                            <span className="meta-pill">Case {evidenceMeta.shortViolationId}</span>
+                        )}
+                        {evidenceMeta.sourceLabel && (
+                            <span className="meta-pill">Source {evidenceMeta.sourceLabel}</span>
+                        )}
+                        {evidenceMeta.capturedAt && (
+                            <span className="meta-pill">Captured {evidenceMeta.capturedAt}</span>
+                        )}
                     </div>
                     <div className="viewer-controls">
-                        <span className="help-text">Press ESC to close • Click outside to close</span>
+                        <span className="help-text">ESC or outside click closes this view</span>
                     </div>
                 </div>
             </div>

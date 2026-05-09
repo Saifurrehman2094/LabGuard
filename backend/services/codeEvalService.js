@@ -166,7 +166,6 @@ class CodeEvalService {
       let totalScore = 0;
       let maxScore = 0;
       const results = [];
-      let aborted = false;
       const categoryStats = {};
       const failedExamples = [];
       const runtimeSamples = [];
@@ -174,7 +173,6 @@ class CodeEvalService {
       const compareOptions = this._buildCompareOptions(questionId, testCases);
 
       for (const tc of testCases) {
-      if (aborted) break;
       const weight = typeof tc.weight === 'number' ? tc.weight : 1.0;
       maxScore += weight;
 
@@ -234,18 +232,12 @@ class CodeEvalService {
         results.push(resultRow);
 
         if (isTimeout) {
-          aborted = true;
           timeoutCount += 1;
         }
       }
     }
 
-      const status =
-      aborted && totalScore > 0
-        ? 'partial'
-        : aborted
-        ? 'partial'
-        : 'completed';
+      const status = 'completed';
 
       const requirementOptions = this._extractRequirementOptions(questionId, testCases);
       const staticAnalysis = this.analysisService.analyzeCppSource(cppSource, requirementOptions);

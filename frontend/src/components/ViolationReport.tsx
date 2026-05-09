@@ -59,6 +59,7 @@ const ViolationReport: React.FC<ViolationReportProps> = ({ examId, examTitle }) 
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'suspicious' | 'reviewed'>('pending');
   const [sortBy, setSortBy] = useState<'risk' | 'recent' | 'name'>('risk');
   const [isUpdatingReview, setIsUpdatingReview] = useState(false);
+  const [reviewUpdateNote, setReviewUpdateNote] = useState('');
 
   const loadIntegrityData = async () => {
     try {
@@ -206,6 +207,10 @@ const ViolationReport: React.FC<ViolationReportProps> = ({ examId, examTitle }) 
             : student
         )
       );
+      const nextReviewed = changes.isReviewed ?? selectedStudent.isReviewed;
+      const nextSuspicious = changes.isSuspicious ?? selectedStudent.isSuspicious;
+      const statusLabel = nextSuspicious ? 'Suspicious' : nextReviewed ? 'Reviewed' : 'Pending review';
+      setReviewUpdateNote(`Status updated to "${statusLabel}". This note is saved with the integrity case timeline.`);
     } catch (e) {
       console.error('Failed to update review state:', e);
       setError('Failed to update integrity review state');
@@ -282,6 +287,16 @@ const ViolationReport: React.FC<ViolationReportProps> = ({ examId, examTitle }) 
     return normalized.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   };
 
+  const isCooldownWithoutScreenshot = (violation: CameraViolation) => {
+    if (violation.screenshotPath) return false;
+    const details = (violation.details || '').toLowerCase();
+    return details.includes('cooldown') || details.includes('disabled');
+  };
+
+  const visibleCameraViolations = selectedCameraViolations.filter(
+    (violation) => !isCooldownWithoutScreenshot(violation)
+  );
+
   const riskLabel = (level: string) => {
     if (level === 'high') return 'High attention';
     if (level === 'medium') return 'Review suggested';
@@ -327,7 +342,7 @@ const ViolationReport: React.FC<ViolationReportProps> = ({ examId, examTitle }) 
             <p className="integrity-review-eyebrow">Exam integrity</p>
             <h2 className="integrity-review-title">{examTitle}</h2>
             <p className="integrity-review-subtitle">
-              Review app and camera incidents per student. Open evidence to see full-screen captures when available.
+              Review app and camera incidents per student. Mark review outcomes to keep a clear audit trail.
             </p>
           </div>
           <div className="integrity-kpi-row" role="group" aria-label="Incident summary">
@@ -361,6 +376,7 @@ const ViolationReport: React.FC<ViolationReportProps> = ({ examId, examTitle }) 
         </div>
       ) : (
         <div className="integrity-layout">
+          {reviewUpdateNote && <div className="integrity-update-note">{reviewUpdateNote}</div>}
           <aside className="students-panel" aria-label="Students with incidents">
             <div className="students-panel-head">
               <h3 className="students-panel-title">Students</h3>
@@ -457,7 +473,7 @@ const ViolationReport: React.FC<ViolationReportProps> = ({ examId, examTitle }) 
                       <strong>{selectedAppViolations.length}</strong> app
                     </span>
                     <span className="detail-stat">
-                      <strong>{selectedCameraViolations.length}</strong> camera
+                      <strong>{visibleCameraViolations.length}</strong> camera
                     </span>
                     <span className="detail-stat">
                       <strong>{reviewedCount}</strong> reviewed
@@ -469,7 +485,7 @@ const ViolationReport: React.FC<ViolationReportProps> = ({ examId, examTitle }) 
                         disabled={isUpdatingReview}
                         onClick={() => updateReviewState({ isReviewed: !selectedStudent.isReviewed })}
                       >
-                        {selectedStudent.isReviewed ? 'Marked Reviewed' : 'Mark Reviewed'}
+                        {selectedStudent.isReviewed ? 'Reviewed: click to reopen' : 'Mark as reviewed'}
                       </button>
                       <button
                         type="button"
@@ -477,7 +493,7 @@ const ViolationReport: React.FC<ViolationReportProps> = ({ examId, examTitle }) 
                         disabled={isUpdatingReview}
                         onClick={() => updateReviewState({ isSuspicious: !selectedStudent.isSuspicious })}
                       >
-                        {selectedStudent.isSuspicious ? 'Suspicious' : 'Flag Suspicious'}
+                        {selectedStudent.isSuspicious ? 'Suspicious: click to clear' : 'Flag as suspicious'}
                       </button>
                     </div>
                   </div>
@@ -557,7 +573,7 @@ const ViolationReport: React.FC<ViolationReportProps> = ({ examId, examTitle }) 
                       <h4 className="detail-card-title">Camera monitoring</h4>
                       <p className="detail-card-desc">Presence and posture alerts from the session</p>
                     </div>
-                    {selectedCameraViolations.length === 0 ? (
+                    {visibleCameraViolations.length === 0 ? (
                       <p className="empty-text">No camera events for this student.</p>
                     ) : (
                       <div className="detail-table-wrap">
@@ -572,7 +588,7 @@ const ViolationReport: React.FC<ViolationReportProps> = ({ examId, examTitle }) 
                           </tr>
                         </thead>
                         <tbody>
-                          {selectedCameraViolations.map((violation) => (
+                          {visibleCameraViolations.map((violation) => (
                             <tr key={violation.cameraViolationId}>
                               <td>{formatDateTime(violation.timestamp)}</td>
                               <td>{formatViolationTypeLabel(violation.violationType)}</td>
