@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import './CodeQuestionsTab.css';
+import React, { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import "./CodeQuestionsTab.css";
 
 interface ExamSummary {
   examId: string;
@@ -18,7 +19,7 @@ interface Question {
   created_at?: string;
   problem_type?: string;
   required_concepts?: string[];
-  requirements_mode?: 'auto' | 'manual';
+  requirements_mode?: "auto" | "manual";
   is_pattern_question?: boolean;
   difficulty?: string;
   testCases?: TestCase[];
@@ -47,71 +48,90 @@ interface CodeQuestionsTabProps {
 }
 
 const REQUIREMENT_OPTIONS = [
-  { value: 'loops', label: 'Loops' },
-  { value: 'do_while', label: 'Do-While' },
-  { value: 'switch', label: 'Switch/Case' },
-  { value: 'nested_loops', label: 'Nested Loops' },
-  { value: 'conditionals', label: 'Conditionals' },
-  { value: 'recursion', label: 'Recursion' },
-  { value: 'arrays', label: '1D Arrays' },
-  { value: 'arrays_2d', label: '2D Arrays' },
-  { value: 'arrays_3d', label: '3D Arrays' },
-  { value: 'pointers', label: 'Pointers' }
+  { value: "loops", label: "Loops" },
+  { value: "do_while", label: "Do-While" },
+  { value: "switch", label: "Switch/Case" },
+  { value: "nested_loops", label: "Nested Loops" },
+  { value: "conditionals", label: "Conditionals" },
+  { value: "recursion", label: "Recursion" },
+  { value: "arrays", label: "1D Arrays" },
+  { value: "arrays_2d", label: "2D Arrays" },
+  { value: "arrays_3d", label: "3D Arrays" },
+  { value: "pointers", label: "Pointers" },
 ];
 
 const PROBLEM_TYPES = [
-  { value: 'basic_programming', label: 'Basic Programming' },
-  { value: 'loops', label: 'Loops' },
-  { value: 'conditionals', label: 'Conditionals' },
-  { value: 'recursion', label: 'Recursion' },
-  { value: 'arrays_1d', label: '1D Arrays' },
-  { value: 'arrays_2d', label: '2D Arrays' },
-  { value: 'arrays_3d', label: '3D Arrays' },
-  { value: 'pointers', label: 'Pointers' },
-  { value: 'patterns', label: 'Patterns' }
+  { value: "basic_programming", label: "Basic Programming" },
+  { value: "loops", label: "Loops" },
+  { value: "conditionals", label: "Conditionals" },
+  { value: "recursion", label: "Recursion" },
+  { value: "arrays_1d", label: "1D Arrays" },
+  { value: "arrays_2d", label: "2D Arrays" },
+  { value: "arrays_3d", label: "3D Arrays" },
+  { value: "pointers", label: "Pointers" },
+  { value: "patterns", label: "Patterns" },
 ];
 
-const DIFFICULTY_OPTIONS = ['easy', 'medium', 'hard'];
+const DIFFICULTY_OPTIONS = ["easy", "medium", "hard"];
 
 const normalizeMultilineText = (value: any): string => {
-  if (value == null) return '';
+  if (value == null) return "";
   let text = String(value);
-  text = text.replace(/\r\n/g, '\n');
-  text = text.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
-  if (text.includes('/n') && !text.includes('\\n')) {
-    text = text.replace(/\/n/g, '\n');
+  text = text.replace(/\r\n/g, "\n");
+  text = text
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t");
+  if (text.includes("/n") && !text.includes("\\n")) {
+    text = text.replace(/\/n/g, "\n");
   }
   return text;
 };
 
 const ensureConstraints = (question: Question) => ({
   ...(question.constraints_json || {}),
-  problem_type: question.problem_type || question.constraints_json?.problem_type || 'basic_programming',
-  required_concepts: question.required_concepts || question.constraints_json?.required_concepts || [],
-  requirements_mode: question.requirements_mode || question.constraints_json?.requirements_mode || 'auto',
-  is_pattern_question: question.is_pattern_question ?? question.constraints_json?.is_pattern_question ?? false,
-  difficulty: question.difficulty || question.constraints_json?.difficulty || 'medium'
+  problem_type:
+    question.problem_type ||
+    question.constraints_json?.problem_type ||
+    "basic_programming",
+  required_concepts:
+    question.required_concepts ||
+    question.constraints_json?.required_concepts ||
+    [],
+  requirements_mode:
+    question.requirements_mode ||
+    question.constraints_json?.requirements_mode ||
+    "auto",
+  is_pattern_question:
+    question.is_pattern_question ??
+    question.constraints_json?.is_pattern_question ??
+    false,
+  difficulty:
+    question.difficulty || question.constraints_json?.difficulty || "medium",
 });
 
 const normalizeTestCase = (testCase: any): TestCase => ({
   ...testCase,
-  input:
-    normalizeMultilineText(testCase?.input ?? testCase?.stdin ?? ''),
-  expected_output:
-    normalizeMultilineText(testCase?.expected_output ?? testCase?.expectedOutput ?? testCase?.stdout ?? ''),
+  input: normalizeMultilineText(testCase?.input ?? testCase?.stdin ?? ""),
+  expected_output: normalizeMultilineText(
+    testCase?.expected_output ??
+      testCase?.expectedOutput ??
+      testCase?.stdout ??
+      "",
+  ),
   description:
     testCase?.description ||
     testCase?.metadata?.description ||
     testCase?.name ||
-    'Covers a representative execution path.',
+    "Covers a representative execution path.",
   metadata: {
     ...(testCase?.metadata || {}),
     description:
       testCase?.description ||
       testCase?.metadata?.description ||
       testCase?.name ||
-      'Covers a representative execution path.'
-  }
+      "Covers a representative execution path.",
+  },
 });
 
 const normalizeQuestion = (question: any): Question => {
@@ -119,12 +139,16 @@ const normalizeQuestion = (question: any): Question => {
   return {
     ...question,
     constraints_json: constraints,
-    problem_type: question?.problem_type || constraints.problem_type || 'basic_programming',
-    required_concepts: question?.required_concepts || constraints.required_concepts || [],
-    requirements_mode: question?.requirements_mode || constraints.requirements_mode || 'auto',
-    is_pattern_question: question?.is_pattern_question ?? constraints.is_pattern_question ?? false,
-    difficulty: question?.difficulty || constraints.difficulty || 'medium',
-    testCases: (question?.testCases || []).map(normalizeTestCase)
+    problem_type:
+      question?.problem_type || constraints.problem_type || "basic_programming",
+    required_concepts:
+      question?.required_concepts || constraints.required_concepts || [],
+    requirements_mode:
+      question?.requirements_mode || constraints.requirements_mode || "auto",
+    is_pattern_question:
+      question?.is_pattern_question ?? constraints.is_pattern_question ?? false,
+    difficulty: question?.difficulty || constraints.difficulty || "medium",
+    testCases: (question?.testCases || []).map(normalizeTestCase),
   };
 };
 
@@ -134,36 +158,99 @@ const getQuestionSelectionId = (question: Question, index: number) =>
 const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
   const api = (window as any).electronAPI;
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [selectedQuestionId, setSelectedQuestionId] = useState<string | undefined>();
+  const [selectedQuestionId, setSelectedQuestionId] = useState<
+    string | undefined
+  >();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [analyzingRequirementId, setAnalyzingRequirementId] = useState<string | undefined>();
+  const [analyzingRequirementId, setAnalyzingRequirementId] = useState<
+    string | undefined
+  >();
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [deletedQuestionIds, setDeletedQuestionIds] = useState<string[]>([]);
 
   const loadQuestions = async () => {
-    if (!api?.getQuestionsWithTestCases) return;
     try {
       setLoading(true);
       setError(null);
-      const res = await api.getQuestionsWithTestCases(exam.examId);
-      if (!res.success) {
-        setError(res.error || 'Failed to load questions');
+      let res: any = null;
+
+      // Try to load from cloud API first (for cloud-uploaded exams)
+      try {
+        const cloudResult = await axios.get(
+          `http://localhost:5000/api/exams/${exam.examId}/questions`,
+        );
+        if (cloudResult.data.success && cloudResult.data.questions) {
+          // Map cloud format to local format
+          const mappedQuestions = cloudResult.data.questions.map((q: any) => ({
+            question_id: q.question_id,
+            exam_id: q.exam_id,
+            title: q.question_text || "Untitled Question",
+            description: q.question_text || "",
+            source_page: q.metadata?.source_page || null,
+            max_score: q.metadata?.max_score || 10,
+            problem_type:
+              q.constraints_json?.problem_type || "basic_programming",
+            required_concepts: q.constraints_json?.required_concepts || [],
+            requirements_mode: q.constraints_json?.requirements_mode || "auto",
+            is_pattern_question:
+              q.constraints_json?.is_pattern_question || false,
+            difficulty: q.constraints_json?.difficulty || "medium",
+            constraints_json: q.constraints_json,
+            testCases: (q.testCases || []).map((tc: any) => ({
+              test_case_id: tc.test_case_id,
+              question_id: tc.question_id,
+              name:
+                tc.metadata?.name || `Test Case ${tc.test_case_id.slice(0, 8)}`,
+              description: tc.metadata?.description || "",
+              input: tc.input || "",
+              expected_output: tc.expected_output || "",
+              is_hidden: tc.is_hidden || false,
+              is_edge_case: tc.is_edge_case || false,
+              is_generated: false,
+              time_limit_ms: tc.time_limit_ms || 3000,
+              memory_limit_kb: null,
+              weight: tc.weight || 1.0,
+              metadata: tc.metadata,
+            })),
+          }));
+
+          res = {
+            success: true,
+            questions: mappedQuestions,
+          };
+        }
+      } catch (cloudErr) {
+        console.warn(
+          "[CodeQuestionsTab] Cloud fetch failed, trying local API:",
+          cloudErr,
+        );
+        // Fall back to local Electron API
+        if (api?.getQuestionsWithTestCases) {
+          res = await api.getQuestionsWithTestCases(exam.examId);
+        }
+      }
+
+      if (!res || !res.success) {
+        setError(res?.error || "Failed to load questions");
         setQuestions([]);
         return;
       }
+
       const loaded = (res.questions || []).map(normalizeQuestion);
       setQuestions(loaded);
       setDeletedQuestionIds([]);
       if (loaded.length) {
-        setSelectedQuestionId((current) => current || getQuestionSelectionId(loaded[0], 0));
+        setSelectedQuestionId(
+          (current) => current || getQuestionSelectionId(loaded[0], 0),
+        );
       }
     } catch (err: any) {
-      console.error('Error loading questions:', err);
-      setError('Failed to load questions. Please try again.');
+      console.error("Error loading questions:", err);
+      setError("Failed to load questions. Please try again.");
       setQuestions([]);
     } finally {
       setLoading(false);
@@ -176,12 +263,18 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
 
   const currentQuestion = useMemo(
     () =>
-      questions.find((question, index) => getQuestionSelectionId(question, index) === selectedQuestionId) || null,
-    [questions, selectedQuestionId]
+      questions.find(
+        (question, index) =>
+          getQuestionSelectionId(question, index) === selectedQuestionId,
+      ) || null,
+    [questions, selectedQuestionId],
   );
 
   const currentQuestionIndex = currentQuestion
-    ? questions.findIndex((question, index) => getQuestionSelectionId(question, index) === selectedQuestionId)
+    ? questions.findIndex(
+        (question, index) =>
+          getQuestionSelectionId(question, index) === selectedQuestionId,
+      )
     : -1;
 
   const handleQuestionChange = (index: number, patch: Partial<Question>) => {
@@ -190,7 +283,8 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
       next[index] = normalizeQuestion({
         ...next[index],
         ...patch,
-        constraints_json: patch.constraints_json ?? next[index].constraints_json
+        constraints_json:
+          patch.constraints_json ?? next[index].constraints_json,
       });
       return next;
     });
@@ -203,26 +297,59 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
       const constraints = {
         ...ensureConstraints(existing),
         ...(patch.constraints_json || {}),
-        ...(patch.problem_type !== undefined ? { problem_type: patch.problem_type } : {}),
-        ...(patch.required_concepts !== undefined ? { required_concepts: patch.required_concepts } : {}),
-        ...(patch.requirements_mode !== undefined ? { requirements_mode: patch.requirements_mode } : {}),
-        ...(patch.is_pattern_question !== undefined ? { is_pattern_question: patch.is_pattern_question } : {}),
-        ...(patch.difficulty !== undefined ? { difficulty: patch.difficulty } : {})
+        ...(patch.problem_type !== undefined
+          ? { problem_type: patch.problem_type }
+          : {}),
+        ...(patch.required_concepts !== undefined
+          ? { required_concepts: patch.required_concepts }
+          : {}),
+        ...(patch.requirements_mode !== undefined
+          ? { requirements_mode: patch.requirements_mode }
+          : {}),
+        ...(patch.is_pattern_question !== undefined
+          ? { is_pattern_question: patch.is_pattern_question }
+          : {}),
+        ...(patch.difficulty !== undefined
+          ? { difficulty: patch.difficulty }
+          : {}),
       };
-      next[index] = normalizeQuestion({ ...existing, ...patch, constraints_json: constraints });
+      next[index] = normalizeQuestion({
+        ...existing,
+        ...patch,
+        constraints_json: constraints,
+      });
       return next;
     });
   };
 
   const handleExtractFromPdf = async () => {
-    if (!api?.extractQuestions) return;
     try {
       setExtracting(true);
       setError(null);
       setInfo(null);
-      const res = await api.extractQuestions(exam.examId);
-      if (!res.success) {
-        setError(res.error || 'Failed to extract questions from PDF');
+      let res: any = null;
+
+      // Try cloud API first (for cloud-uploaded exams)
+      try {
+        const cloudResult = await axios.post(
+          `http://localhost:5000/api/exams/${exam.examId}/extract-questions`,
+        );
+        if (cloudResult.data.success) {
+          res = cloudResult.data;
+        }
+      } catch (cloudErr) {
+        console.warn(
+          "[CodeQuestionsTab] Cloud extraction failed, trying local API:",
+          cloudErr,
+        );
+        // Fall back to local Electron API
+        if (api?.extractQuestions) {
+          res = await api.extractQuestions(exam.examId);
+        }
+      }
+
+      if (!res || !res.success) {
+        setError(res?.error || "Failed to extract questions from PDF");
         return;
       }
 
@@ -230,11 +357,11 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         (res.questions || []).map(async (question: any, index: number) => {
           const baseQuestion: Question = normalizeQuestion({
             title: question.title || `Question ${index + 1}`,
-            description: question.description || '',
-            source_page: question.page ?? null,
+            description: question.description || "",
+            source_page: question.page ?? question.source_page ?? null,
             max_score: 10,
-            _tempId: question.tempId,
-            testCases: []
+            _tempId: question.tempId || question.question_id,
+            testCases: [],
           });
 
           if (!api?.aiAnalyzeRequirements || !baseQuestion.description) {
@@ -243,35 +370,43 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
 
           try {
             const analysis = await api.aiAnalyzeRequirements(
-              [baseQuestion.title, baseQuestion.description].filter(Boolean).join('\n\n')
+              [baseQuestion.title, baseQuestion.description]
+                .filter(Boolean)
+                .join("\n\n"),
             );
             if (!analysis?.success) return baseQuestion;
             return normalizeQuestion({
               ...baseQuestion,
-              problem_type: analysis.problemType || 'basic_programming',
+              problem_type: analysis.problemType || "basic_programming",
               required_concepts: analysis.requiredConcepts || [],
-              requirements_mode: 'auto',
+              requirements_mode: "auto",
               is_pattern_question: !!analysis.isPatternQuestion,
               constraints_json: {
                 ...ensureConstraints(baseQuestion),
-                problem_type: analysis.problemType || 'basic_programming',
+                problem_type: analysis.problemType || "basic_programming",
                 required_concepts: analysis.requiredConcepts || [],
-                requirements_mode: 'auto',
-                is_pattern_question: !!analysis.isPatternQuestion
-              }
+                requirements_mode: "auto",
+                is_pattern_question: !!analysis.isPatternQuestion,
+              },
             });
           } catch {
             return baseQuestion;
           }
-        })
+        }),
       );
 
       setQuestions(extracted);
-      setSelectedQuestionId(extracted.length ? getQuestionSelectionId(extracted[0], 0) : undefined);
-      setInfo('Questions extracted and requirement suggestions generated. Review them, then save.');
+      setSelectedQuestionId(
+        extracted.length ? getQuestionSelectionId(extracted[0], 0) : undefined,
+      );
+      setInfo(
+        "Questions extracted and requirement suggestions generated. Review them, then save.",
+      );
     } catch (err: any) {
-      console.error('Error extracting questions:', err);
-      setError('Failed to extract questions. You can still add questions manually.');
+      console.error("Error extracting questions:", err);
+      setError(
+        "Failed to extract questions. You can still add questions manually.",
+      );
     } finally {
       setExtracting(false);
     }
@@ -294,24 +429,33 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         required_concepts: question.required_concepts,
         requirements_mode: question.requirements_mode,
         is_pattern_question: question.is_pattern_question,
-        difficulty: question.difficulty
+        difficulty: question.difficulty,
       }));
-      const res = await api.saveQuestions(exam.examId, payload, deletedQuestionIds);
+      const res = await api.saveQuestions(
+        exam.examId,
+        payload,
+        deletedQuestionIds,
+      );
       if (!res.success) {
-        setError(res.error || 'Failed to save questions');
+        setError(res.error || "Failed to save questions");
         return;
       }
       if (Array.isArray(res.blockedDeletes) && res.blockedDeletes.length > 0) {
-        setError(res.blockedDeletes.map((item: any) => item.reason || 'Delete blocked').join(' '));
+        setError(
+          res.blockedDeletes
+            .map((item: any) => item.reason || "Delete blocked")
+            .join(" "),
+        );
       }
       const saved = (res.questions || []).map(normalizeQuestion);
       setQuestions(saved);
       setDeletedQuestionIds([]);
-      if (saved.length) setSelectedQuestionId(getQuestionSelectionId(saved[0], 0));
-      if (!res.blockedDeletes?.length) setInfo('Questions saved successfully.');
+      if (saved.length)
+        setSelectedQuestionId(getQuestionSelectionId(saved[0], 0));
+      if (!res.blockedDeletes?.length) setInfo("Questions saved successfully.");
     } catch (err: any) {
-      console.error('Error saving questions:', err);
-      setError('Failed to save questions. Please try again.');
+      console.error("Error saving questions:", err);
+      setError("Failed to save questions. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -323,23 +467,23 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
       setAnalyzingRequirementId(question.question_id);
       setError(null);
       const res = await api.aiAnalyzeRequirements(
-        [question.title, question.description].filter(Boolean).join('\n\n')
+        [question.title, question.description].filter(Boolean).join("\n\n"),
       );
       if (!res.success) {
-        setError(res.error || 'Failed to analyze requirements.');
+        setError(res.error || "Failed to analyze requirements.");
         return;
       }
       const index = questions.findIndex((item) => item === question);
       if (index >= 0) {
         setQuestionRequirements(index, {
-          problem_type: res.problemType || 'basic_programming',
+          problem_type: res.problemType || "basic_programming",
           required_concepts: res.requiredConcepts || [],
-          requirements_mode: 'auto',
-          is_pattern_question: !!res.isPatternQuestion
+          requirements_mode: "auto",
+          is_pattern_question: !!res.isPatternQuestion,
         });
       }
     } catch (err: any) {
-      setError(err?.message || 'Failed to analyze requirements.');
+      setError(err?.message || "Failed to analyze requirements.");
     } finally {
       setAnalyzingRequirementId(undefined);
     }
@@ -347,19 +491,19 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
 
   const handleAddQuestion = () => {
     const nextQuestion = normalizeQuestion({
-      title: 'New Question',
-      description: '',
+      title: "New Question",
+      description: "",
       source_page: null,
       max_score: 10,
       constraints_json: ensureConstraints({
-        title: '',
-        problem_type: 'basic_programming',
+        title: "",
+        problem_type: "basic_programming",
         required_concepts: [],
-        requirements_mode: 'auto',
+        requirements_mode: "auto",
         is_pattern_question: false,
-        difficulty: 'medium'
+        difficulty: "medium",
       }),
-      testCases: []
+      testCases: [],
     });
     setQuestions((previous) => [...previous, nextQuestion]);
   };
@@ -371,24 +515,35 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
     });
     const target = questions[index];
     if (target?.question_id) {
-      setDeletedQuestionIds((previous) => Array.from(new Set([...previous, target.question_id as string])));
+      setDeletedQuestionIds((previous) =>
+        Array.from(new Set([...previous, target.question_id as string])),
+      );
     }
     if (getQuestionSelectionId(target, index) === selectedQuestionId) {
-      const next = questions.filter((_, currentIndex) => currentIndex !== index);
-      setSelectedQuestionId(next.length ? getQuestionSelectionId(next[0], 0) : undefined);
+      const next = questions.filter(
+        (_, currentIndex) => currentIndex !== index,
+      );
+      setSelectedQuestionId(
+        next.length ? getQuestionSelectionId(next[0], 0) : undefined,
+      );
     }
   };
 
   const getCurrentTestCases = (): TestCase[] =>
-    currentQuestion?.testCases?.filter((testCase) => !testCase._isDeleted) || [];
+    currentQuestion?.testCases?.filter((testCase) => !testCase._isDeleted) ||
+    [];
 
-  const updateTestCasesForCurrent = (updater: (previous: TestCase[]) => TestCase[]) => {
+  const updateTestCasesForCurrent = (
+    updater: (previous: TestCase[]) => TestCase[],
+  ) => {
     if (currentQuestionIndex < 0) return;
     setQuestions((previous) => {
       const next = [...previous];
       next[currentQuestionIndex] = {
         ...next[currentQuestionIndex],
-        testCases: updater(next[currentQuestionIndex].testCases || []).map(normalizeTestCase)
+        testCases: updater(next[currentQuestionIndex].testCases || []).map(
+          normalizeTestCase,
+        ),
       };
       return next;
     });
@@ -396,29 +551,45 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
 
   const handleGenerateTestCases = async () => {
     if (!api?.generateTestCases || !currentQuestion?.question_id) {
-      setError('Please save questions first, then select a question to generate test cases for.');
+      setError(
+        "Please save questions first, then select a question to generate test cases for.",
+      );
       return;
     }
     try {
       setGenerating(true);
       setError(null);
       setInfo(null);
-      const res = await api.generateTestCases(exam.examId, currentQuestion.question_id, 'auto');
+      const res = await api.generateTestCases(
+        exam.examId,
+        currentQuestion.question_id,
+        "auto",
+      );
       if (!res.success) {
-        setError(res.error || 'Failed to generate test cases.');
+        setError(res.error || "Failed to generate test cases.");
         return;
       }
-      const generated: TestCase[] = (res.testCases || []).map(normalizeTestCase);
+      const generated: TestCase[] = (res.testCases || []).map(
+        normalizeTestCase,
+      );
       updateTestCasesForCurrent((previous) => [...previous, ...generated]);
-      const missingExpected = generated.filter((tc: TestCase) => !String(tc.expected_output || '').trim()).length;
+      const missingExpected = generated.filter(
+        (tc: TestCase) => !String(tc.expected_output || "").trim(),
+      ).length;
       if (missingExpected > 0) {
-        setInfo(`AI-generated test cases added. ${missingExpected} case(s) still need expected output review before saving.`);
+        setInfo(
+          `AI-generated test cases added. ${missingExpected} case(s) still need expected output review before saving.`,
+        );
       } else {
-        setInfo('AI-generated test cases added. Review them, then save test cases.');
+        setInfo(
+          "AI-generated test cases added. Review them, then save test cases.",
+        );
       }
     } catch (err: any) {
-      console.error('Error generating test cases:', err);
-      setError('Failed to generate test cases. You can still add them manually.');
+      console.error("Error generating test cases:", err);
+      setError(
+        "Failed to generate test cases. You can still add them manually.",
+      );
     } finally {
       setGenerating(false);
     }
@@ -428,15 +599,15 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
     updateTestCasesForCurrent((previous) => [
       ...previous,
       normalizeTestCase({
-        name: 'New test case',
-        description: 'Describe what this test case is checking.',
-        input: '',
-        expected_output: '',
+        name: "New test case",
+        description: "Describe what this test case is checking.",
+        input: "",
+        expected_output: "",
         is_hidden: false,
         is_edge_case: false,
         is_generated: false,
-        weight: 1
-      })
+        weight: 1,
+      }),
     ]);
   };
 
@@ -450,8 +621,10 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         metadata: {
           ...(current.metadata || {}),
           ...(patch.metadata || {}),
-          ...(patch.description !== undefined ? { description: patch.description } : {})
-        }
+          ...(patch.description !== undefined
+            ? { description: patch.description }
+            : {}),
+        },
       });
       return next;
     });
@@ -469,19 +642,25 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
 
   const handleSaveTestCases = async () => {
     if (!api?.upsertTestCases || !currentQuestion?.question_id) {
-      setError('Please save questions first, then select a question to save test cases for.');
+      setError(
+        "Please save questions first, then select a question to save test cases for.",
+      );
       return;
     }
     try {
       setSaving(true);
       setError(null);
       setInfo(null);
-      const activeCases = (currentQuestion.testCases || []).filter((testCase) => !testCase._isDeleted);
+      const activeCases = (currentQuestion.testCases || []).filter(
+        (testCase) => !testCase._isDeleted,
+      );
       const invalidCount = activeCases.filter(
-        (testCase) => !String(testCase.expected_output || '').trim()
+        (testCase) => !String(testCase.expected_output || "").trim(),
       ).length;
       if (invalidCount > 0) {
-        setError(`Cannot save test cases: ${invalidCount} case(s) have empty expected output.`);
+        setError(
+          `Cannot save test cases: ${invalidCount} case(s) have empty expected output.`,
+        );
         return;
       }
       const payload = (currentQuestion.testCases || []).map((testCase) => ({
@@ -498,25 +677,37 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         weight: testCase.weight,
         metadata: {
           ...(testCase.metadata || {}),
-          description: testCase.description
+          description: testCase.description,
         },
-        op: testCase._isDeleted ? 'delete' : testCase.test_case_id ? 'update' : 'create'
+        op: testCase._isDeleted
+          ? "delete"
+          : testCase.test_case_id
+            ? "update"
+            : "create",
       }));
-      const res = await api.upsertTestCases(currentQuestion.question_id, payload);
+      const res = await api.upsertTestCases(
+        currentQuestion.question_id,
+        payload,
+      );
       if (!res.success) {
-        setError(res.error || 'Failed to save test cases');
+        setError(res.error || "Failed to save test cases");
         return;
       }
       if (Array.isArray(res.blockedDeletes) && res.blockedDeletes.length > 0) {
-        setError(res.blockedDeletes.map((item: any) => item.reason || 'Delete blocked').join(' '));
+        setError(
+          res.blockedDeletes
+            .map((item: any) => item.reason || "Delete blocked")
+            .join(" "),
+        );
       }
       handleQuestionChange(currentQuestionIndex, {
-        testCases: (res.testCases || []).map(normalizeTestCase)
+        testCases: (res.testCases || []).map(normalizeTestCase),
       });
-      if (!res.blockedDeletes?.length) setInfo('Test cases saved successfully.');
+      if (!res.blockedDeletes?.length)
+        setInfo("Test cases saved successfully.");
     } catch (err: any) {
-      console.error('Error saving test cases:', err);
-      setError('Failed to save test cases. Please try again.');
+      console.error("Error saving test cases:", err);
+      setError("Failed to save test cases. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -530,18 +721,31 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         <div className="cq-header-text">
           <h3>Code Questions for: {exam.title}</h3>
           <p className="cq-subtitle">
-            Extract questions from the exam PDF, review AI-suggested requirements, and manage teacher-facing test cases.
+            Extract questions from the exam PDF, review AI-suggested
+            requirements, and manage teacher-facing test cases.
           </p>
         </div>
         <div className="cq-header-actions">
-          <button className="btn-secondary" onClick={handleExtractFromPdf} disabled={extracting || loading}>
-            {extracting ? 'Extracting…' : 'Extract from PDF'}
+          <button
+            className="btn-secondary"
+            onClick={handleExtractFromPdf}
+            disabled={extracting || loading}
+          >
+            {extracting ? "Extracting…" : "Extract from PDF"}
           </button>
-          <button className="btn-secondary" onClick={handleAddQuestion} disabled={loading}>
+          <button
+            className="btn-secondary"
+            onClick={handleAddQuestion}
+            disabled={loading}
+          >
             Add Question
           </button>
-          <button className="btn-primary" onClick={handleSaveQuestions} disabled={saving || loading}>
-            {saving ? 'Saving…' : 'Save Questions'}
+          <button
+            className="btn-primary"
+            onClick={handleSaveQuestions}
+            disabled={saving || loading}
+          >
+            {saving ? "Saving…" : "Save Questions"}
           </button>
         </div>
       </div>
@@ -569,42 +773,55 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
               {questions.map((question, index) => {
                 const selectionId = getQuestionSelectionId(question, index);
                 return (
-                <li
-                  key={question.question_id || question._tempId || index}
-                  className={`cq-question-item ${selectionId === selectedQuestionId ? 'active' : ''}`}
-                  onClick={() => setSelectedQuestionId(selectionId)}
-                >
-                  <div className="cq-question-main">
-                    <input
-                      type="text"
-                      value={question.title}
-                      onChange={(e) => handleQuestionChange(index, { title: e.target.value })}
-                      placeholder="Question title"
-                    />
-                    <button
-                      className="cq-delete-btn"
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteQuestion(index);
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <div className="cq-question-meta">
-                    {question.source_page != null && <span>Page {question.source_page}</span>}
-                    {question.max_score != null && <span>Max score: {question.max_score}</span>}
-                  </div>
-                  <div className="cq-badge-row">
-                    <span className="cq-badge">{question.problem_type?.replace(/_/g, ' ')}</span>
-                    {(question.required_concepts || []).slice(0, 2).map((concept) => (
-                      <span key={concept} className="cq-badge cq-badge-muted">
-                        {concept.replace(/_/g, ' ')}
+                  <li
+                    key={question.question_id || question._tempId || index}
+                    className={`cq-question-item ${selectionId === selectedQuestionId ? "active" : ""}`}
+                    onClick={() => setSelectedQuestionId(selectionId)}
+                  >
+                    <div className="cq-question-main">
+                      <input
+                        type="text"
+                        value={question.title}
+                        onChange={(e) =>
+                          handleQuestionChange(index, { title: e.target.value })
+                        }
+                        placeholder="Question title"
+                      />
+                      <button
+                        className="cq-delete-btn"
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteQuestion(index);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="cq-question-meta">
+                      {question.source_page != null && (
+                        <span>Page {question.source_page}</span>
+                      )}
+                      {question.max_score != null && (
+                        <span>Max score: {question.max_score}</span>
+                      )}
+                    </div>
+                    <div className="cq-badge-row">
+                      <span className="cq-badge">
+                        {question.problem_type?.replace(/_/g, " ")}
                       </span>
-                    ))}
-                  </div>
-                </li>
+                      {(question.required_concepts || [])
+                        .slice(0, 2)
+                        .map((concept) => (
+                          <span
+                            key={concept}
+                            className="cq-badge cq-badge-muted"
+                          >
+                            {concept.replace(/_/g, " ")}
+                          </span>
+                        ))}
+                    </div>
+                  </li>
                 );
               })}
             </ul>
@@ -616,8 +833,12 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
               <div className="cq-question-detail">
                 <h4>Question Details</h4>
                 <textarea
-                  value={currentQuestion.description || ''}
-                  onChange={(e) => handleQuestionChange(currentQuestionIndex, { description: e.target.value })}
+                  value={currentQuestion.description || ""}
+                  onChange={(e) =>
+                    handleQuestionChange(currentQuestionIndex, {
+                      description: e.target.value,
+                    })
+                  }
                   placeholder="Question description / problem statement"
                 />
               </div>
@@ -627,15 +848,22 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                   <div>
                     <h4>Suggested Requirements</h4>
                     <p className="cq-subtitle">
-                      Auto-detected from the problem text. Switch to manual mode if you want to override them.
+                      Auto-detected from the problem text. Switch to manual mode
+                      if you want to override them.
                     </p>
                   </div>
                   <button
                     className="btn-secondary"
-                    onClick={() => handleGenerateRequirementSuggestions(currentQuestion)}
-                    disabled={analyzingRequirementId === currentQuestion.question_id}
+                    onClick={() =>
+                      handleGenerateRequirementSuggestions(currentQuestion)
+                    }
+                    disabled={
+                      analyzingRequirementId === currentQuestion.question_id
+                    }
                   >
-                    {analyzingRequirementId === currentQuestion.question_id ? 'Analyzing…' : 'Analyze Again'}
+                    {analyzingRequirementId === currentQuestion.question_id
+                      ? "Analyzing…"
+                      : "Analyze Again"}
                   </button>
                 </div>
 
@@ -643,8 +871,14 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                   <label className="cq-constraint-item">
                     Problem type
                     <select
-                      value={currentQuestion.problem_type || 'basic_programming'}
-                      onChange={(e) => setQuestionRequirements(currentQuestionIndex, { problem_type: e.target.value })}
+                      value={
+                        currentQuestion.problem_type || "basic_programming"
+                      }
+                      onChange={(e) =>
+                        setQuestionRequirements(currentQuestionIndex, {
+                          problem_type: e.target.value,
+                        })
+                      }
                     >
                       {PROBLEM_TYPES.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -657,10 +891,12 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                   <label className="cq-constraint-item">
                     Requirements mode
                     <select
-                      value={currentQuestion.requirements_mode || 'auto'}
+                      value={currentQuestion.requirements_mode || "auto"}
                       onChange={(e) =>
                         setQuestionRequirements(currentQuestionIndex, {
-                          requirements_mode: e.target.value as 'auto' | 'manual'
+                          requirements_mode: e.target.value as
+                            | "auto"
+                            | "manual",
                         })
                       }
                     >
@@ -672,8 +908,12 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                   <label className="cq-constraint-item">
                     Difficulty
                     <select
-                      value={currentQuestion.difficulty || 'medium'}
-                      onChange={(e) => setQuestionRequirements(currentQuestionIndex, { difficulty: e.target.value })}
+                      value={currentQuestion.difficulty || "medium"}
+                      onChange={(e) =>
+                        setQuestionRequirements(currentQuestionIndex, {
+                          difficulty: e.target.value,
+                        })
+                      }
                     >
                       {DIFFICULTY_OPTIONS.map((difficulty) => (
                         <option key={difficulty} value={difficulty}>
@@ -690,7 +930,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                     checked={!!currentQuestion.is_pattern_question}
                     onChange={(e) =>
                       setQuestionRequirements(currentQuestionIndex, {
-                        is_pattern_question: e.target.checked
+                        is_pattern_question: e.target.checked,
                       })
                     }
                   />
@@ -702,14 +942,21 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                     <label key={option.value} className="cq-concept-check">
                       <input
                         type="checkbox"
-                        checked={(currentQuestion.required_concepts || []).includes(option.value)}
-                        disabled={currentQuestion.requirements_mode !== 'manual'}
+                        checked={(
+                          currentQuestion.required_concepts || []
+                        ).includes(option.value)}
+                        disabled={
+                          currentQuestion.requirements_mode !== "manual"
+                        }
                         onChange={() => {
-                          const current = new Set(currentQuestion.required_concepts || []);
-                          if (current.has(option.value)) current.delete(option.value);
+                          const current = new Set(
+                            currentQuestion.required_concepts || [],
+                          );
+                          if (current.has(option.value))
+                            current.delete(option.value);
                           else current.add(option.value);
                           setQuestionRequirements(currentQuestionIndex, {
-                            required_concepts: Array.from(current)
+                            required_concepts: Array.from(current),
                           });
                         }}
                       />
@@ -722,17 +969,21 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
               <div className="cq-question-detail">
                 <h4>Teacher Constraints</h4>
                 <p className="cq-subtitle">
-                  These remain teacher-side evaluation signals and can coexist with the suggested requirements above.
+                  These remain teacher-side evaluation signals and can coexist
+                  with the suggested requirements above.
                 </p>
                 {(() => {
                   const constraints = ensureConstraints(currentQuestion);
                   const requiredLoop = !!constraints.required_loop;
                   const requiredRecursion = !!constraints.required_recursion;
-                  const maxLoopNesting = typeof constraints.max_loop_nesting === 'number' ? constraints.max_loop_nesting : 0;
+                  const maxLoopNesting =
+                    typeof constraints.max_loop_nesting === "number"
+                      ? constraints.max_loop_nesting
+                      : 0;
                   const expectedComplexity =
-                    typeof constraints.expected_complexity === 'string'
+                    typeof constraints.expected_complexity === "string"
                       ? constraints.expected_complexity
-                      : 'unspecified';
+                      : "unspecified";
                   return (
                     <div className="cq-constraints-grid">
                       <label className="cq-constraint-item">
@@ -741,7 +992,10 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                           checked={requiredLoop}
                           onChange={(e) =>
                             setQuestionRequirements(currentQuestionIndex, {
-                              constraints_json: { ...constraints, required_loop: e.target.checked }
+                              constraints_json: {
+                                ...constraints,
+                                required_loop: e.target.checked,
+                              },
                             })
                           }
                         />
@@ -753,7 +1007,10 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                           checked={requiredRecursion}
                           onChange={(e) =>
                             setQuestionRequirements(currentQuestionIndex, {
-                              constraints_json: { ...constraints, required_recursion: e.target.checked }
+                              constraints_json: {
+                                ...constraints,
+                                required_recursion: e.target.checked,
+                              },
                             })
                           }
                         />
@@ -768,7 +1025,10 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                           value={maxLoopNesting}
                           onChange={(e) =>
                             setQuestionRequirements(currentQuestionIndex, {
-                              constraints_json: { ...constraints, max_loop_nesting: Number(e.target.value) || 0 }
+                              constraints_json: {
+                                ...constraints,
+                                max_loop_nesting: Number(e.target.value) || 0,
+                              },
                             })
                           }
                         />
@@ -779,7 +1039,10 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                           value={expectedComplexity}
                           onChange={(e) =>
                             setQuestionRequirements(currentQuestionIndex, {
-                              constraints_json: { ...constraints, expected_complexity: e.target.value }
+                              constraints_json: {
+                                ...constraints,
+                                expected_complexity: e.target.value,
+                              },
                             })
                           }
                         >
@@ -800,18 +1063,31 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                 <div>
                   <h4>Test Cases</h4>
                   <p className="cq-subtitle">
-                    Every saved test case carries a short description so teachers know what it is checking at review time.
+                    Every saved test case carries a short description so
+                    teachers know what it is checking at review time.
                   </p>
                 </div>
                 <div className="cq-header-actions">
-                  <button className="btn-secondary" onClick={handleGenerateTestCases} disabled={generating || saving}>
-                    {generating ? 'Generating…' : 'Generate test cases (AI)'}
+                  <button
+                    className="btn-secondary"
+                    onClick={handleGenerateTestCases}
+                    disabled={generating || saving}
+                  >
+                    {generating ? "Generating…" : "Generate test cases (AI)"}
                   </button>
-                  <button className="btn-secondary" onClick={handleAddTestCase} disabled={saving}>
+                  <button
+                    className="btn-secondary"
+                    onClick={handleAddTestCase}
+                    disabled={saving}
+                  >
                     Add Test Case
                   </button>
-                  <button className="btn-primary" onClick={handleSaveTestCases} disabled={saving || generating}>
-                    {saving ? 'Saving…' : 'Save Test Cases'}
+                  <button
+                    className="btn-primary"
+                    onClick={handleSaveTestCases}
+                    disabled={saving || generating}
+                  >
+                    {saving ? "Saving…" : "Save Test Cases"}
                   </button>
                 </div>
               </div>
@@ -841,25 +1117,41 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                           <input
                             type="text"
                             value={testCase.name}
-                            onChange={(e) => handleUpdateTestCase(index, { name: e.target.value })}
+                            onChange={(e) =>
+                              handleUpdateTestCase(index, {
+                                name: e.target.value,
+                              })
+                            }
                           />
                         </td>
                         <td>
                           <textarea
-                            value={testCase.description || ''}
-                            onChange={(e) => handleUpdateTestCase(index, { description: e.target.value })}
+                            value={testCase.description || ""}
+                            onChange={(e) =>
+                              handleUpdateTestCase(index, {
+                                description: e.target.value,
+                              })
+                            }
                           />
                         </td>
                         <td>
                           <textarea
-                            value={testCase.input || ''}
-                            onChange={(e) => handleUpdateTestCase(index, { input: e.target.value })}
+                            value={testCase.input || ""}
+                            onChange={(e) =>
+                              handleUpdateTestCase(index, {
+                                input: e.target.value,
+                              })
+                            }
                           />
                         </td>
                         <td>
                           <textarea
-                            value={testCase.expected_output || ''}
-                            onChange={(e) => handleUpdateTestCase(index, { expected_output: e.target.value })}
+                            value={testCase.expected_output || ""}
+                            onChange={(e) =>
+                              handleUpdateTestCase(index, {
+                                expected_output: e.target.value,
+                              })
+                            }
                           />
                         </td>
                         <td className="cq-flags-cell">
@@ -867,7 +1159,11 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                             <input
                               type="checkbox"
                               checked={!!testCase.is_hidden}
-                              onChange={(e) => handleUpdateTestCase(index, { is_hidden: e.target.checked })}
+                              onChange={(e) =>
+                                handleUpdateTestCase(index, {
+                                  is_hidden: e.target.checked,
+                                })
+                              }
                             />
                             Hidden
                           </label>
@@ -875,7 +1171,11 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                             <input
                               type="checkbox"
                               checked={!!testCase.is_edge_case}
-                              onChange={(e) => handleUpdateTestCase(index, { is_edge_case: e.target.checked })}
+                              onChange={(e) =>
+                                handleUpdateTestCase(index, {
+                                  is_edge_case: e.target.checked,
+                                })
+                              }
                             />
                             Edge
                           </label>
@@ -886,11 +1186,19 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                             min={0}
                             step={0.1}
                             value={testCase.weight ?? 1}
-                            onChange={(e) => handleUpdateTestCase(index, { weight: parseFloat(e.target.value) || 0 })}
+                            onChange={(e) =>
+                              handleUpdateTestCase(index, {
+                                weight: parseFloat(e.target.value) || 0,
+                              })
+                            }
                           />
                         </td>
                         <td>
-                          <button className="cq-delete-btn" type="button" onClick={() => handleDeleteTestCase(index)}>
+                          <button
+                            className="cq-delete-btn"
+                            type="button"
+                            onClick={() => handleDeleteTestCase(index)}
+                          >
                             ✕
                           </button>
                         </td>
@@ -902,7 +1210,10 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
             </>
           ) : (
             <div className="cq-empty">
-              <p>Select a question on the left to view and manage its details and test cases.</p>
+              <p>
+                Select a question on the left to view and manage its details and
+                test cases.
+              </p>
             </div>
           )}
         </div>

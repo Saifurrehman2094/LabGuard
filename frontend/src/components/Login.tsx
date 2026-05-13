@@ -1,9 +1,7 @@
-import React, { useState } from 'react';
-import FaceAuth from './FaceAuth';
-import CameraTestModule from './CameraTestModule';
-import './Login.css';
-
-
+import React, { useState } from "react";
+import FaceAuth from "./FaceAuth";
+import CameraTestModule from "./CameraTestModule";
+import "./Login.css";
 
 interface LoginProps {
   onLoginSuccess: (user: any) => void;
@@ -20,29 +18,31 @@ interface LoginError {
 }
 
 interface AuthState {
-  step: 'credentials' | 'face-auth' | 'success';
+  step: "credentials" | "face-auth" | "success";
   sessionId?: string;
   user?: any;
 }
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [formData, setFormData] = useState<LoginFormData>({
-    username: '',
-    password: ''
+    username: "",
+    password: "",
   });
   const [errors, setErrors] = useState<LoginError[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [authState, setAuthState] = useState<AuthState>({
-    step: 'credentials'
+    step: "credentials",
   });
   const [showCameraTest, setShowCameraTest] = useState(false);
   const SHOW_CAMERA_TEST_BUTTON = false; // Keep feature but hide on sign-in page
 
   // Check if running in Electron
   const isElectron = () => {
-    return typeof window !== 'undefined' &&
+    return (
+      typeof window !== "undefined" &&
       (window as any).electronAPI &&
-      typeof (window as any).electronAPI.login === 'function';
+      typeof (window as any).electronAPI.login === "function"
+    );
   };
 
   // Form validation
@@ -51,29 +51,29 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
     if (!formData.username.trim()) {
       newErrors.push({
-        field: 'username',
-        message: 'Username is required'
+        field: "username",
+        message: "Username is required",
       });
     }
 
     if (!formData.password.trim()) {
       newErrors.push({
-        field: 'password',
-        message: 'Password is required'
+        field: "password",
+        message: "Password is required",
       });
     }
 
     if (formData.username.trim().length < 3) {
       newErrors.push({
-        field: 'username',
-        message: 'Username must be at least 3 characters long'
+        field: "username",
+        message: "Username must be at least 3 characters long",
       });
     }
 
     if (formData.password.trim().length < 4) {
       newErrors.push({
-        field: 'password',
-        message: 'Password must be at least 4 characters long'
+        field: "password",
+        message: "Password must be at least 4 characters long",
       });
     }
 
@@ -83,14 +83,14 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   // Handle input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
 
     // Clear field-specific errors when user starts typing
-    if (errors.some(error => error.field === name)) {
-      setErrors(prev => prev.filter(error => error.field !== name));
+    if (errors.some((error) => error.field === name)) {
+      setErrors((prev) => prev.filter((error) => error.field !== name));
     }
   };
 
@@ -113,64 +113,84 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     try {
       if (isElectron()) {
         if (!(window as any).electronAPI) {
-          throw new Error('Electron API not available. Please restart the application.');
+          throw new Error(
+            "Electron API not available. Please restart the application.",
+          );
         }
 
-        if (typeof (window as any).electronAPI.login !== 'function') {
-          throw new Error('Login function not available. Please restart the application.');
+        if (typeof (window as any).electronAPI.login !== "function") {
+          throw new Error(
+            "Login function not available. Please restart the application.",
+          );
         }
 
         const result = await (window as any).electronAPI.login({
           username: formData.username.trim(),
-          password: formData.password.trim()
+          password: formData.password.trim(),
         });
 
         if (result.success) {
           if (result.requiresFaceAuth) {
             // Credentials verified, now need face authentication
             setAuthState({
-              step: 'face-auth',
+              step: "face-auth",
               sessionId: result.sessionId,
-              user: result.user
+              user: result.user,
             });
           } else {
             // Login complete (no face auth required)
-            onLoginSuccess({
+            const userData = {
               ...result.user,
               token: result.token,
               deviceId: result.deviceId,
-              faceVerified: result.faceVerified || false
-            });
+              faceVerified: result.faceVerified || false,
+            };
+            // Store token in localStorage
+            localStorage.setItem("authToken", result.token);
+            onLoginSuccess(userData);
           }
         } else {
           // Login failed
-          setErrors([{
-            message: result.error || 'Login failed. Please check your credentials.'
-          }]);
+          setErrors([
+            {
+              message:
+                result.error || "Login failed. Please check your credentials.",
+            },
+          ]);
         }
       } else {
         // Development mode - show message that Electron is required
-        setErrors([{
-          message: 'Development mode detected. Please use "npm run dev" to start both React and Electron for full functionality. The web-only version has limited features.'
-        }]);
+        setErrors([
+          {
+            message:
+              'Development mode detected. Please use "npm run dev" to start both React and Electron for full functionality. The web-only version has limited features.',
+          },
+        ]);
 
         // For basic testing, allow admin login only
-        if (formData.username.trim() === 'admin' && formData.password.trim() === 'admin123') {
+        if (
+          formData.username.trim() === "admin" &&
+          formData.password.trim() === "admin123"
+        ) {
+          const testToken = "web-token-admin";
+          localStorage.setItem("authToken", testToken);
           onLoginSuccess({
-            userId: 'admin-web',
-            username: 'admin',
-            role: 'admin',
-            fullName: 'System Administrator (Web Mode)',
-            token: 'web-token-admin',
-            deviceId: 'web-device',
-            faceVerified: false
+            userId: "admin-web",
+            username: "admin",
+            role: "admin",
+            fullName: "System Administrator (Web Mode)",
+            token: testToken,
+            deviceId: "web-device",
+            faceVerified: false,
           });
         }
       }
     } catch {
-      setErrors([{
-        message: 'An unexpected error occurred. Please try again.'
-      }]);
+      setErrors([
+        {
+          message: "An unexpected error occurred. Please try again.",
+        },
+      ]);
     } finally {
       setIsLoading(false);
     }
@@ -178,45 +198,48 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   // Handle successful face authentication
   const handleFaceAuthSuccess = (result: any) => {
-    setAuthState({ step: 'success' });
+    setAuthState({ step: "success" });
 
     // Complete login with face verification
-    onLoginSuccess({
+    const userData = {
       ...result.user,
       token: result.token,
       deviceId: result.deviceId,
-      faceVerified: true
-    });
+      faceVerified: true,
+    };
+    // Store token in localStorage
+    localStorage.setItem("authToken", result.token);
+    onLoginSuccess(userData);
   };
 
   // Handle failed face authentication
   const handleFaceAuthFailure = (error: string) => {
-    setErrors([{
-      message: `Face authentication failed: ${error}`
-    }]);
+    setErrors([
+      {
+        message: `Face authentication failed: ${error}`,
+      },
+    ]);
 
     // Reset to credentials step
-    setAuthState({ step: 'credentials' });
+    setAuthState({ step: "credentials" });
     setIsLoading(false);
   };
 
   // Handle face authentication cancellation
   const handleFaceAuthCancel = () => {
-    setAuthState({ step: 'credentials' });
+    setAuthState({ step: "credentials" });
     setIsLoading(false);
   };
 
-
-
   // Get field-specific error
   const getFieldError = (fieldName: string): string | undefined => {
-    const error = errors.find(err => err.field === fieldName);
+    const error = errors.find((err) => err.field === fieldName);
     return error?.message;
   };
 
   // Get general errors (not field-specific)
   const getGeneralErrors = (): LoginError[] => {
-    return errors.filter(err => !err.field);
+    return errors.filter((err) => !err.field);
   };
 
   // Render camera test module if requested
@@ -225,7 +248,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   }
 
   // Render face authentication if needed
-  if (authState.step === 'face-auth' && authState.sessionId && authState.user) {
+  if (authState.step === "face-auth" && authState.sessionId && authState.user) {
     return (
       <div className="login-container lg-atmosphere-bg">
         <FaceAuth
@@ -244,15 +267,35 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       <div className="login-card">
         <div className="login-header">
           <div className="login-icon" aria-hidden="true">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="2" />
-              <path d="M8 11V7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7V11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect
+                x="5"
+                y="11"
+                width="14"
+                height="10"
+                rx="2"
+                stroke="currentColor"
+                strokeWidth="2"
+              />
+              <path
+                d="M8 11V7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7V11"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
               <circle cx="12" cy="16" r="1.5" fill="currentColor" />
             </svg>
           </div>
           <h1>LAB-Guard</h1>
           <p className="login-subtitle">
-            Welcome back. Sign in with your lab account to continue to your course workspace.
+            Welcome back. Sign in with your lab account to continue to your
+            course workspace.
           </p>
         </div>
 
@@ -281,16 +324,18 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               name="username"
               value={formData.username}
               onChange={handleInputChange}
-              className={getFieldError('username') ? 'error' : ''}
+              className={getFieldError("username") ? "error" : ""}
               placeholder="Enter your username"
               disabled={isLoading}
               autoComplete="username"
-              aria-invalid={!!getFieldError('username')}
-              aria-describedby={getFieldError('username') ? 'username-error' : undefined}
+              aria-invalid={!!getFieldError("username")}
+              aria-describedby={
+                getFieldError("username") ? "username-error" : undefined
+              }
             />
-            {getFieldError('username') && (
+            {getFieldError("username") && (
               <div id="username-error" className="field-error" role="status">
-                {getFieldError('username')}
+                {getFieldError("username")}
               </div>
             )}
           </div>
@@ -304,16 +349,18 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               name="password"
               value={formData.password}
               onChange={handleInputChange}
-              className={getFieldError('password') ? 'error' : ''}
+              className={getFieldError("password") ? "error" : ""}
               placeholder="Enter your password"
               disabled={isLoading}
               autoComplete="current-password"
-              aria-invalid={!!getFieldError('password')}
-              aria-describedby={getFieldError('password') ? 'password-error' : undefined}
+              aria-invalid={!!getFieldError("password")}
+              aria-describedby={
+                getFieldError("password") ? "password-error" : undefined
+              }
             />
-            {getFieldError('password') && (
+            {getFieldError("password") && (
               <div id="password-error" className="field-error" role="status">
-                {getFieldError('password')}
+                {getFieldError("password")}
               </div>
             )}
           </div>
@@ -331,26 +378,46 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 Logging in…
               </>
             ) : (
-              'Log in'
+              "Log in"
             )}
           </button>
 
           {/* Camera Test Button - Hidden via flag; keep feature available for future use */}
-          {SHOW_CAMERA_TEST_BUTTON && process.env.NODE_ENV === 'development' && (
-          <button
-            type="button"
-            className="camera-test-button"
-            onClick={() => setShowCameraTest(true)}
-            disabled={isLoading}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="2"/>
-              <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
-            </svg>
-            Test Camera Module
-          </button>
-          )}
-          
+          {SHOW_CAMERA_TEST_BUTTON &&
+            process.env.NODE_ENV === "development" && (
+              <button
+                type="button"
+                className="camera-test-button"
+                onClick={() => setShowCameraTest(true)}
+                disabled={isLoading}
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <rect
+                    x="2"
+                    y="5"
+                    width="20"
+                    height="14"
+                    rx="2"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="3"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  />
+                </svg>
+                Test Camera Module
+              </button>
+            )}
         </form>
       </div>
     </div>
