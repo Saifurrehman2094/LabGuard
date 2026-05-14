@@ -84,14 +84,30 @@ const normalizeMultilineText = (value: any): string => {
   return text;
 };
 
-const ensureConstraints = (question: Question) => ({
-  ...(question.constraints_json || {}),
-  problem_type: question.problem_type || question.constraints_json?.problem_type || 'basic_programming',
-  required_concepts: question.required_concepts || question.constraints_json?.required_concepts || [],
-  requirements_mode: question.requirements_mode || question.constraints_json?.requirements_mode || 'auto',
-  is_pattern_question: question.is_pattern_question ?? question.constraints_json?.is_pattern_question ?? false,
-  difficulty: question.difficulty || question.constraints_json?.difficulty || 'medium'
-});
+const normalizeRestrictedListValue = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  const out = new Set<string>();
+  for (const item of value) {
+    const s = String(item || '')
+      .trim()
+      .toLowerCase();
+    if (s.length > 0 && s.length <= 64) out.add(s);
+  }
+  return Array.from(out);
+};
+
+const ensureConstraints = (question: Question) => {
+  const merged = {
+    ...(question.constraints_json || {}),
+    problem_type: question.problem_type || question.constraints_json?.problem_type || 'basic_programming',
+    required_concepts: question.required_concepts || question.constraints_json?.required_concepts || [],
+    requirements_mode: question.requirements_mode || question.constraints_json?.requirements_mode || 'auto',
+    is_pattern_question: question.is_pattern_question ?? question.constraints_json?.is_pattern_question ?? false,
+    difficulty: question.difficulty || question.constraints_json?.difficulty || 'medium'
+  };
+  merged.restricted_cpp_libraries = normalizeRestrictedListValue(merged.restricted_cpp_libraries);
+  return merged;
+};
 
 const normalizeTestCase = (testCase: any): TestCase => ({
   ...testCase,
@@ -145,6 +161,8 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
   const [deletedQuestionIds, setDeletedQuestionIds] = useState<string[]>([]);
   const [showAdvancedRequirements, setShowAdvancedRequirements] = useState(false);
   const [showTeacherConstraints, setShowTeacherConstraints] = useState(false);
+  /** Raw textarea text while editing restricted libs (parsing on each keystroke stripped commas/newlines). */
+  const [restrictedLibsDraft, setRestrictedLibsDraft] = useState<{ key: string; text: string } | null>(null);
 
   const loadQuestions = async () => {
     if (!api?.getQuestionsWithTestCases) return;
@@ -175,6 +193,10 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
   useEffect(() => {
     loadQuestions();
   }, [exam.examId]);
+
+  useEffect(() => {
+    setRestrictedLibsDraft(null);
+  }, [selectedQuestionId]);
 
   const currentQuestion = useMemo(
     () =>
@@ -211,6 +233,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
         ...(patch.is_pattern_question !== undefined ? { is_pattern_question: patch.is_pattern_question } : {}),
         ...(patch.difficulty !== undefined ? { difficulty: patch.difficulty } : {})
       };
+      constraints.restricted_cpp_libraries = normalizeRestrictedListValue(constraints.restricted_cpp_libraries);
       next[index] = normalizeQuestion({ ...existing, ...patch, constraints_json: constraints });
       return next;
     });
@@ -285,7 +308,34 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
       setSaving(true);
       setError(null);
       setInfo(null);
-      const payload = questions.map((question) => ({
+
+      let questionsForSave = questions;
+      if (restrictedLibsDraft) {
+        const draft = restrictedLibsDraft;
+        const idx = questions.findIndex(
+          (q, i) => getQuestionSelectionId(q, i) === draft.key
+        );
+        if (idx >= 0) {
+          const parts = draft.text
+            .split(/[\n,]+/)
+            .map((s) => s.trim().toLowerCase())
+            .filter(Boolean);
+          const existing = questions[idx];
+          const constraints = {
+            ...ensureConstraints(existing),
+            restricted_cpp_libraries: Array.from(new Set(parts))
+          };
+          questionsForSave = [...questions];
+          questionsForSave[idx] = normalizeQuestion({
+            ...existing,
+            constraints_json: constraints
+          });
+          setQuestions(questionsForSave);
+        }
+        setRestrictedLibsDraft(null);
+      }
+
+      const payload = questionsForSave.map((question) => ({
         question_id: question.question_id,
         title: question.title,
         description: question.description,
@@ -729,9 +779,6 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
 
               <div className="cq-question-detail">
                 <h4>Teacher Constraints</h4>
-                <p className="cq-subtitle">
-                  These remain teacher-side evaluation signals and can coexist with the suggested requirements above.
-                </p>
                 <details
                   className="cq-disclosure"
                   open={showTeacherConstraints}
@@ -741,6 +788,7 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                   <p className="cq-subtitle">Only enable constraints you plan to evaluate.</p>
                 {(() => {
                   const constraints = ensureConstraints(currentQuestion);
+                  const restrictedQuestionKey = getQuestionSelectionId(currentQuestion, currentQuestionIndex);
                   const requiredLoop = !!constraints.required_loop;
                   const requiredRecursion = !!constraints.required_recursion;
                   const maxLoopNesting = typeof constraints.max_loop_nesting === 'number' ? constraints.max_loop_nesting : 0;
@@ -748,6 +796,10 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                     typeof constraints.expected_complexity === 'string'
                       ? constraints.expected_complexity
                       : 'unspecified';
+                  const restrictedTextareaValue =
+                    restrictedLibsDraft?.key === restrictedQuestionKey
+                      ? restrictedLibsDraft.text
+                      : (constraints.restricted_cpp_libraries || []).join('\n');
                   return (
                     <div className="cq-constraints-grid">
                       <label className="cq-constraint-item">
@@ -806,6 +858,47 @@ const CodeQuestionsTab: React.FC<CodeQuestionsTabProps> = ({ exam }) => {
                           <option value="O(n^2)">O(n^2)</option>
                           <option value="O(n^3+)">O(n^3+)</option>
                         </select>
+                      </label>
+                      <label className="cq-constraint-item cq-constraint-stack">
+                        Restricted C++ libraries (optional)
+                        <textarea
+                          spellCheck={false}
+                          placeholder="One name per line, or comma-separated — e.g. vector, map, algorithm"
+                          value={restrictedTextareaValue}
+                          onFocus={() => {
+                            setRestrictedLibsDraft({
+                              key: restrictedQuestionKey,
+                              text: (constraints.restricted_cpp_libraries || []).join('\n')
+                            });
+                          }}
+                          onChange={(e) => {
+                            setRestrictedLibsDraft({
+                              key: restrictedQuestionKey,
+                              text: e.target.value
+                            });
+                          }}
+                          onBlur={(e) => {
+                            const raw = e.target.value;
+                            const parts = raw
+                              .split(/[\n,]+/)
+                              .map((s) => s.trim().toLowerCase())
+                              .filter(Boolean);
+                            const idx = questions.findIndex(
+                              (q, i) => getQuestionSelectionId(q, i) === restrictedQuestionKey
+                            );
+                            if (idx >= 0) {
+                              const existing = questions[idx];
+                              const c = ensureConstraints(existing);
+                              setQuestionRequirements(idx, {
+                                constraints_json: {
+                                  ...c,
+                                  restricted_cpp_libraries: Array.from(new Set(parts))
+                                }
+                              });
+                            }
+                            setRestrictedLibsDraft(null);
+                          }}
+                        />
                       </label>
                     </div>
                   );

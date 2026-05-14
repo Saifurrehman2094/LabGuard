@@ -638,7 +638,7 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
             {/* Header */}
             <div className="exam-header">
                 <button onClick={onBack} className="back-btn" disabled={examStarted}>
-                    ← Back to Dashboard
+                    Back to Dashboard
                 </button>
                 <div className="exam-info">
                     <h1>{exam.title}</h1>
@@ -648,7 +648,7 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
 
             {error && (
                 <div className="exam-error">
-                    ⚠️ {error}
+                    {error}
                 </div>
             )}
 
@@ -657,7 +657,6 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                 <div className="exam-info-bar">
                     <div className="info-bar-content">
                         <div className="timer-compact">
-                            <span className="timer-icon-small">⏱️</span>
                             <div className="timer-compact-display">
                                 <span className={`timer-value ${timeRemaining > 0 && timeRemaining < 300 ? 'warning' : ''}`}>
                                     {timeRemaining >= 0 ? formatTime(timeRemaining) : '--:--'}
@@ -680,14 +679,12 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                 <div className="exam-start-section">
                     <div className="start-exam-card">
                         <div className="start-exam-content">
-                            <div className="start-exam-icon">🔒</div>
                             <h2>Exam Not Started</h2>
-                            <p>Click "Start Exam" to begin and view the question paper</p>
                             {!canStartExam() && (
                                 <div className="exam-status-notice">
                                     {new Date() < new Date(exam.start_time)
-                                        ? '⏰ Exam has not started yet'
-                                        : '⏰ Exam has ended'}
+                                        ? 'This exam has not started yet.'
+                                        : 'This exam has ended.'}
                                 </div>
                             )}
                             {canStartExam() && !checkingStatus && (
@@ -696,7 +693,7 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                                     className="start-exam-btn-large"
                                     disabled={!canStartExam()}
                                 >
-                                    🚀 Start Exam
+                                    Start Exam
                                 </button>
                             )}
                             {checkingStatus && (
@@ -719,14 +716,12 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                             className={`exam-tab ${activeTab === 'question' ? 'active' : ''}`}
                             onClick={() => setActiveTab('question')}
                         >
-                            <span className="tab-icon">📄</span>
                             <span className="tab-label">Question Paper</span>
                         </button>
                         <button
                             className={`exam-tab ${activeTab === 'submission' ? 'active' : ''}`}
                             onClick={() => setActiveTab('submission')}
                         >
-                            <span className="tab-icon">📤</span>
                             <span className="tab-label">Submit Solution</span>
                         </button>
                     </div>
@@ -765,9 +760,9 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                             <div className="tab-panel submission-panel">
                                 <div className="submission-tab-content">
                                     <div className="submission-header-section">
-                                        <h3>📤 Submit Your Work</h3>
+                                        <h3>Submit your work</h3>
                                         <p className="submission-description">
-                                            Upload your answer files when you're ready to submit. You can resubmit before the exam ends.
+                                            Upload your answer files when you are ready. You can resubmit before the exam ends.
                                         </p>
                                     </div>
 
@@ -788,16 +783,15 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                                                 </div>
                                             )}
                                             <button onClick={handleSubmitExam} className="submit-files-btn-large">
-                                                📁 Upload Files
+                                                Upload files
                                             </button>
                                         </div>
                                     ) : (
                                         <div className="submission-status-section">
                                             <div className="submitted-status-card">
                                                 <div className="submitted-status-header">
-                                                    <span className="status-icon-large">✅</span>
                                                     <div>
-                                                        <h4>Files Submitted Successfully</h4>
+                                                        <h4>Files submitted</h4>
                                                         <p className="submitted-time-full">
                                                             Submitted at: {new Date(submissionStatus.submittedAt!).toLocaleString()}
                                                         </p>
@@ -809,7 +803,7 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                                                     </p>
                                                 </div>
                                                 <button onClick={() => setShowConfirmDialog(true)} className="review-btn-large">
-                                                    📋 Review & Confirm Submission
+                                                    Review and confirm
                                                 </button>
                                             </div>
                                         </div>
@@ -825,12 +819,12 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
             {showSubmitDialog && (
                 <div className="submit-dialog-overlay">
                     <div className="submit-dialog">
-                        <h2>📤 Upload Your Work</h2>
-                        <p>Select your answer files to submit</p>
+                        <h2>Upload your work</h2>
+                        <p>Select your answer files to submit.</p>
 
                         <div className="file-upload-section">
                             <label htmlFor="exam-files" className="file-upload-btn">
-                                📁 Choose Files
+                                Choose files
                             </label>
                             <input
                                 id="exam-files"
@@ -850,7 +844,6 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                                     return (
                                         <div key={index} className="file-item-container">
                                             <div className="file-item">
-                                                <span className="file-icon">{isZip ? '📦' : '📄'}</span>
                                                 <div className="file-details">
                                                     <span className="file-name">{file.name}</span>
                                                     <span className="file-size">
@@ -864,12 +857,11 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                                             {isZip && zipFiles && zipFiles.length > 0 && (
                                                 <div className="zip-contents">
                                                     <div className="zip-contents-header">
-                                                        📂 Archive Contents:
+                                                        Archive contents
                                                     </div>
                                                     <ul className="zip-files-list">
                                                         {zipFiles.slice(0, 10).map((fileName, idx) => (
                                                             <li key={idx}>
-                                                                <span className="zip-file-icon">📄</span>
                                                                 {fileName}
                                                             </li>
                                                         ))}
@@ -907,8 +899,8 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
             {showConfirmDialog && submissionStatus.submitted && (
                 <div className="submit-dialog-overlay">
                     <div className="submit-dialog confirm-dialog">
-                        <h2>📋 Review Your Submission</h2>
-                        <p>Please review your submitted files before confirming</p>
+                        <h2>Review your submission</h2>
+                        <p>Check your files before you confirm.</p>
 
                         <div className="submitted-files-preview">
                             <h3>Submitted Files ({submissionStatus.filesData?.length || 0})</h3>
@@ -920,7 +912,6 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                                         return (
                                             <div key={index} className="file-preview-container">
                                                 <div className="file-preview-item">
-                                                    <span className="file-icon">{isZip ? '📦' : '📄'}</span>
                                                     <div className="file-info">
                                                         <span className="file-name">{file.name}</span>
                                                         <span className="file-meta">
@@ -935,12 +926,11 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                                                 {isZip && zipFiles && zipFiles.length > 0 && (
                                                     <div className="zip-contents">
                                                         <div className="zip-contents-header">
-                                                            📂 Archive Contents:
+                                                            Archive contents
                                                         </div>
                                                         <ul className="zip-files-list">
                                                             {zipFiles.slice(0, 10).map((fileName, idx) => (
                                                                 <li key={idx}>
-                                                                    <span className="zip-file-icon">📄</span>
                                                                     {fileName}
                                                                 </li>
                                                             ))}
@@ -957,33 +947,33 @@ const ExamPage: React.FC<ExamPageProps> = ({ exam: initialExam, user, onBack, on
                                     })}
                                 </div>
                             ) : (
-                                <p className="no-files-warning">⚠️ No files submitted</p>
+                                <p className="no-files-warning">No files submitted</p>
                             )}
                         </div>
 
                         <div className="submission-time-info">
-                            <p>📅 Submitted at: {new Date(submissionStatus.submittedAt!).toLocaleString()}</p>
+                            <p>Submitted at: {new Date(submissionStatus.submittedAt!).toLocaleString()}</p>
                             <p className="time-remaining-info">
-                                ⏰ Time remaining: {timeRemaining >= 0 ? formatTime(timeRemaining) : '--:--'}
+                                Time remaining: {timeRemaining >= 0 ? formatTime(timeRemaining) : '--:--'}
                             </p>
                         </div>
 
                         <div className="confirm-dialog-actions">
                             {canUnsubmit() && (
                                 <button onClick={handleUnsubmit} className="unsubmit-btn">
-                                    🔄 Change Files
+                                    Change files
                                 </button>
                             )}
                             <button onClick={handleCancelConfirm} className="cancel-btn">
-                                ← Back to Exam
+                                Back to exam
                             </button>
                             <button onClick={handleConfirmSubmission} className="confirm-final-btn">
-                                ✅ Confirm & End Exam
+                                Confirm and end exam
                             </button>
                         </div>
 
                         <p className="confirm-warning">
-                            ⚠️ Once confirmed, you cannot make changes even if time remains
+                            After you confirm, you cannot change your submission even if time remains.
                         </p>
                     </div>
                 </div>

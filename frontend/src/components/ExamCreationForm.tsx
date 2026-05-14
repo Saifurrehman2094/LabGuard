@@ -426,8 +426,7 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
             </div>
           ) : courses.length === 0 ? (
             <div className="no-courses-warning">
-              <p>⚠️ You haven't created any courses yet.</p>
-              <p>Please create a course first in the "My Courses" tab before creating exams.</p>
+              <p>Create a course in the My Courses tab before creating exams.</p>
             </div>
           ) : (
             <>
@@ -450,9 +449,6 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
                   </option>
                 ))}
               </select>
-              <small className="field-hint">
-                Only students enrolled in this course will see this exam
-              </small>
             </>
           )}
           {getFieldError('course') && (
@@ -501,9 +497,6 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
             Exam Question Paper (PDF)
             <span className="optional-badge">Optional</span>
           </label>
-          <small className="field-hint">
-            Upload the exam question paper that students will view during the exam
-          </small>
 
           {isElectron() ? (
             // Electron mode - use file dialog button
@@ -541,8 +534,7 @@ const ExamCreationForm: React.FC<ExamCreationFormProps> = ({ user, onExamCreated
               )}
               {!formData.pdfFileName && (
                 <div className="file-hint">
-                  <p>💡 Click the button above to select a PDF file from your computer</p>
-                  <p>Maximum file size: 50 MB</p>
+                  <p>Max 50 MB</p>
                 </div>
               )}
             </div>

@@ -975,6 +975,7 @@ function buildSummaryPrompt(evidence, options = {}) {
     'Line 1 should state overall performance.',
     'You MUST mention configured requirements (concepts/constraints) and clearly state which were met or unmet.',
     'When requirement_checks.unmet_requirements is non-empty, explicitly list at least one unmet item.',
+    'When requirement_definition.restricted_cpp_libraries is non-empty, state which entries appear used or not used using requirement_checks.restricted_libraries.items (or note if that block is missing).',
     'When requirement_definition.required_concepts exists, mention whether each concept appears detected or not from requirement_checks.',
     'Include concrete numeric signals (score, pass_rate, passed/failed trends) from evidence when available.',
     'Include what student did well and what needs improvement.',

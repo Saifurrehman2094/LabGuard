@@ -26,7 +26,13 @@ const formatScore = (value?: number | null) => {
   return Number(value).toFixed(2);
 };
 
-const formatRequirement = (value: string) => REQUIREMENT_LABELS[value] || value.replace(/_/g, ' ');
+const formatRequirement = (value: string) => {
+  if (value.startsWith('restricted_library_used:')) {
+    const lib = value.slice('restricted_library_used:'.length).trim();
+    return `Used restricted item: ${lib || 'unknown'}`;
+  }
+  return REQUIREMENT_LABELS[value] || value.replace(/_/g, ' ');
+};
 const formatConcept = (value: string) => value.replace(/_/g, ' ');
 
 const getConfidenceBadgeClass = (confidence?: string | null) => {
@@ -133,6 +139,11 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
     .filter((item: string) => item.startsWith('concept_required_but_missing:'))
     .map((item: string) => item.split(':')[1])
     .filter(Boolean);
+
+  const restrictedLibrariesReport = evaluation?.requirement_checks_json?.restricted_libraries;
+  const restrictedConfigured = Array.isArray(question?.restricted_cpp_libraries)
+    ? question.restricted_cpp_libraries
+    : [];
 
   const handleSaveManualScore = async () => {
     const raw = manualScoreInput.trim();
@@ -369,6 +380,46 @@ const EvaluationDetailModal: React.FC<EvaluationDetailModalProps> = ({
                       </span>
                     ))}
                   </div>
+                )}
+
+                {(restrictedConfigured.length > 0 || restrictedLibrariesReport) && (
+                  <>
+                    <div className="edm-divider" />
+                    <h5 className="edm-subheading">Restricted C++ libraries</h5>
+                    <p className="ce-muted edm-restricted-note">
+                      Heuristic scan of includes and common <code>std::</code> patterns. Including{' '}
+                      <code>bits/stdc++.h</code> is treated as using every configured restriction.
+                    </p>
+                    {restrictedLibrariesReport?.bits_stdcpp_h_present && (
+                      <div className="edm-alert-box edm-alert-warn">
+                        Submission includes <code>bits/stdc++.h</code>, so each configured restricted item is marked as
+                        used for grading policy.
+                      </div>
+                    )}
+                    {!restrictedLibrariesReport && restrictedConfigured.length > 0 && (
+                      <p className="ce-muted">
+                        No library scan is stored for this evaluation yet. Re-run evaluation from submissions to populate
+                        this section.
+                      </p>
+                    )}
+                    {Array.isArray(restrictedLibrariesReport?.items) && restrictedLibrariesReport.items.length > 0 && (
+                      <ul className="edm-restricted-list">
+                        {restrictedLibrariesReport.items.map((item: any) => (
+                          <li key={item.id}>
+                            <div className="ce-category-row">
+                              <span className="ce-category-name">{item.id}</span>
+                              <span className={`ce-pill ${item.used ? 'ce-pill-bad' : 'ce-pill-good'}`}>
+                                {item.used ? 'Used (detected)' : 'Not used'}
+                              </span>
+                            </div>
+                            {Array.isArray(item.signals) && item.signals.length > 0 && (
+                              <div className="ce-muted edm-restricted-signals">{item.signals.join(' · ')}</div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
                 )}
 
                 {unmetRequirements.length > 0 && (

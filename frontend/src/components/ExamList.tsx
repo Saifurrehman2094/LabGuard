@@ -141,14 +141,12 @@ const ExamList: React.FC<ExamListProps> = ({
     }
   };
 
-  // Get status badge class
-  const getStatusBadgeClass = (status: string): string => {
-    switch (status) {
-      case 'upcoming': return 'status-upcoming';
-      case 'active': return 'status-active';
-      case 'completed': return 'status-completed';
-      default: return '';
-    }
+  const scheduleLine = (iso: string) => {
+    const d = new Date(iso);
+    return {
+      date: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+      time: d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+    };
   };
 
   const filteredExams = getFilteredAndSortedExams();
@@ -224,83 +222,113 @@ const ExamList: React.FC<ExamListProps> = ({
             const status = getExamStatus(exam);
             const isDeleting = deletingExam === exam.examId;
 
+            const start = scheduleLine(exam.startTime);
+            const end = scheduleLine(exam.endTime);
+
             return (
-              <div key={exam.examId} className={`exam-card ${isDeleting ? 'deleting' : ''}`}>
-                <div className="exam-card-header">
-                  <h3>{exam.title}</h3>
-                  <span className={`status-badge ${getStatusBadgeClass(status)}`}>
-                    {status.charAt(0).toUpperCase() + status.slice(1)}
+              <article
+                key={exam.examId}
+                className={`exam-card exam-card--status-${status} ${isDeleting ? 'deleting' : ''}`}
+                data-status={status}
+              >
+                <header className="exam-card-header">
+                  <div className="exam-card-title-block">
+                    <h3>{exam.title}</h3>
+                    <p className="exam-card-sub">
+                      {formatDuration(exam.startTime, exam.endTime)}
+                      <span className="exam-card-sub-sep" aria-hidden>
+                        ·
+                      </span>
+                      {exam.allowedApps.length} allowed app{exam.allowedApps.length === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <span className={`status-pill status-pill--${status}`}>
+                    <span className="status-pill-dot" aria-hidden />
+                    {status === 'upcoming' && 'Upcoming'}
+                    {status === 'active' && 'Live'}
+                    {status === 'completed' && 'Ended'}
                   </span>
+                </header>
+
+                <div className="exam-card-schedule" aria-label="Exam window">
+                  <div className="schedule-point">
+                    <span className="schedule-kicker">Opens</span>
+                    <span className="schedule-date">{start.date}</span>
+                    <span className="schedule-time">{start.time}</span>
+                  </div>
+                  <div className="schedule-bridge" aria-hidden>
+                    <span className="schedule-bridge-line" />
+                  </div>
+                  <div className="schedule-point schedule-point--end">
+                    <span className="schedule-kicker">Closes</span>
+                    <span className="schedule-date">{end.date}</span>
+                    <span className="schedule-time">{end.time}</span>
+                  </div>
                 </div>
 
-                <div className="exam-card-content">
-                  <div className="exam-info">
-                    <div className="info-item">
-                      <strong>Start:</strong> {new Date(exam.startTime).toLocaleString()}
-                    </div>
-                    <div className="info-item">
-                      <strong>End:</strong> {new Date(exam.endTime).toLocaleString()}
-                    </div>
-                    <div className="info-item">
-                      <strong>Duration:</strong> {formatDuration(exam.startTime, exam.endTime)}
-                    </div>
-                    <div className="info-item">
-                      <strong>Allowed Apps:</strong> {exam.allowedApps.length} applications
-                    </div>
-                    {exam.pdfPath && (
-                      <div className="info-item">
-                        <strong>PDF:</strong> Attached
-                        <button
-                          onClick={() => {
-                            setSelectedExamForPDF(exam);
-                            setShowPDFViewer(true);
-                          }}
-                          className="view-pdf-link"
-                          title="Preview PDF"
-                        >
-                          📄 Preview
-                        </button>
-                      </div>
+                <div className="exam-card-toolbar">
+                  <span className="toolbar-meta">
+                    Created {new Date(exam.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                  {exam.pdfPath ? (
+                    <button
+                      type="button"
+                      className="toolbar-pdf"
+                      onClick={() => {
+                        setSelectedExamForPDF(exam);
+                        setShowPDFViewer(true);
+                      }}
+                      title="Open question paper"
+                    >
+                      View PDF
+                    </button>
+                  ) : (
+                    <span className="toolbar-meta toolbar-meta--muted">No PDF</span>
+                  )}
+                </div>
+
+                <section className="exam-card-apps" aria-label="Allowed applications">
+                  <div className="app-tags">
+                    {exam.allowedApps.length === 0 ? (
+                      <span className="app-tag app-tag--empty">No app whitelist</span>
+                    ) : (
+                      <>
+                        {exam.allowedApps.slice(0, 4).map((app) => (
+                          <span key={app} className="app-tag">
+                            {app}
+                          </span>
+                        ))}
+                        {exam.allowedApps.length > 4 && (
+                          <span className="app-tag app-tag--more">+{exam.allowedApps.length - 4}</span>
+                        )}
+                      </>
                     )}
-                    <div className="info-item">
-                      <strong>Created:</strong> {new Date(exam.createdAt).toLocaleDateString()}
-                    </div>
                   </div>
+                </section>
 
-                  <div className="allowed-apps-preview">
-                    <strong>Allowed Applications:</strong>
-                    <div className="app-tags">
-                      {exam.allowedApps.slice(0, 3).map(app => (
-                        <span key={app} className="app-tag">{app}</span>
-                      ))}
-                      {exam.allowedApps.length > 3 && (
-                        <span className="app-tag more">+{exam.allowedApps.length - 3} more</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="exam-card-actions">
+                <footer className="exam-card-footer">
                   <button
+                    type="button"
                     onClick={() => setEditingExam(exam)}
-                    className="edit-btn"
+                    className="exam-card-btn exam-card-btn--edit"
                     disabled={isDeleting}
                   >
-                    Edit
+                    Edit exam
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       if (window.confirm(`Are you sure you want to delete "${exam.title}"?`)) {
                         handleDeleteExam(exam.examId);
                       }
                     }}
-                    className="delete-btn"
+                    className="exam-card-btn exam-card-btn--delete"
                     disabled={isDeleting}
                   >
-                    {isDeleting ? 'Deleting...' : 'Delete'}
+                    {isDeleting ? 'Removing…' : 'Delete'}
                   </button>
-                </div>
-              </div>
+                </footer>
+              </article>
             );
           })}
         </div>

@@ -139,7 +139,6 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
           <div className="user-info">
             <h1>Student Workspace</h1>
             <p>{user.fullName}</p>
-            {user.deviceId && <p className="device-info">Device: {user.deviceId}</p>}
           </div>
           <button onClick={onLogout} className="logout-btn">
             Logout
@@ -202,7 +201,6 @@ const StudentDashboard: React.FC<StudentDashboardProps> = ({ user, onLogout }) =
                         <p><strong>End:</strong> {formatDateTime(exam.end_time)}</p>
                         <p><strong>Question Paper:</strong> {exam.pdf_path ? 'Available' : 'Not uploaded yet'}</p>
                       </div>
-                      <div className="exam-card-footer"><span className="click-hint">Open workspace →</span></div>
                     </div>
                   ))}
                 </div>

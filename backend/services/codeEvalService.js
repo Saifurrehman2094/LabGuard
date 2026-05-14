@@ -458,7 +458,16 @@ class CodeEvalService {
           ? fromQuestionConstraints.requirements_mode
           : fromQuestionLegacy.requirements_mode === 'manual' || fromQuestionLegacy.requirements_mode === 'auto'
           ? fromQuestionLegacy.requirements_mode
-          : 'auto'
+          : 'auto',
+      restricted_cpp_libraries: normalizeRestrictedCppList(
+        Array.isArray(fromMeta.restricted_cpp_libraries)
+          ? fromMeta.restricted_cpp_libraries
+          : Array.isArray(fromQuestionConstraints.restricted_cpp_libraries)
+          ? fromQuestionConstraints.restricted_cpp_libraries
+          : Array.isArray(fromQuestionLegacy.restricted_cpp_libraries)
+          ? fromQuestionLegacy.restricted_cpp_libraries
+          : []
+      )
     };
   }
 
@@ -610,6 +619,17 @@ function safeParseJson(text) {
   } catch (e) {
     return null;
   }
+}
+
+function normalizeRestrictedCppList(value) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => String(item || '').trim().toLowerCase())
+        .filter((item) => item.length > 0 && item.length <= 64)
+    )
+  );
 }
 
 module.exports = CodeEvalService;

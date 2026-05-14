@@ -237,7 +237,16 @@ function getQuestionRequirementView(question) {
     difficulty:
       typeof constraints.difficulty === 'string' && constraints.difficulty.trim()
         ? constraints.difficulty.trim()
-        : 'medium'
+        : 'medium',
+    restricted_cpp_libraries: Array.isArray(constraints.restricted_cpp_libraries)
+      ? Array.from(
+          new Set(
+            constraints.restricted_cpp_libraries
+              .map((item) => String(item || '').trim().toLowerCase())
+              .filter((item) => item.length > 0 && item.length <= 64)
+          )
+        )
+      : []
   };
 }
 
@@ -2200,6 +2209,10 @@ function buildFallbackSummary(evidence, reason) {
   const requiredConcepts = Array.isArray(requirementDef.required_concepts)
     ? requirementDef.required_concepts
     : [];
+  const restrictedLibs = Array.isArray(requirementDef.restricted_cpp_libraries)
+    ? requirementDef.restricted_cpp_libraries
+    : [];
+  const restrictedCheck = evidence.requirement_checks && evidence.requirement_checks.restricted_libraries;
   const lines = [];
   lines.push(
     `AI-assisted summary (fallback): score ${evidence.score ?? 0}/${evidence.max_score ?? 0}, status ${evidence.status || 'unknown'}.`
@@ -2207,6 +2220,13 @@ function buildFallbackSummary(evidence, reason) {
   lines.push(`Pass rate signal: ${(breakdown.pass_rate != null ? Math.round(breakdown.pass_rate * 100) : 0)}%.`);
   lines.push(`Near-correct indicator: ${breakdown.near_correct ? 'yes' : 'no'}.`);
   lines.push(`Configured requirements: ${requiredConcepts.length ? requiredConcepts.join(', ') : 'none'}.`);
+  if (restrictedLibs.length) {
+    const used =
+      restrictedCheck && Array.isArray(restrictedCheck.used_restrictions)
+        ? restrictedCheck.used_restrictions.join(', ')
+        : 'unknown';
+    lines.push(`Restricted C++ libraries (teacher): ${restrictedLibs.join(', ')}. Detected use: ${used || 'none'}.`);
+  }
   lines.push(`Requirement checks: ${unmet.length ? unmet.join(', ') : 'all required checks appear satisfied'}.`);
   lines.push(
     `Hardcoding suspicion: ${hardcoding.suspicion_level || 'low'}${hardcoding.reasons?.length ? ` (${hardcoding.reasons.join(', ')})` : ''}.`
@@ -2260,6 +2280,9 @@ ipcMain.handle('exam:save-questions', async (event, examId, questions, deletedQu
       if (q && q.requirements_mode !== undefined) nextConstraints.requirements_mode = q.requirements_mode;
       if (q && q.is_pattern_question !== undefined) nextConstraints.is_pattern_question = q.is_pattern_question;
       if (q && q.difficulty !== undefined) nextConstraints.difficulty = q.difficulty;
+      if (q && Array.isArray(q.restricted_cpp_libraries)) {
+        nextConstraints.restricted_cpp_libraries = q.restricted_cpp_libraries;
+      }
 
       const data = {
         exam_id: examId,

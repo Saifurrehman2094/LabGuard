@@ -95,6 +95,13 @@ class CodeAnalysisService {
       unmetRequirements.push(`concept_required_but_missing:${concept}`);
     }
 
+    const restrictedReport = this._analyzeRestrictedCppLibraries(source, options);
+    if (restrictedReport && Array.isArray(restrictedReport.used_restrictions)) {
+      for (const libId of restrictedReport.used_restrictions) {
+        unmetRequirements.push(`restricted_library_used:${libId}`);
+      }
+    }
+
     return {
       checks,
       concept_checks: conceptChecks,
@@ -114,8 +121,99 @@ class CodeAnalysisService {
         available: astRecursion.available,
         error: astRecursion.error || null
       },
-      complexity: complexitySignal
+      complexity: complexitySignal,
+      restricted_libraries: restrictedReport
     };
+  }
+
+  /**
+   * Teacher-configured list of STL / headers / symbols students must not use.
+   * Heuristic scan (not a full C++ parser); intended as a grading signal.
+   */
+  _analyzeRestrictedCppLibraries(sourceText, options) {
+    const configured = normalizeRestrictedCppIds(options && options.restricted_cpp_libraries);
+    if (!configured.length) return null;
+
+    const sourceClean = this._stripCppCommentsForScan(String(sourceText || ''));
+    const bitsPresent = /#\s*include\s*[<"]\s*bits\/stdc\+\+\.h\s*[>"]/i.test(sourceClean);
+
+    const items = configured.map((id) => {
+      const signals = this._collectRestrictedLibrarySignals(sourceClean, id, bitsPresent);
+      return { id, used: signals.length > 0, signals };
+    });
+
+    return {
+      configured,
+      bits_stdcpp_h_present: bitsPresent,
+      items,
+      used_restrictions: items.filter((x) => x.used).map((x) => x.id),
+      compliant: !items.some((x) => x.used)
+    };
+  }
+
+  _collectRestrictedLibrarySignals(sourceClean, token, bitsPresent) {
+    if (bitsPresent) {
+      return [
+        'Included <bits/stdc++.h> (treated as bringing in the entire standard library for restriction purposes).'
+      ];
+    }
+    const id = String(token || '').toLowerCase();
+    const patterns = restrictedLibraryPatternCatalog(id);
+    const seen = new Set();
+    const signals = [];
+    for (const entry of patterns) {
+      if (!entry || !entry.re) continue;
+      if (entry.re.test(sourceClean)) {
+        const label = entry.label || entry.re.source;
+        if (!seen.has(label)) {
+          seen.add(label);
+          signals.push(label);
+        }
+      }
+    }
+    return signals.slice(0, 8);
+  }
+
+  _stripCppCommentsForScan(source) {
+    const s = String(source || '');
+    let out = '';
+    for (let i = 0; i < s.length; ) {
+      const c = s[i];
+      const n = s[i + 1];
+      if (c === '/' && n === '/') {
+        i += 2;
+        while (i < s.length && s[i] !== '\n' && s[i] !== '\r') i += 1;
+        out += ' ';
+        continue;
+      }
+      if (c === '/' && n === '*') {
+        i += 2;
+        while (i < s.length - 1 && !(s[i] === '*' && s[i + 1] === '/')) i += 1;
+        i = Math.min(s.length, i + 2);
+        out += ' ';
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        const quote = c;
+        i += 1;
+        while (i < s.length) {
+          if (s[i] === '\\') {
+            i += 2;
+            continue;
+          }
+          if (s[i] === quote) {
+            i += 1;
+            break;
+          }
+          i += 1;
+        }
+        out += ' ';
+        continue;
+      }
+      out += c;
+      i += 1;
+    }
+    return out;
   }
 
   _estimateComplexitySignal(params) {
@@ -166,46 +264,74 @@ class CodeAnalysisService {
   _estimateLoopMetrics(source) {
     // Heuristic: estimate maximum *loop* nesting (ignore general braces like function bodies).
     // Not a formal parser; intended as a teacher signal.
+    //
+    // Important: do NOT treat `;` inside a for-header (e.g. for (int i=0; i<n; i++)) as the end
+    // of a braceless loop — that was incorrectly popping loopPending and killed nested-loop depth.
     const text = String(source || '');
-    const tokenRe = /\bfor\b|\bwhile\b|\bdo\b|\{|\}|;/g;
+    const tokenRe = /\bfor\b|\bwhile\b|\bdo\b|\(|\)|\{|\}|;/g;
     const stack = [];
     let loopCount = 0;
     let maxLoopDepth = 0;
 
     const currentLoopDepth = () =>
-      stack.reduce((n, x) => (x === 'loop' || x === 'loopPending' ? n + 1 : n), 0);
+      stack.reduce(
+        (n, x) =>
+          x === 'loop' || x === 'loopPendingDo' || (x && x.kind === 'loopPendingFw') ? n + 1 : n,
+        0
+      );
 
     let match = tokenRe.exec(text);
     while (match) {
       const tok = match[0];
-      if (tok === 'for' || tok === 'while' || tok === 'do') {
+      if (tok === 'for' || tok === 'while') {
         loopCount += 1;
-        // pending until we see '{' or a terminating ';' (single-statement loop)
-        stack.push('loopPending');
+        stack.push({ kind: 'loopPendingFw', headerParenDepth: 0 });
         const depth = currentLoopDepth();
         if (depth > maxLoopDepth) maxLoopDepth = depth;
+      } else if (tok === 'do') {
+        loopCount += 1;
+        stack.push('loopPendingDo');
+        const depth = currentLoopDepth();
+        if (depth > maxLoopDepth) maxLoopDepth = depth;
+      } else if (tok === '(') {
+        const top = stack[stack.length - 1];
+        if (top && top.kind === 'loopPendingFw') {
+          top.headerParenDepth += 1;
+        }
+      } else if (tok === ')') {
+        const top = stack[stack.length - 1];
+        if (top && top.kind === 'loopPendingFw' && top.headerParenDepth > 0) {
+          top.headerParenDepth -= 1;
+        }
       } else if (tok === '{') {
-        // If a loop was pending, treat this as loop body start.
         for (let i = stack.length - 1; i >= 0; i--) {
-          if (stack[i] === 'loopPending') {
+          const frame = stack[i];
+          if (frame === 'loopPendingDo') {
             stack[i] = 'loop';
             break;
           }
-          if (stack[i] === '{') break;
+          if (frame && frame.kind === 'loopPendingFw') {
+            stack[i] = 'loop';
+            break;
+          }
+          if (frame === '{') break;
         }
         stack.push('{');
       } else if (tok === ';') {
-        // Single-statement loop without braces ends at ';' (very rough, but fixes common cases).
-        if (stack.length && stack[stack.length - 1] === 'loopPending') {
+        const top = stack[stack.length - 1];
+        if (top && top.kind === 'loopPendingFw' && top.headerParenDepth > 0) {
+          // Still inside for/while ( ... ) header — semicolon is a clause separator, not loop end.
+        } else if (top === 'loopPendingDo') {
+          stack.pop();
+        } else if (top && top.kind === 'loopPendingFw') {
+          // Header finished (depth 0): for (...); or while (...);
           stack.pop();
         }
       } else if (tok === '}') {
-        // Close a brace scope, then if it belonged to a loop body, pop that loop marker.
         while (stack.length) {
           const top = stack.pop();
           if (top === '{') break;
         }
-        // Pop a loop marker if present right before this block.
         if (stack.length && stack[stack.length - 1] === 'loop') {
           stack.pop();
         }
@@ -370,6 +496,122 @@ class CodeAnalysisService {
 
 function escapeRegex(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeRestrictedCppIds(value) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => String(item || '').trim().toLowerCase())
+        .filter((item) => item.length > 0 && item.length <= 64)
+    )
+  );
+}
+
+/**
+ * @param {string} id normalized token
+ * @returns {{re: RegExp, label: string}[]}
+ */
+function restrictedLibraryPatternCatalog(id) {
+  const inc = (name) => ({
+    re: new RegExp(`#\\s*include\\s*[<"]\\s*${escapeRegex(name)}\\s*[>"]`, 'i'),
+    label: `#include <${name}>`
+  });
+
+  const stdsym = (sym, label) => ({
+    re: new RegExp(`\\bstd\\s*::\\s*${escapeRegex(sym)}\\b`, 'i'),
+    label: label || `std::${sym}`
+  });
+
+  const catalog = {
+    vector: [inc('vector'), stdsym('vector'), { re: /\bvector\s*</i, label: 'vector<…>' }],
+    map: [
+      inc('map'),
+      stdsym('map'),
+      stdsym('multimap'),
+      { re: /\bmap\s*</i, label: 'map<…>' },
+      { re: /\bmultimap\s*</i, label: 'multimap<…>' }
+    ],
+    unordered_map: [inc('unordered_map'), stdsym('unordered_map'), { re: /\bunordered_map\s*</i, label: 'unordered_map<…>' }],
+    set: [inc('set'), stdsym('set'), stdsym('multiset'), { re: /\b(?:multi)?set\s*</i, label: 'set / multiset <…>' }],
+    unordered_set: [inc('unordered_set'), stdsym('unordered_set'), { re: /\bunordered_set\s*</i, label: 'unordered_set<…>' }],
+    deque: [inc('deque'), stdsym('deque'), { re: /\bdeque\s*</i, label: 'deque<…>' }],
+    list: [inc('list'), stdsym('list'), { re: /\blist\s*</i, label: 'list<…>' }],
+    queue: [inc('queue'), stdsym('queue'), stdsym('priority_queue'), { re: /\bqueue\s*</i, label: 'queue<…>' }],
+    stack: [inc('stack'), stdsym('stack'), { re: /\bstack\s*</i, label: 'stack<…>' }],
+    string: [inc('string'), stdsym('string'), { re: /\bstring\s*</i, label: 'string (template)' }],
+    algorithm: [
+      inc('algorithm'),
+      stdsym('sort'),
+      stdsym('stable_sort'),
+      stdsym('binary_search'),
+      stdsym('lower_bound'),
+      stdsym('upper_bound'),
+      stdsym('min_element'),
+      stdsym('max_element'),
+      stdsym('find'),
+      stdsym('reverse'),
+      stdsym('unique'),
+      stdsym('count'),
+      stdsym('accumulate'),
+      { re: /\bsort\s*\(/i, label: 'sort(…)' }
+    ],
+    numeric: [inc('numeric'), stdsym('accumulate'), stdsym('inner_product'), stdsym('partial_sum')],
+    cmath: [inc('cmath'), inc('math.h'), stdsym('sqrt'), stdsym('pow'), stdsym('sin'), stdsym('cos'), stdsym('abs')],
+    cstring: [
+      inc('cstring'),
+      inc('string.h'),
+      { re: /\bmemcpy\s*\(/i, label: 'memcpy(…)' },
+      { re: /\bmemset\s*\(/i, label: 'memset(…)' },
+      { re: /\bstrlen\s*\(/i, label: 'strlen(…)' }
+    ],
+    cstdio: [
+      inc('cstdio'),
+      inc('stdio.h'),
+      { re: /\b(std\s*::\s*)?(printf|scanf|fprintf|sscanf|fscanf|sprintf)\s*\(/i, label: 'printf / scanf family' }
+    ],
+    iostream: [
+      inc('iostream'),
+      stdsym('cin'),
+      stdsym('cout'),
+      stdsym('cerr'),
+      stdsym('clog'),
+      stdsym('endl'),
+      { re: /\bcin\s*>>/i, label: 'cin >>' },
+      { re: /\bcout\s*<</i, label: 'cout <<' }
+    ],
+    sstream: [inc('sstream'), stdsym('stringstream'), stdsym('istringstream'), stdsym('ostringstream')],
+    fstream: [inc('fstream'), stdsym('ifstream'), stdsym('ofstream'), stdsym('fstream')],
+    functional: [inc('functional'), stdsym('function'), stdsym('bind'), stdsym('less'), stdsym('greater')],
+    utility: [inc('utility'), stdsym('pair'), stdsym('make_pair')],
+    memory: [inc('memory'), stdsym('unique_ptr'), stdsym('shared_ptr'), stdsym('make_unique'), stdsym('make_shared')],
+    iterator: [inc('iterator'), stdsym('back_inserter'), stdsym('istream_iterator'), stdsym('ostream_iterator')],
+    bitset: [inc('bitset'), stdsym('bitset'), { re: /\bbitset\s*</i, label: 'bitset<…>' }],
+    regex: [inc('regex'), stdsym('regex'), stdsym('smatch'), stdsym('regex_search')]
+  };
+
+  if (catalog[id]) return catalog[id];
+
+  if (id.includes('/') || id.includes('.')) {
+    return [
+      {
+        re: new RegExp(`#\\s*include\\s*[<"]\\s*${escapeRegex(id)}\\s*[>"]`, 'i'),
+        label: `#include <${id}>`
+      }
+    ];
+  }
+
+  const safe = id.replace(/[^a-z0-9._+-]/gi, '');
+  if (!safe || safe !== id) {
+    return [];
+  }
+  const out = [inc(safe), stdsym(safe)];
+  if (/^[a-z_]\w*$/i.test(id)) {
+    out.push({ re: new RegExp(`\\b${escapeRegex(id)}\\s*<`, 'i'), label: `${id}<…>` });
+    out.push({ re: new RegExp(`\\b${escapeRegex(id)}\\s*\\(`, 'i'), label: `${id}(…)` });
+  }
+  return out;
 }
 
 module.exports = CodeAnalysisService;
